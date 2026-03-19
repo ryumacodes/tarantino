@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <title>Display Preview</title>
+    <style>
+        html, body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            background: transparent; /* Fully transparent for edge-to-edge */
+            overflow: hidden;
+        }
+        
+        /* One full-screen layer, never blocks clicks */
+        .overlay {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+        }
+
+        /* inset box-shadow reaches all four edges even at Retina scale */
+        .highlight {
+            position: absolute;
+            inset: 0;
+            box-shadow: inset 0 0 0 4px #ff6b6b;
+            background: rgba(255, 107, 107, 0.05);
+        }
+
+        /* Dead-center label */
+        .center {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            padding: 24px 48px;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.85);
+            border-radius: 16px;
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            text-align: center;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Inter', sans-serif;
+        }
+        
+        .title {
+            font-size: 28px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            justify-content: center;
+        }
+        
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ff4444;
+            box-shadow: 0 0 10px rgba(255, 68, 68, 0.6);
+            animation: pulse 1.5s infinite;
+        }
+        
+        .specs {
+            font-size: 18px;
+            opacity: 0.9;
+            margin-top: 6px;
+        }
+        
+        @keyframes pulse {
+            50% {
+                transform: scale(1.25);
+                opacity: 0.65;
+            }
+        }
+        
+        @keyframes highlightPulse {
+            0%, 100% {
+                box-shadow: inset 0 0 0 4px #ff6b6b;
+                background: rgba(255, 107, 107, 0.05);
+            }
+            50% {
+                box-shadow: inset 0 0 0 6px #ff4444;
+                background: rgba(255, 107, 107, 0.08);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="overlay">
+        <div class="highlight"></div>
+        <div class="center">
+            <div class="title">
+                <span class="dot"></span>
+                <span id="name">Display</span>
+            </div>
+            <div class="specs" id="specs">—</div>
+        </div>
+    </div>
+    
+    <script>
+        // Parse URL parameters
+        const p = new URLSearchParams(location.search);
+        document.getElementById('name').textContent = p.get('name') ?? 'Display';
+        document.getElementById('specs').textContent = `${p.get('width') ?? ''} × ${p.get('height') ?? ''} • ${p.get('fps') ?? ''} Hz`;
+        
+        // Debug logging for sanity checks
+        console.log('Display Preview Debug Info:', {
+            innerWidth: window.innerWidth,
+            innerHeight: window.innerHeight,
+            devicePixelRatio: window.devicePixelRatio,
+            urlParams: {
+                name: p.get('name'),
+                width: p.get('width'),
+                height: p.get('height'),
+                fps: p.get('fps')
+            }
+        });
+        
+        // Make sure window is visible by changing document title periodically
+        let titleCounter = 0;
+        const updateTitle = () => {
+            titleCounter++;
+            document.title = `Display Preview ${titleCounter}`;
+            console.log(`Preview window is alive - count: ${titleCounter}`);
+        };
+        setInterval(updateTitle, 500);
+        
+        // Add window focus event listeners
+        window.addEventListener('focus', () => {
+            console.log('Preview window gained focus');
+        });
+        
+        window.addEventListener('blur', () => {
+            console.log('Preview window lost focus');
+        });
+        
+        // Force a repaint
+        document.body.style.display = 'none';
+        document.body.offsetHeight; // Trigger reflow
+        document.body.style.display = '';
+        console.log('Forced repaint completed');
+    </script>
+</body>
+</html>

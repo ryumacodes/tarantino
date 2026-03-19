@@ -1,0 +1,401 @@
+/* Editor Top Bar — Custom titlebar with native macOS traffic lights */
+
+.editor-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 16px;
+  background: var(--editor-bg-secondary);
+  border-bottom: 1px solid var(--editor-border);
+  position: relative;
+  z-index: 100;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.editor-top-bar button,
+.editor-top-bar input,
+.editor-top-bar a {
+  -webkit-app-region: no-drag;
+}
+
+.top-bar-left,
+.top-bar-center,
+.top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.top-bar-left {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Reserve space so content doesn't overlap native traffic lights */
+.traffic-light-spacer {
+  width: 70px;
+  flex-shrink: 0;
+}
+
+.top-bar-center {
+  flex: 0 1 auto;
+  justify-content: center;
+  min-width: 0;
+}
+
+.top-bar-right {
+  flex: 1;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ── Project title ── */
+
+.project-info {
+  display: flex;
+  align-items: center;
+}
+
+.project-name-display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--editor-text-secondary);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+}
+
+.edit-title-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--editor-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+.project-name-display:hover .edit-title-btn {
+  opacity: 0.6;
+}
+
+.edit-title-btn:hover {
+  opacity: 1 !important;
+  background: var(--editor-bg-tertiary);
+  border-color: var(--editor-border);
+  color: var(--editor-text-primary);
+}
+
+.edit-title-btn:disabled {
+  opacity: 0 !important;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.project-name-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-name-input {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--editor-text-primary);
+  background: var(--editor-bg-tertiary);
+  border: 1px solid var(--accent-primary);
+  border-radius: 6px;
+  padding: 4px 10px;
+  outline: none;
+  min-width: 200px;
+  max-width: 300px;
+}
+
+.project-name-input:focus {
+  box-shadow: 0 0 0 2px rgba(189, 147, 249, 0.3);
+}
+
+.edit-confirm-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: var(--accent-primary);
+  border: none;
+  border-radius: 5px;
+  color: var(--dracula-bg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.edit-confirm-btn:hover {
+  background: var(--dracula-pink);
+}
+
+/* ── Presets dropdown ── */
+
+.presets-container {
+  position: relative;
+}
+
+.presets-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--editor-bg-tertiary);
+  border: 1px solid var(--editor-border);
+  border-radius: 7px;
+  color: var(--editor-text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.presets-button:hover,
+.presets-button.active {
+  background: var(--dracula-bg-lighter);
+  border-color: var(--accent-primary);
+}
+
+.chevron {
+  transition: transform var(--transition-fast);
+}
+
+.chevron.rotated {
+  transform: rotate(180deg);
+}
+
+.presets-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+}
+
+.presets-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 360px;
+  background: var(--editor-bg-primary);
+  border: 1px solid var(--editor-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.presets-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--editor-border);
+}
+
+.presets-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--editor-text-primary);
+  margin: 0 0 4px 0;
+}
+
+.presets-header p {
+  font-size: 13px;
+  color: var(--editor-text-secondary);
+  margin: 0;
+}
+
+.presets-list {
+  padding: 8px;
+}
+
+.preset-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+}
+
+.preset-item:hover {
+  background: var(--editor-bg-tertiary);
+  border-color: var(--editor-border);
+}
+
+.preset-item.selected {
+  background: rgba(189, 147, 249, 0.1);
+  border-color: var(--accent-primary);
+}
+
+.preset-icon {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--editor-bg-tertiary);
+  border-radius: 8px;
+  color: var(--accent-primary);
+}
+
+.preset-content {
+  flex: 1;
+}
+
+.preset-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--editor-text-primary);
+  margin-bottom: 4px;
+}
+
+.preset-description {
+  font-size: 12px;
+  color: var(--editor-text-secondary);
+  margin-bottom: 8px;
+}
+
+.preset-features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.feature-tag {
+  padding: 2px 6px;
+  background: var(--editor-bg-secondary);
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--editor-text-secondary);
+  font-weight: 500;
+}
+
+.preset-selected-indicator {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.selected-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--accent-primary);
+  border-radius: 50%;
+}
+
+/* ── Export button ── */
+
+.export-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+  border-radius: 7px;
+  color: var(--dracula-bg);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+.export-button:hover:not(:disabled) {
+  background: var(--dracula-pink);
+  border-color: var(--dracula-pink);
+}
+
+.export-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+.export-button.exporting {
+  background: var(--editor-bg-tertiary);
+  border-color: var(--editor-border);
+  color: var(--editor-text-primary);
+}
+
+.export-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--editor-bg-secondary);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.export-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-primary), var(--dracula-pink));
+  border-radius: 6px;
+  transition: width var(--transition-normal);
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 1200px) {
+  .presets-dropdown {
+    width: 320px;
+  }
+
+  .export-button span {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .editor-top-bar {
+    padding: 0 12px;
+  }
+
+  .project-name {
+    font-size: 13px;
+    max-width: 200px;
+  }
+
+  .project-name-input {
+    font-size: 13px;
+    min-width: 150px;
+  }
+
+  .presets-button {
+    padding: 5px 10px;
+  }
+
+  .traffic-light-spacer {
+    width: 60px;
+  }
+}

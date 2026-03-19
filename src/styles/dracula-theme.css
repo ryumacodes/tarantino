@@ -1,0 +1,413 @@
+/* 
+ * Tarantino Editor - Srcery Theme Implementation
+ * Based on Srcery color palette with red accent
+ */
+
+:root {
+  /* Srcery Color Palette */
+  --dracula-bg: #1C1B19;
+  --dracula-bg-darker: #121212;
+  --dracula-bg-lighter: #3A3A3A;
+  --dracula-fg: #FCE8C3;
+  --dracula-comment: #918175;
+  --dracula-cyan: #0AAEB3;
+  --dracula-green: #519F50;
+  --dracula-orange: #FF5F00;
+  --dracula-pink: #E02C6D;
+  --dracula-purple: #FF5C8F;
+  --dracula-red: #EF2F27;
+  --dracula-yellow: #FBB829;
+  
+  /* Editor Specific Variables */
+  --editor-bg-primary: var(--dracula-bg);
+  --editor-bg-secondary: var(--dracula-bg-darker);
+  --editor-bg-tertiary: var(--dracula-bg-lighter);
+  --editor-text-primary: var(--dracula-fg);
+  --editor-text-secondary: var(--dracula-comment);
+  --editor-border: rgba(145, 129, 117, 0.3);
+  --editor-border-active: var(--dracula-red);
+  
+  /* Accent Colors */
+  --accent-primary: var(--dracula-red);
+  --accent-secondary: var(--dracula-pink);
+  --accent-success: var(--dracula-green);
+  --accent-warning: var(--dracula-orange);
+  --accent-error: var(--dracula-red);
+  
+  /* Timeline Colors (Screen Studio inspired) */
+  --timeline-bg: var(--dracula-bg-darker);
+  --timeline-track: rgba(145, 129, 117, 0.1);
+  --timeline-track-active: var(--dracula-orange);
+  --timeline-golden: #FBB829;
+  --timeline-golden-bright: var(--dracula-orange);
+  
+  /* Auto-Zoom Colors */
+  --auto-zoom-cluster: var(--dracula-red);
+  --auto-zoom-cluster-low: rgba(239, 47, 39, 0.3);
+  --auto-zoom-cluster-medium: rgba(239, 47, 39, 0.6);
+  --auto-zoom-cluster-high: rgba(239, 47, 39, 0.9);
+  
+  /* Panel Shadows */
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  
+  /* Transitions */
+  --transition-fast: 150ms ease-out;
+  --transition-normal: 250ms ease-out;
+  --transition-slow: 350ms ease-out;
+}
+
+/* Reset and Base Styles */
+.editor-container * {
+  box-sizing: border-box;
+}
+
+.editor-container {
+  width: 100vw;
+  height: 100vh;
+  background: var(--editor-bg-primary);
+  color: var(--editor-text-primary);
+  font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Typography */
+.editor-text-primary {
+  color: var(--editor-text-primary);
+  font-weight: 500;
+}
+
+.editor-text-secondary {
+  color: var(--editor-text-secondary);
+  font-weight: 400;
+}
+
+.editor-text-accent {
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+/* Button Styles */
+.editor-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--editor-bg-tertiary);
+  border: 1px solid var(--editor-border);
+  border-radius: 6px;
+  color: var(--editor-text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  outline: none;
+}
+
+.editor-btn:hover {
+  background: var(--dracula-bg-lighter);
+  border-color: var(--editor-border-active);
+  transform: translateY(-1px);
+}
+
+.editor-btn:active {
+  transform: translateY(0);
+}
+
+.editor-btn--primary {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--dracula-bg);
+}
+
+.editor-btn--primary:hover {
+  background: var(--dracula-orange);
+  border-color: var(--dracula-orange);
+}
+
+.editor-btn--success {
+  background: var(--accent-success);
+  border-color: var(--accent-success);
+  color: var(--dracula-bg);
+}
+
+.editor-btn--warning {
+  background: var(--accent-warning);
+  border-color: var(--accent-warning);
+  color: var(--dracula-bg);
+}
+
+.editor-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+}
+
+.editor-btn--ghost:hover {
+  background: var(--editor-bg-tertiary);
+  border-color: var(--editor-border);
+}
+
+.editor-btn--small {
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.editor-btn--icon {
+  padding: 8px;
+  width: 32px;
+  height: 32px;
+}
+
+/* Input Styles */
+.editor-input {
+  padding: 8px 12px;
+  background: var(--editor-bg-secondary);
+  border: 1px solid var(--editor-border);
+  border-radius: 6px;
+  color: var(--editor-text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.editor-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(239, 47, 39, 0.1);
+}
+
+.editor-input::placeholder {
+  color: var(--editor-text-secondary);
+}
+
+/* Slider Styles */
+.editor-slider {
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--editor-bg-tertiary);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.editor-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--accent-primary);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.editor-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 0 4px rgba(239, 47, 39, 0.2);
+}
+
+/* Panel Styles */
+.editor-panel {
+  background: var(--editor-bg-primary);
+  border: 1px solid var(--editor-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.editor-panel--elevated {
+  box-shadow: var(--shadow-md);
+}
+
+.editor-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--editor-bg-secondary);
+  border-bottom: 1px solid var(--editor-border);
+}
+
+.editor-panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--editor-text-primary);
+}
+
+.editor-panel-content {
+  padding: 16px;
+}
+
+/* Scrollbar Styles */
+.editor-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.editor-scrollbar::-webkit-scrollbar-track {
+  background: var(--editor-bg-secondary);
+  border-radius: 4px;
+}
+
+.editor-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--dracula-comment);
+  border-radius: 4px;
+}
+
+.editor-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--dracula-bg-lighter);
+}
+
+/* Loading States */
+.editor-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--editor-text-secondary);
+}
+
+.editor-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--editor-border);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Tooltip Styles */
+.editor-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 8px;
+  background: var(--dracula-bg-darker);
+  color: var(--editor-text-primary);
+  font-size: 12px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+  z-index: 1000;
+}
+
+.editor-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: var(--dracula-bg-darker);
+}
+
+.editor-btn:hover .editor-tooltip {
+  opacity: 1;
+}
+
+/* Timeline Specific Styles */
+.timeline-container {
+  background: var(--timeline-bg);
+  border-top: 1px solid var(--editor-border);
+}
+
+.timeline-track {
+  background: var(--timeline-track);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.timeline-track--golden {
+  background: linear-gradient(90deg, var(--timeline-golden) 0%, var(--timeline-golden-bright) 100%);
+  box-shadow: 0 2px 8px rgba(251, 184, 41, 0.3);
+}
+
+.timeline-playhead {
+  width: 2px;
+  background: var(--dracula-cyan);
+  box-shadow: 0 0 8px rgba(10, 174, 179, 0.6);
+  pointer-events: none;
+}
+
+/* Auto-Zoom Cluster Styles */
+.auto-zoom-cluster {
+  background: var(--auto-zoom-cluster);
+  border-radius: 4px;
+  border: 1px solid rgba(239, 47, 39, 0.5);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.auto-zoom-cluster:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 12px rgba(239, 47, 39, 0.4);
+}
+
+.auto-zoom-cluster--low { opacity: 0.4; }
+.auto-zoom-cluster--medium { opacity: 0.7; }
+.auto-zoom-cluster--high { opacity: 1; }
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+  .editor-panel-content {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 900px) {
+  .editor-btn {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  
+  .editor-panel-header {
+    padding: 8px 12px;
+  }
+}
+
+/* Dark Mode Enhancements */
+@media (prefers-color-scheme: dark) {
+  .editor-container {
+    color-scheme: dark;
+  }
+}
+
+/* Focus Management */
+.editor-container:focus-within {
+  /* Enhanced focus states when editor is active */
+}
+
+/* Selection Styles */
+::selection {
+  background: rgba(239, 47, 39, 0.3);
+  color: var(--editor-text-primary);
+}
+
+/* Utility Classes */
+.editor-flex { display: flex; }
+.editor-flex-col { flex-direction: column; }
+.editor-items-center { align-items: center; }
+.editor-justify-between { justify-content: space-between; }
+.editor-gap-2 { gap: 8px; }
+.editor-gap-3 { gap: 12px; }
+.editor-gap-4 { gap: 16px; }
+.editor-p-2 { padding: 8px; }
+.editor-p-3 { padding: 12px; }
+.editor-p-4 { padding: 16px; }
+.editor-m-0 { margin: 0; }
+.editor-w-full { width: 100%; }
+.editor-h-full { height: 100%; }
+.editor-overflow-hidden { overflow: hidden; }
+.editor-relative { position: relative; }
+.editor-absolute { position: absolute; }

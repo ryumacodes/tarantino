@@ -1,0 +1,64 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "productName": "Tarantino",
+  "version": "0.1.0",
+  "identifier": "com.tarantino.app",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:2703"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Tarantino",
+        "label": "capture-bar",
+        "width": 710,
+        "height": 60,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": false,
+        "center": false,
+        "resizable": false,
+        "visible": false,
+        "x": 200,
+        "y": 200
+      }
+    ],
+    "security": {
+      "capabilities": [
+        "default",
+        "hud",
+        "editor"
+      ],
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost; media-src 'self' asset: http://asset.localhost; img-src 'self' asset: http://asset.localhost data:; font-src 'self' data:",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "/Users/*/Movies/Tarantino/**",
+          "/tmp/**",
+          "/var/folders/**",
+          "/private/tmp/**",
+          "/private/var/folders/**"
+        ]
+      }
+    },
+    "macOSPrivateApi": true
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all",
+    "macOS": {
+      "frameworks": [],
+      "minimumSystemVersion": "10.15",
+      "exceptionDomain": "",
+      "signingIdentity": null,
+      "providerShortName": null,
+      "entitlements": "entitlements.plist"
+    }
+  },
+  "plugins": {}
+}

@@ -1,0 +1,489 @@
+warning: tarantino@0.1.0: src/capture/backends/macos/sck_wrapper.mm:160:26: warning: 'SCStreamOutputTypeAudio' is only available on macOS 13.0 or newer [-Wunguarded-availability-new]
+warning: tarantino@0.1.0:   160 |         else if (type == SCStreamOutputTypeAudio) {
+warning: tarantino@0.1.0:       |                          ^~~~~~~~~~~~~~~~~~~~~~~
+warning: tarantino@0.1.0: /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/ScreenCaptureKit.framework/Headers/SCStream.h:30:5: note: 'SCStreamOutputTypeAudio' has been marked as being introduced in macOS 13.0 here, but the deployment target is macOS 12.3.0
+warning: tarantino@0.1.0:    30 |     SCStreamOutputTypeAudio API_AVAILABLE(macos(13.0), macCatalyst(18.2)),
+warning: tarantino@0.1.0:       |     ^
+warning: tarantino@0.1.0: src/capture/backends/macos/sck_wrapper.mm:160:26: note: enclose 'SCStreamOutputTypeAudio' in an @available check to silence this warning
+warning: tarantino@0.1.0:   160 |         else if (type == SCStreamOutputTypeAudio) {
+warning: tarantino@0.1.0:       |                          ^~~~~~~~~~~~~~~~~~~~~~~
+warning: tarantino@0.1.0: src/capture/backends/macos/sck_wrapper.mm:464:30: warning: 'setCapturesAudio:' is only available on macOS 13.0 or newer [-Wunguarded-availability-new]
+warning: tarantino@0.1.0:   464 |                 streamConfig.capturesAudio = YES;
+warning: tarantino@0.1.0:       |                              ^~~~~~~~~~~~~
+warning: tarantino@0.1.0: /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/ScreenCaptureKit.framework/Headers/SCStream.h:295:35: note: 'setCapturesAudio:' has been marked as being introduced in macOS 13.0 here, but the deployment target is macOS 12.3.0
+warning: tarantino@0.1.0:   295 | @property(nonatomic, assign) BOOL capturesAudio API_AVAILABLE(macos(13.0));
+warning: tarantino@0.1.0:       |                                   ^
+warning: tarantino@0.1.0: src/capture/backends/macos/sck_wrapper.mm:464:30: note: enclose 'setCapturesAudio:' in an @available check to silence this warning
+warning: tarantino@0.1.0:   464 |                 streamConfig.capturesAudio = YES;
+warning: tarantino@0.1.0:       |                              ^~~~~~~~~~~~~
+warning: tarantino@0.1.0: src/capture/backends/macos/sck_wrapper.mm:510:49: warning: 'SCStreamOutputTypeAudio' is only available on macOS 13.0 or newer [-Wunguarded-availability-new]
+warning: tarantino@0.1.0:   510 |                                            type:SCStreamOutputTypeAudio
+warning: tarantino@0.1.0:       |                                                 ^~~~~~~~~~~~~~~~~~~~~~~
+warning: tarantino@0.1.0: /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/ScreenCaptureKit.framework/Headers/SCStream.h:30:5: note: 'SCStreamOutputTypeAudio' has been marked as being introduced in macOS 13.0 here, but the deployment target is macOS 12.3.0
+warning: tarantino@0.1.0:    30 |     SCStreamOutputTypeAudio API_AVAILABLE(macos(13.0), macCatalyst(18.2)),
+warning: tarantino@0.1.0:       |     ^
+warning: tarantino@0.1.0: src/capture/backends/macos/sck_wrapper.mm:510:49: note: enclose 'SCStreamOutputTypeAudio' in an @available check to silence this warning
+warning: tarantino@0.1.0:   509 |                 [session.stream addStreamOutput:session
+warning: tarantino@0.1.0:   510 |                                            type:SCStreamOutputTypeAudio
+warning: tarantino@0.1.0:       |                                                 ^~~~~~~~~~~~~~~~~~~~~~~
+warning: tarantino@0.1.0:   511 |                              sampleHandlerQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0)
+warning: tarantino@0.1.0:   512 |                                           error:&audioOutputError];
+warning: tarantino@0.1.0:       |
+warning: tarantino@0.1.0: 3 warnings generated.
+warning: tarantino@0.1.0: src/encoder/macos/vt_encoder.mm:78:11: warning: unused parameter 'sourceFrameRefCon' [-Wunused-parameter]
+warning: tarantino@0.1.0:    78 |     void* sourceFrameRefCon,
+warning: tarantino@0.1.0:       |           ^
+warning: tarantino@0.1.0: src/encoder/macos/vt_encoder.mm:308:12: warning: unused parameter 'data_len' [-Wunused-parameter]
+warning: tarantino@0.1.0:   308 |     size_t data_len,
+warning: tarantino@0.1.0:       |            ^
+warning: tarantino@0.1.0: src/encoder/macos/vt_encoder.mm:313:14: warning: unused parameter 'timestamp_us' [-Wunused-parameter]
+warning: tarantino@0.1.0:   313 |     uint64_t timestamp_us
+warning: tarantino@0.1.0:       |              ^
+warning: tarantino@0.1.0: 3 warnings generated.
+warning: tarantino@0.1.0: src/encoder/macos/aac_encoder.mm:65:23: warning: unused parameter 'inAudioConverter' [-Wunused-parameter]
+warning: tarantino@0.1.0:    65 |     AudioConverterRef inAudioConverter,
+warning: tarantino@0.1.0:       |                       ^
+warning: tarantino@0.1.0: src/encoder/macos/aac_encoder.mm:68:36: warning: unused parameter 'outDataPacketDescription' [-Wunused-parameter]
+warning: tarantino@0.1.0:    68 |     AudioStreamPacketDescription** outDataPacketDescription,
+warning: tarantino@0.1.0:       |                                    ^
+warning: tarantino@0.1.0: 2 warnings generated.
+   Compiling tarantino v0.1.0 (/Users/affan/Projects/tarantino/src-tauri)
+error[E0255]: the name `__cmd__update_main_tray_timer_cmd` is defined multiple times
+   --> src/main.rs:278:14
+    |
+277 | #[tauri::command]
+    | ----------------- previous definition of the macro `__cmd__update_main_tray_timer_cmd` here
+278 | pub async fn update_main_tray_timer_cmd(app: tauri::AppHandle, elapsed_time: String) -> Result<(), String> {
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^ `__cmd__update_main_tray_timer_cmd` reimported here
+    |
+    = note: `__cmd__update_main_tray_timer_cmd` must be defined only once in the macro namespace of this module
+
+warning: unused import: `anyhow::Result`
+  --> src/capture/mod.rs:57:5
+   |
+57 | use anyhow::Result;
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::sync::Arc`
+  --> src/capture/backends/mod.rs:13:5
+   |
+13 | use std::sync::Arc;
+   |     ^^^^^^^^^^^^^^
+
+warning: unused imports: `BackendCapabilities`, `CaptureSessionHandle`, `CaptureSourceInfo`, `CapturedFrame`, and `PermissionStatus`
+  --> src/capture/mod.rs:65:50
+   |
+65 |     CaptureBackendFactory, NativeCaptureBackend, CapturedFrame,
+   |                                                  ^^^^^^^^^^^^^
+66 |     CaptureSourceInfo, BackendCapabilities, CaptureConfig,
+   |     ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+67 |     PermissionStatus, CaptureSessionHandle, CaptureSourceType,
+   |     ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused doc comment
+   --> src/capture_event_integration.rs:252:1
+    |
+252 | /// Global instance for easy access
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ rustdoc does not generate documentation for macro invocations
+    |
+    = help: to document an item produced by a macro, the macro must produce the documentation as part of its expansion
+    = note: `#[warn(unused_doc_comments)]` on by default
+
+warning: unused import: `MouseEvent`
+ --> src/capture_event_integration.rs:7:43
+  |
+7 | use crate::mouse_tracking::{MouseTracker, MouseEvent};
+  |                                           ^^^^^^^^^^
+
+warning: unused imports: `SystemTime` and `UNIX_EPOCH`
+ --> src/cursor_engine/zoom_calculator.rs:3:17
+  |
+3 | use std::time::{SystemTime, UNIX_EPOCH};
+  |                 ^^^^^^^^^^  ^^^^^^^^^^
+
+warning: unused import: `compositor::RgbaFrame`
+ --> src/export/effects.rs:4:30
+  |
+4 | use super::{EffectsSettings, compositor::RgbaFrame};
+  |                              ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> src/webgl_preview/mod.rs:3:5
+  |
+3 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Deserialize` and `Serialize`
+ --> src/webgl_preview/capability_detector.rs:2:13
+  |
+2 | use serde::{Deserialize, Serialize};
+  |             ^^^^^^^^^^^  ^^^^^^^^^
+
+warning: unused import: `TextureFiltering`
+ --> src/webgl_preview/webgl_compositor.rs:5:27
+  |
+5 | use super::{WebGLQuality, TextureFiltering};
+  |                           ^^^^^^^^^^^^^^^^
+
+warning: unused import: `Duration`
+ --> src/parity_harness/mod.rs:4:17
+  |
+4 | use std::time::{Duration, Instant};
+  |                 ^^^^^^^^
+
+warning: unused import: `Duration`
+ --> src/parity_harness/performance_monitor.rs:4:17
+  |
+4 | use std::time::{Duration, Instant};
+  |                 ^^^^^^^^
+
+warning: unused import: `Duration`
+ --> src/parity_harness/regression_tests.rs:5:17
+  |
+5 | use std::time::{Duration, Instant};
+  |                 ^^^^^^^^
+  |
+help: if this is a test module, consider adding a `#[cfg(test)]` to the containing module
+ --> src/parity_harness/mod.rs:8:1
+  |
+8 | pub mod regression_tests;
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Duration`
+ --> src/parity_harness/benchmark_suite.rs:4:17
+  |
+4 | use std::time::{Duration, Instant};
+  |                 ^^^^^^^^
+
+warning: unused import: `CFString`
+  --> src/permissions.rs:36:35
+   |
+36 |     use core_foundation::string::{CFString, CFStringRef};
+   |                                   ^^^^^^^^
+
+warning: unused import: `std::os::raw::c_char`
+  --> src/permissions.rs:38:9
+   |
+38 |     use std::os::raw::c_char;
+   |         ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `SurfaceConfiguration`, `Surface`, and `TextureFormat`
+ --> src/preview/mod.rs:4:27
+  |
+4 | use wgpu::{Device, Queue, Surface, SurfaceConfiguration, TextureFormat};
+  |                           ^^^^^^^  ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^
+
+warning: unused import: `Path`
+ --> src/preview/project_loader.rs:3:17
+  |
+3 | use std::path::{Path, PathBuf};
+  |                 ^^^^
+
+warning: unused imports: `AudioTrack`, `Clip`, and `VideoTrack`
+ --> src/preview/project_loader.rs:7:31
+  |
+7 | use crate::capture::{Project, Clip, VideoTrack, AudioTrack};
+  |                               ^^^^  ^^^^^^^^^^  ^^^^^^^^^^
+
+warning: unused import: `SampleFormat`
+ --> src/preview/audio_mixer.rs:2:42
+  |
+2 | use cpal::{Device, Stream, StreamConfig, SampleFormat, SampleRate};
+  |                                          ^^^^^^^^^^^^
+
+warning: unused import: `AudioFrame`
+ --> src/preview/audio_mixer.rs:7:13
+  |
+7 | use super::{AudioFrame, ProjectLoader};
+  |             ^^^^^^^^^^
+
+warning: unused import: `ZoomSegment`
+ --> src/preview/timeline_resolver.rs:5:37
+  |
+5 | use crate::capture::{Project, Clip, ZoomSegment, CursorEvent};
+  |                                     ^^^^^^^^^^^
+
+warning: unused import: `VideoFrameData`
+ --> src/preview/timeline_resolver.rs:6:32
+  |
+6 | use super::{ResolvedFrameData, VideoFrameData, CursorData, ZoomData, ProjectLoader};
+  |                                ^^^^^^^^^^^^^^
+
+warning: unused imports: `CursorEvent` and `ZoomSegment`
+  --> src/preview/mod.rs:17:31
+   |
+17 | use crate::capture::{Project, CursorEvent, ZoomSegment};
+   |                               ^^^^^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `TrayIconEvent`
+  --> src/main.rs:32:62
+   |
+32 | use tauri::{Manager, State, Emitter, tray::{TrayIconBuilder, TrayIconEvent}, menu::{MenuBuilder, MenuItemBuilder}};
+   |                                                              ^^^^^^^^^^^^^
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> src/main.rs:370:26
+    |
+370 |         let count: u64 = msg_send![screens, count];
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `custom-protocol` and `default`
+    = note: using a cfg inside a macro will use the cfgs from the destination crate and not the ones from the defining crate
+    = help: try referring to `sel_impl` crate for guidance on how handle this unexpected cfg
+    = help: the macro `sel_impl` may come from an old version of the `objc` crate, try updating your dependency with `cargo update -p objc`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+    = note: this warning originates in the macro `sel_impl` which comes from the expansion of the macro `msg_send` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> src/main.rs:372:25
+    |
+372 |             let s: id = msg_send![screens, objectAtIndex: i];
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `custom-protocol` and `default`
+    = note: using a cfg inside a macro will use the cfgs from the destination crate and not the ones from the defining crate
+    = help: try referring to `sel_impl` crate for guidance on how handle this unexpected cfg
+    = help: the macro `sel_impl` may come from an old version of the `objc` crate, try updating your dependency with `cargo update -p objc`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: this warning originates in the macro `sel_impl` which comes from the expansion of the macro `msg_send` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> src/main.rs:373:28
+    |
+373 |             let desc: id = msg_send![s, deviceDescription];
+    |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `custom-protocol` and `default`
+    = note: using a cfg inside a macro will use the cfgs from the destination crate and not the ones from the defining crate
+    = help: try referring to `sel_impl` crate for guidance on how handle this unexpected cfg
+    = help: the macro `sel_impl` may come from an old version of the `objc` crate, try updating your dependency with `cargo update -p objc`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: this warning originates in the macro `sel_impl` which comes from the expansion of the macro `msg_send` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> src/main.rs:375:27
+    |
+375 |             let num: id = msg_send![desc, objectForKey: key];
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `custom-protocol` and `default`
+    = note: using a cfg inside a macro will use the cfgs from the destination crate and not the ones from the defining crate
+    = help: try referring to `sel_impl` crate for guidance on how handle this unexpected cfg
+    = help: the macro `sel_impl` may come from an old version of the `objc` crate, try updating your dependency with `cargo update -p objc`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: this warning originates in the macro `sel_impl` which comes from the expansion of the macro `msg_send` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> src/main.rs:376:30
+    |
+376 |             let cg_id: u32 = msg_send![num, unsignedIntValue];
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `custom-protocol` and `default`
+    = note: using a cfg inside a macro will use the cfgs from the destination crate and not the ones from the defining crate
+    = help: try referring to `sel_impl` crate for guidance on how handle this unexpected cfg
+    = help: the macro `sel_impl` may come from an old version of the `objc` crate, try updating your dependency with `cargo update -p objc`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: this warning originates in the macro `sel_impl` which comes from the expansion of the macro `msg_send` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> src/main.rs:378:37
+    |
+378 |                 let frame: CGRect = msg_send![s, frame]; // FULL frame (includes menubar)
+    |                                     ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `custom-protocol` and `default`
+    = note: using a cfg inside a macro will use the cfgs from the destination crate and not the ones from the defining crate
+    = help: try referring to `sel_impl` crate for guidance on how handle this unexpected cfg
+    = help: the macro `sel_impl` may come from an old version of the `objc` crate, try updating your dependency with `cargo update -p objc`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: this warning originates in the macro `sel_impl` which comes from the expansion of the macro `msg_send` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `base_resolution`
+   --> src/capture_commands.rs:327:5
+    |
+327 |     base_resolution: Option<Resolution>,
+    |     ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_base_resolution`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `quality`
+   --> src/capture_commands.rs:328:5
+    |
+328 |     quality: Option<f64>,     // 0.0 - 1.0
+    |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_quality`
+
+warning: variable does not need to be mutable
+   --> src/capture_event_integration.rs:181:25
+    |
+181 |                     let mut mouse_tracker = tracker.lock().await;
+    |                         ----^^^^^^^^^^^^^
+    |                         |
+    |                         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `output_frame`
+   --> src/export/compositor.rs:206:9
+    |
+206 |         output_frame: &mut RgbaImage,
+    |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_output_frame`
+
+warning: unused variable: `is_webview`
+  --> src/webgl_preview/capability_detector.rs:53:29
+   |
+53 |         let (name, version, is_webview) = match platform.as_str() {
+   |                             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_is_webview`
+
+warning: unused variable: `frame_data`
+   --> src/webgl_preview/webgl_compositor.rs:281:68
+    |
+281 |     pub async fn update_video_texture(&mut self, texture_id: &str, frame_data: &[u8], timestamp_ms: u64) -> Result<()> {
+    |                                                                    ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_frame_data`
+
+warning: unused variable: `timestamp_ms`
+   --> src/webgl_preview/webgl_compositor.rs:296:59
+    |
+296 |     pub async fn update_cursor(&mut self, x: f32, y: f32, timestamp_ms: u64, animation: CursorAnimation) -> Result<()> {
+    |                                                           ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_timestamp_ms`
+
+warning: unused variable: `engine_id`
+   --> src/parity_harness/performance_monitor.rs:390:14
+    |
+390 |         for (engine_id, sampler) in &self.engine_samplers {
+    |              ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_engine_id`
+
+warning: unused variable: `start_ms`
+   --> src/preview/project_loader.rs:247:49
+    |
+247 |     pub async fn decode_samples_in_range(&self, start_ms: u64, duration_ms: u64) -> Result<Option<Vec<f32>>> {
+    |                                                 ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_start_ms`
+
+warning: unused variable: `supported_config`
+  --> src/preview/audio_mixer.rs:61:13
+   |
+61 |         let supported_config = device.default_output_config()
+   |             ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_supported_config`
+
+warning: value assigned to `is_processing` is never read
+   --> src/preview/audio_mixer.rs:276:29
+    |
+276 | ...                   is_processing = false;
+    |                       ^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` on by default
+
+warning: variable does not need to be mutable
+   --> src/preview/audio_mixer.rs:239:13
+    |
+239 |         let mut command_receiver = {
+    |             ----^^^^^^^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `clip_id`
+  --> src/preview/timeline_resolver.rs:69:14
+   |
+69 |         let (clip_id, local_time) = if let Some((clip_id, local_time)) = clip_info {
+   |              ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_clip_id`
+
+warning: unused variable: `current_time`
+    --> src/main.rs:1820:9
+     |
+1820 |     let current_time = std::time::SystemTime::now()
+     |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_current_time`
+
+warning: variable does not need to be mutable
+    --> src/main.rs:1819:9
+     |
+1819 |     let mut engine = cursor_engine::create_cursor_engine().map_err(|e| e.to_string())?;
+     |         ----^^^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: unused variable: `test_config`
+    --> src/main.rs:2240:5
+     |
+2240 |     test_config: Option<serde_json::Value>
+     |     ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_test_config`
+
+warning: unused variable: `output_path`
+  --> src/encoder/mod.rs:68:22
+   |
+68 |         let (config, output_path) = match self {
+   |                      ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_output_path`
+
+warning: unused variable: `input`
+   --> src/ffmpeg_manager.rs:344:39
+    |
+344 |             FFmpegOperation::Record { input, output, config } => {
+    |                                       ^^^^^ help: try ignoring the field: `input: _`
+
+warning: unused variable: `duration_seconds`
+   --> src/post_processing.rs:138:13
+    |
+138 |         let duration_seconds = duration_ms as f64 / 1000.0;
+    |             ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_duration_seconds`
+
+warning: unused variable: `cursor_path`
+   --> src/post_processing.rs:331:73
+    |
+331 |     fn build_cursor_movement_filter(&self, mouse_events: &[MouseEvent], cursor_path: &Path) -> Result<String> {
+    |                                                                         ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_cursor_path`
+
+For more information about this error, try `rustc --explain E0255`.
+warning: `tarantino` (bin "tarantino") generated 51 warnings
+warning: tarantino@0.1.0: src/capture/backends/macos/sck_wrapper.mm:160:26: warning: 'SCStreamOutputTypeAudio' is only available on macOS 13.0 or newer [-Wunguarded-availability-new]
+warning: tarantino@0.1.0:   160 |         else if (type == SCStreamOutputTypeAudio) {
+warning: tarantino@0.1.0:       |                          ^~~~~~~~~~~~~~~~~~~~~~~
+warning: tarantino@0.1.0: /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/ScreenCaptureKit.framework/Headers/SCStream.h:30:5: note: 'SCStreamOutputTypeAudio' has been marked as being introduced in macOS 13.0 here, but the deployment target is macOS 12.3.0
+warning: tarantino@0.1.0:    30 |     SCStreamOutputTypeAudio API_AVAILABLE(macos(13.0), macCatalyst(18.2)),
+warning: tarantino@0.1.0:       |     ^
+warning: tarantino@0.1.0: src/capture/backends/macos/sck_wrapper.mm:160:26: note: enclose 'SCStreamOutputTypeAudio' in an @available check to silence this warning
+warning: tarantino@0.1.0:   160 |         else if (type == SCStreamOutputTypeAudio) {
+warning: tarantino@0.1.0:       |                          ^~~~~~~~~~~~~~~~~~~~~~~
+warning: tarantino@0.1.0: src/capture/backends/macos/sck_wrapper.mm:464:30: warning: 'setCapturesAudio:' is only available on macOS 13.0 or newer [-Wunguarded-availability-new]
+warning: tarantino@0.1.0:   464 |                 streamConfig.capturesAudio = YES;
+warning: tarantino@0.1.0:       |                              ^~~~~~~~~~~~~
+warning: tarantino@0.1.0: /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/ScreenCaptureKit.framework/Headers/SCStream.h:295:35: note: 'setCapturesAudio:' has been marked as being introduced in macOS 13.0 here, but the deployment target is macOS 12.3.0
+warning: tarantino@0.1.0:   295 | @property(nonatomic, assign) BOOL capturesAudio API_AVAILABLE(macos(13.0));
+warning: tarantino@0.1.0:       |                                   ^
+warning: tarantino@0.1.0: src/capture/backends/macos/sck_wrapper.mm:464:30: note: enclose 'setCapturesAudio:' in an @available check to silence this warning
+warning: tarantino@0.1.0:   464 |                 streamConfig.capturesAudio = YES;
+warning: tarantino@0.1.0:       |                              ^~~~~~~~~~~~~
+warning: tarantino@0.1.0: src/capture/backends/macos/sck_wrapper.mm:510:49: warning: 'SCStreamOutputTypeAudio' is only available on macOS 13.0 or newer [-Wunguarded-availability-new]
+warning: tarantino@0.1.0:   510 |                                            type:SCStreamOutputTypeAudio
+warning: tarantino@0.1.0:       |                                                 ^~~~~~~~~~~~~~~~~~~~~~~
+warning: tarantino@0.1.0: /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/ScreenCaptureKit.framework/Headers/SCStream.h:30:5: note: 'SCStreamOutputTypeAudio' has been marked as being introduced in macOS 13.0 here, but the deployment target is macOS 12.3.0
+warning: tarantino@0.1.0:    30 |     SCStreamOutputTypeAudio API_AVAILABLE(macos(13.0), macCatalyst(18.2)),
+warning: tarantino@0.1.0:       |     ^
+warning: tarantino@0.1.0: src/capture/backends/macos/sck_wrapper.mm:510:49: note: enclose 'SCStreamOutputTypeAudio' in an @available check to silence this warning
+warning: tarantino@0.1.0:   509 |                 [session.stream addStreamOutput:session
+warning: tarantino@0.1.0:   510 |                                            type:SCStreamOutputTypeAudio
+warning: tarantino@0.1.0:       |                                                 ^~~~~~~~~~~~~~~~~~~~~~~
+warning: tarantino@0.1.0:   511 |                              sampleHandlerQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0)
+warning: tarantino@0.1.0:   512 |                                           error:&audioOutputError];
+warning: tarantino@0.1.0:       |
+warning: tarantino@0.1.0: 3 warnings generated.
+warning: tarantino@0.1.0: src/encoder/macos/vt_encoder.mm:78:11: warning: unused parameter 'sourceFrameRefCon' [-Wunused-parameter]
+warning: tarantino@0.1.0:    78 |     void* sourceFrameRefCon,
+warning: tarantino@0.1.0:       |           ^
+warning: tarantino@0.1.0: src/encoder/macos/vt_encoder.mm:308:12: warning: unused parameter 'data_len' [-Wunused-parameter]
+warning: tarantino@0.1.0:   308 |     size_t data_len,
+warning: tarantino@0.1.0:       |            ^
+warning: tarantino@0.1.0: src/encoder/macos/vt_encoder.mm:313:14: warning: unused parameter 'timestamp_us' [-Wunused-parameter]
+warning: tarantino@0.1.0:   313 |     uint64_t timestamp_us
+warning: tarantino@0.1.0:       |              ^
+warning: tarantino@0.1.0: 3 warnings generated.
+warning: tarantino@0.1.0: src/encoder/macos/aac_encoder.mm:65:23: warning: unused parameter 'inAudioConverter' [-Wunused-parameter]
+warning: tarantino@0.1.0:    65 |     AudioConverterRef inAudioConverter,
+warning: tarantino@0.1.0:       |                       ^
+warning: tarantino@0.1.0: src/encoder/macos/aac_encoder.mm:68:36: warning: unused parameter 'outDataPacketDescription' [-Wunused-parameter]
+warning: tarantino@0.1.0:    68 |     AudioStreamPacketDescription** outDataPacketDescription,
+warning: tarantino@0.1.0:       |                                    ^
+warning: tarantino@0.1.0: 2 warnings generated.
+error: could not compile `tarantino` (bin "tarantino") due to 1 previous error; 51 warnings emitted
