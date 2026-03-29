@@ -72,7 +72,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
   videoTransformRef,
   previewZoom = 1
 }) => {
-  const { videoFilePath, zoomAnalysis, currentTime, loadMouseEvents, visualSettings, displayResolution } = useEditorStore();
+  const { videoFilePath, zoomAnalysis, currentTime, loadMouseEvents, visualSettings, displayResolution, captureMode } = useEditorStore();
   const meshRef = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
   const { viewport } = useThree();
@@ -103,25 +103,65 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
   }, [videoFilePath, loadMouseEvents]);
 
   // Calculate plane dimensions
-  const videoAspect = displayResolution
-    ? displayResolution.width / displayResolution.height
-    : 16 / 9;
+  // For window recordings, use the export canvas aspect ratio (e.g. 16:9)
+  // For display recordings, use the display's native aspect ratio
+  const ASPECT_MAP: Record<string, number> = {
+    '16:9': 16/9, '9:16': 9/16, '4:3': 4/3, '1:1': 1, '21:9': 21/9,
+  };
+  const videoAspect = captureMode === 'window'
+    ? (ASPECT_MAP[visualSettings.aspectRatio] || 16/9)
+    : displayResolution
+      ? displayResolution.width / displayResolution.height
+      : 16 / 9;
   const viewportAspect = viewport.width / viewport.height;
-  const paddingFactor = 1 - (visualSettings.padding / 100) * 0.3;
 
-  // Canvas aspect matches video aspect, so plane fills viewport exactly.
-  // previewZoom scales beyond 1x for user zoom-in.
+  // Base canvas dimensions (used for BackgroundPlane in all modes)
+  // Fit within viewport (use min of both axes to prevent overflow)
   let basePlaneWidth: number, basePlaneHeight: number;
+  const fitW = viewport.width * previewZoom;
+  const fitH = viewport.height * previewZoom;
   if (videoAspect > viewportAspect) {
-    basePlaneWidth = viewport.width * previewZoom;
-    basePlaneHeight = viewport.width * previewZoom / videoAspect;
+    // Video is wider than viewport — constrain by width
+    basePlaneWidth = fitW;
+    basePlaneHeight = fitW / videoAspect;
   } else {
-    basePlaneHeight = viewport.height * previewZoom;
-    basePlaneWidth = viewport.height * previewZoom * videoAspect;
+    // Video is taller than viewport — constrain by height
+    basePlaneHeight = fitH;
+    basePlaneWidth = fitH * videoAspect;
+  }
+  // Clamp to never exceed viewport in either dimension
+  if (basePlaneWidth > fitW) {
+    basePlaneHeight *= fitW / basePlaneWidth;
+    basePlaneWidth = fitW;
+  }
+  if (basePlaneHeight > fitH) {
+    basePlaneWidth *= fitH / basePlaneHeight;
+    basePlaneHeight = fitH;
   }
 
-  const planeWidth = basePlaneWidth * paddingFactor;
-  const planeHeight = basePlaneHeight * paddingFactor;
+  let planeWidth: number, planeHeight: number;
+
+  if (captureMode === 'window') {
+    // Window mode: canvas is the export ratio (e.g. 16:9).
+    // Video is aspect-fit inside — background fills the rest naturally.
+    // Padding matches export: padding % is removed from each side.
+    const sourceAspect = displayResolution
+      ? displayResolution.width / displayResolution.height
+      : videoAspect;
+    const inset = Math.max(0.01, 1 - 2 * (visualSettings.padding / 100));
+    if (sourceAspect > videoAspect) {
+      planeWidth = basePlaneWidth * inset;
+      planeHeight = (basePlaneWidth / sourceAspect) * inset;
+    } else {
+      planeHeight = basePlaneHeight * inset;
+      planeWidth = (basePlaneHeight * sourceAspect) * inset;
+    }
+  } else {
+    // Display mode: padding matches export — padding % is removed from each side
+    const paddingFactor = 1 - 2 * (visualSettings.padding / 100);
+    planeWidth = basePlaneWidth * Math.max(0.01, paddingFactor);
+    planeHeight = basePlaneHeight * Math.max(0.01, paddingFactor);
+  }
 
   const { getCursorAtTime } = useEditorStore();
 
@@ -275,11 +315,18 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
       y: panVelocity > MIN_VELOCITY_THRESHOLD ? cursorSpringY.current.velocity * velocityScale * 10 : 0,
     };
 
-    meshRef.current.scale.set(
-      planeWidth * animatedScale,
-      planeHeight * animatedScale,
-      1
-    );
+    if (captureMode === 'window') {
+      // Window mode: zoom crops within the fixed frame, background stays visible
+      const scaledW = Math.min(planeWidth * animatedScale, basePlaneWidth);
+      const scaledH = Math.min(planeHeight * animatedScale, basePlaneHeight);
+      meshRef.current.scale.set(scaledW, scaledH, 1);
+    } else {
+      meshRef.current.scale.set(
+        planeWidth * animatedScale,
+        planeHeight * animatedScale,
+        1
+      );
+    }
     meshRef.current.position.set(offsetX, offsetY, 0);
 
     videoTransformRef.current.scale = animatedScale;

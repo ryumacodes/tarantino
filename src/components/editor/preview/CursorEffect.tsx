@@ -173,6 +173,8 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     const effectiveCursorStyle = vs.alwaysUsePointer ? 'pointer' : vs.cursorStyle;
 
     // --- Coordinate transform: video-normalized → screen UV ---
+    // Three.js postprocessing UV is Y-up (OpenGL convention): (0,0) = bottom-left, (1,1) = top-right.
+    // World Y-up: positive wy → higher screen position → higher v.
     const transform = videoTransformRef.current;
     const toScreenUV = (normX: number, normY: number) => {
       const lx = normX - 0.5;
@@ -181,7 +183,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
       const wy = ly * transform.planeHeight * transform.scale + transform.offsetY;
       return {
         u: 0.5 + wx / transform.viewportWidth,
-        v: 0.5 - wy / transform.viewportHeight,
+        v: 0.5 + wy / transform.viewportHeight,
       };
     };
 

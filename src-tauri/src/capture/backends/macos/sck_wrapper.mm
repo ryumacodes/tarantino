@@ -329,8 +329,8 @@ bool sck_get_shareable_windows(SCKWindow** out_windows, size_t* out_count) {
 
         dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
 
-        [SCShareableContent getShareableContentExcludingDesktopWindows:NO
-                                                    onScreenWindowsOnly:YES
+        [SCShareableContent getShareableContentExcludingDesktopWindows:YES
+                                                    onScreenWindowsOnly:NO
                                                       completionHandler:^(SCShareableContent* content, NSError* error) {
             if (error) {
                 NSLog(@"Failed to get shareable content: %@", error);
@@ -348,11 +348,26 @@ bool sck_get_shareable_windows(SCKWindow** out_windows, size_t* out_count) {
             return false;
         }
 
-        *out_count = windows.count;
-        *out_windows = (SCKWindow*)malloc(sizeof(SCKWindow) * windows.count);
+        // Filter to normal app windows only (layer 0, has title, has owning app, non-zero size)
+        NSMutableArray<SCWindow*>* filtered = [NSMutableArray array];
+        for (SCWindow* window in windows) {
+            // windowLayer 0 = normal app windows; higher layers = system UI, overlays, etc.
+            if (window.windowLayer != 0) continue;
+            // Must have an owning application
+            if (!window.owningApplication) continue;
+            // Must have a non-empty title
+            if (!window.title || window.title.length == 0) continue;
+            // Must have non-zero size
+            CGRect frame = window.frame;
+            if (frame.size.width < 1 || frame.size.height < 1) continue;
+            [filtered addObject:window];
+        }
 
-        for (size_t i = 0; i < windows.count; i++) {
-            SCWindow* window = windows[i];
+        *out_count = filtered.count;
+        *out_windows = (SCKWindow*)malloc(sizeof(SCKWindow) * filtered.count);
+
+        for (size_t i = 0; i < filtered.count; i++) {
+            SCWindow* window = filtered[i];
             CGRect frame = window.frame;
 
             (*out_windows)[i] = (SCKWindow){
@@ -439,9 +454,9 @@ void* sck_start_capture(SCKCaptureConfig config, void* rust_context, SCKFrameCal
 
         dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
 
-        // Get shareable content
+        // Get shareable content (onScreenWindowsOnly:NO to find windows on all screens)
         [SCShareableContent getShareableContentExcludingDesktopWindows:YES
-                                                    onScreenWindowsOnly:YES
+                                                    onScreenWindowsOnly:NO
                                                       completionHandler:^(SCShareableContent* content, NSError* error) {
             if (error) {
                 NSLog(@"Failed to get shareable content: %@", error);
@@ -451,10 +466,10 @@ void* sck_start_capture(SCKCaptureConfig config, void* rust_context, SCKFrameCal
 
             // Find the target display or window
             SCContentFilter* filter = nil;
-            SCDisplay* targetDisplay = nil;  // Keep reference for stream configuration
+            SCDisplay* targetDisplay = nil;
+            SCWindow* targetWindow = nil;
 
             if (config.is_display) {
-                // Find display by ID
                 for (SCDisplay* display in content.displays) {
                     if (display.displayID == config.source_id) {
                         targetDisplay = display;
@@ -471,8 +486,6 @@ void* sck_start_capture(SCKCaptureConfig config, void* rust_context, SCKFrameCal
                 filter = [[SCContentFilter alloc] initWithDisplay:targetDisplay
                                                   excludingWindows:@[]];
             } else {
-                // Find window by ID
-                SCWindow* targetWindow = nil;
                 for (SCWindow* window in content.windows) {
                     if (window.windowID == config.source_id) {
                         targetWindow = window;
@@ -489,13 +502,13 @@ void* sck_start_capture(SCKCaptureConfig config, void* rust_context, SCKFrameCal
                 filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:targetWindow];
             }
 
-            // Configure stream - use display dimensions if no crop specified
+            // Configure stream dimensions
             SCStreamConfiguration* streamConfig = [[SCStreamConfiguration alloc] init];
             if (config.crop_width > 0 && config.crop_height > 0) {
                 streamConfig.width = config.crop_width;
                 streamConfig.height = config.crop_height;
-            } else if (config.is_display && targetDisplay) {
-                // Use physical pixel dimensions (not logical points) for Retina displays
+            } else if (targetDisplay) {
+                // Display: use physical pixel dimensions for Retina
                 CGRect displayFrame = targetDisplay.frame;
                 double scale_factor = 1.0;
                 CGDisplayModeRef mode = CGDisplayCopyDisplayMode(targetDisplay.displayID);
@@ -510,10 +523,15 @@ void* sck_start_capture(SCKCaptureConfig config, void* rust_context, SCKFrameCal
                 streamConfig.width = (size_t)(displayFrame.size.width * scale_factor);
                 streamConfig.height = (size_t)(displayFrame.size.height * scale_factor);
                 NSLog(@"[SCK] Using display pixel dimensions: %zux%zu (scale: %.1f)",
-                      (size_t)(displayFrame.size.width * scale_factor),
-                      (size_t)(displayFrame.size.height * scale_factor), scale_factor);
+                      streamConfig.width, streamConfig.height, scale_factor);
+            } else if (targetWindow) {
+                // Window: use window frame at 2x for Retina
+                CGRect wFrame = targetWindow.frame;
+                streamConfig.width = (size_t)(wFrame.size.width * 2);
+                streamConfig.height = (size_t)(wFrame.size.height * 2);
+                NSLog(@"[SCK] Using window pixel dimensions: %zux%zu (from %.0fx%.0f @ 2x)",
+                      streamConfig.width, streamConfig.height, wFrame.size.width, wFrame.size.height);
             } else {
-                // Fallback for windows or unknown cases
                 streamConfig.width = 1920;
                 streamConfig.height = 1080;
             }

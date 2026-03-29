@@ -32,7 +32,7 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
   onSeek,
   showMouseOverlay
 }) => {
-  const { duration, currentTime, visualSettings, videoFilePath, displayResolution } = useEditorStore();
+  const { duration, currentTime, visualSettings, videoFilePath, displayResolution, captureMode } = useEditorStore();
 
   console.log('%c[VideoPreviewPanel] RENDERING', 'background: #ff0000; color: white; font-size: 16px;', {
     videoFilePath,
@@ -127,15 +127,46 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  const videoAspect = displayResolution
-    ? `${displayResolution.width} / ${displayResolution.height}`
-    : '16 / 9';
+  // For window recordings, use the export canvas aspect ratio (e.g. 16:9)
+  // For display recordings, use the display's native aspect ratio
+  const ASPECT_RATIOS_NUM: Record<string, number> = {
+    '16:9': 16/9, '9:16': 9/16, '4:3': 4/3,
+    '1:1': 1, '21:9': 21/9,
+  };
+  const videoAspectNum = captureMode === 'window'
+    ? (ASPECT_RATIOS_NUM[visualSettings.aspectRatio] || 16/9)
+    : displayResolution
+      ? displayResolution.width / displayResolution.height
+      : 16 / 9;
+
+  // Calculate frame dimensions that maintain aspect ratio within the container.
+  // Pure CSS aspect-ratio + width:100% + max-height:100% breaks when height-constrained.
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const [frameStyle, setFrameStyle] = useState<React.CSSProperties>({ width: '100%', aspectRatio: `${videoAspectNum}` });
+
+  useEffect(() => {
+    const container = canvasContainerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver((entries) => {
+      const { width: cw, height: ch } = entries[0].contentRect;
+      if (cw <= 0 || ch <= 0) return;
+      if (cw / ch > videoAspectNum) {
+        // Container wider than target — constrain by height
+        setFrameStyle({ width: Math.floor(ch * videoAspectNum), height: ch });
+      } else {
+        // Container taller — constrain by width
+        setFrameStyle({ width: cw, height: Math.floor(cw / videoAspectNum) });
+      }
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [videoAspectNum]);
 
   return (
     <div className="video-preview-panel" ref={containerRef}>
       {/* Video Canvas */}
-      <div className="video-canvas-container" onWheel={handleWheel}>
-        <div className="video-canvas-frame" style={{ aspectRatio: videoAspect }}>
+      <div className="video-canvas-container" ref={canvasContainerRef} onWheel={handleWheel}>
+        <div className="video-canvas-frame" style={frameStyle}>
           <Canvas
             camera={{ position: [0, 0, 5], fov: 50 }}
             dpr={[1, 2]}

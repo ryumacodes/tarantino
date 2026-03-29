@@ -292,9 +292,12 @@ export interface EditorState {
   // Mouse events for cursor panning
   mouseEvents: MouseEventData[] | null;
   mouseEventsLoading: boolean;
+  videoWidth: number | null;
+  videoHeight: number | null;
   displayResolution: { width: number; height: number } | null;
   scaleFactor: number;
   recordingArea: { x: number; y: number; width: number; height: number } | null;
+  captureMode: 'display' | 'window' | null;
   // Timeline System
   tracks: TimelineTrack[];
   clips: TimelineClip[];
@@ -310,7 +313,7 @@ export interface EditorState {
 }
 
 export interface EditorActions {
-  initializeEditor: (filePath: string, duration: number, hasWebcam?: boolean, hasMicrophone?: boolean, hasSystemAudio?: boolean) => void;
+  initializeEditor: (filePath: string, duration: number, hasWebcam?: boolean, hasMicrophone?: boolean, hasSystemAudio?: boolean, videoWidth?: number | null, videoHeight?: number | null) => void;
   setProjectTitle: (title: string) => void;
   loadThumbnails: (filePath: string) => Promise<void>;
   setIsPlaying: (isPlaying: boolean) => void;

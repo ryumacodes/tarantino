@@ -241,9 +241,14 @@ button {
   flex-shrink: 0;
 }
 
-.capture-bar__record:hover {
+.capture-bar__record:hover:not(.disabled) {
   transform: scale(1.1);
   box-shadow: 0 0 20px rgba(255, 107, 107, 0.4);
+}
+
+.capture-bar__record.disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .capture-bar__record.recording {

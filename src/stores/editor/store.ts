@@ -67,9 +67,12 @@ const initialState: EditorState = {
   previewZoomLoading: false,
   mouseEvents: null,
   mouseEventsLoading: false,
+  videoWidth: null,
+  videoHeight: null,
   displayResolution: null,
   scaleFactor: 1.0,
   recordingArea: null,
+  captureMode: null,
   isPlaying: false,
   tracks: [],
   clips: [],
@@ -104,10 +107,12 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       },
 
       // Core initialization
-      initializeEditor: (filePath, duration, hasWebcam = false, hasMicrophone = false, hasSystemAudio = false) => {
+      initializeEditor: (filePath, duration, hasWebcam = false, hasMicrophone = false, hasSystemAudio = false, videoWidth = null, videoHeight = null) => {
         set((state) => {
-          console.log('Editor store: Initializing with filePath:', filePath, 'duration:', duration);
+          console.log('Editor store: Initializing with filePath:', filePath, 'duration:', duration, 'videoSize:', videoWidth, 'x', videoHeight);
           state.videoFilePath = filePath;
+          state.videoWidth = videoWidth;
+          state.videoHeight = videoHeight;
           const fileName = filePath.split('/').pop() || 'recording';
           const nameWithoutExt = fileName.replace(/\.[^/.]+$/, '');
           state.projectTitle = nameWithoutExt;

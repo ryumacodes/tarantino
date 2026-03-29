@@ -12,6 +12,7 @@ import {
   DEFAULT_VISUAL_SETTINGS,
   DEFAULT_EXPORT_SETTINGS,
   RESOLUTION_DIMENSIONS,
+  ASPECT_RATIOS,
   WALLPAPERS,
 } from '../constants';
 
@@ -98,6 +99,29 @@ export const createSettingsActions = (set: SetFn, get: GetFn) => ({
 
     if (resolution === 'custom' && customWidth && customHeight) {
       return { width: customWidth, height: customHeight };
+    }
+
+    const presetHeight = (RESOLUTION_DIMENSIONS[resolution as keyof typeof RESOLUTION_DIMENSIONS] || RESOLUTION_DIMENSIONS['1080p']).height;
+    const aspectRatio = state.visualSettings.aspectRatio || 'auto';
+
+    if (aspectRatio === 'auto') {
+      // Use source video aspect ratio at preset height
+      const srcW = state.videoWidth;
+      const srcH = state.videoHeight;
+      if (srcW && srcH && srcH > 0) {
+        const w = Math.round((presetHeight * srcW) / srcH);
+        // Ensure even dimensions for FFmpeg
+        return { width: w % 2 === 0 ? w : w + 1, height: presetHeight };
+      }
+      // Fallback: 16:9 if no source dims
+      return RESOLUTION_DIMENSIONS[resolution as keyof typeof RESOLUTION_DIMENSIONS] || RESOLUTION_DIMENSIONS['1080p'];
+    }
+
+    // Explicit aspect ratio: compute width from ratio at preset height
+    const ratioInfo = ASPECT_RATIOS[aspectRatio as keyof typeof ASPECT_RATIOS];
+    if (ratioInfo && ratioInfo.width > 0 && ratioInfo.height > 0) {
+      const w = Math.round((presetHeight * ratioInfo.width) / ratioInfo.height);
+      return { width: w % 2 === 0 ? w : w + 1, height: presetHeight };
     }
 
     return RESOLUTION_DIMENSIONS[resolution as keyof typeof RESOLUTION_DIMENSIONS] || RESOLUTION_DIMENSIONS['1080p'];

@@ -96,7 +96,7 @@ impl UnifiedAppState {
                     Window {
                         id: w.id.to_string(),
                         title: w.name,
-                        app_name: String::new(),
+                        app_name: w.owner_name,
                         x: 0,
                         y: 0,
                         width: w.width,

@@ -125,8 +125,8 @@ function EditorShell() {
         duration = videoInfo.duration * 1000; // Convert seconds to milliseconds
       }
 
-      console.log('Initializing editor with duration:', duration);
-      await initializeEditor(path, duration, false, hasMic, hasSystemAudio);
+      console.log('Initializing editor with duration:', duration, 'video size:', videoInfo.width, 'x', videoInfo.height);
+      await initializeEditor(path, duration, false, hasMic, hasSystemAudio, videoInfo.width ?? null, videoInfo.height ?? null);
 
       setIsLoading(false);
       log('Editor initialization complete');
@@ -206,11 +206,11 @@ function EditorShell() {
         duration = parseFloat(videoInfo.format.duration) * 1000;
       }
 
-      console.log('Parsed video duration:', duration, 'ms');
+      console.log('Parsed video duration:', duration, 'ms', 'video size:', videoInfo.width, 'x', videoInfo.height);
 
       // Initialize the editor store with the video file and media flags
       console.log('Initializing editor with path:', decodedPath, 'duration:', duration);
-      initializeEditor(decodedPath, duration, hasWebcam, hasMic, hasSystemAudio);
+      initializeEditor(decodedPath, duration, hasWebcam, hasMic, hasSystemAudio, videoInfo.width ?? null, videoInfo.height ?? null);
 
       // Verify initialization worked
       setTimeout(() => {

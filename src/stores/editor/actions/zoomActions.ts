@@ -249,6 +249,8 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
       let scaleFactor = 1.0;
       let recordingArea: { x: number; y: number; width: number; height: number } | null = null;
 
+      let captureMode: 'display' | 'window' | null = null;
+
       if (Array.isArray(rawData)) {
         rawEvents = rawData;
       } else if (rawData.mouse_events) {
@@ -257,7 +259,8 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
         displayHeight = rawData.display_height || 1080;
         scaleFactor = rawData.scale_factor || 1.0;
         recordingArea = rawData.recording_area || null;
-        console.log('Display dimensions from sidecar:', displayWidth, 'x', displayHeight);
+        captureMode = rawData.capture_mode || null;
+        console.log('Display dimensions from sidecar:', displayWidth, 'x', displayHeight, 'mode:', captureMode);
       } else {
         throw new Error('Invalid sidecar format');
       }
@@ -295,9 +298,18 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
       set((state) => {
         state.mouseEvents = data;
         state.mouseEventsLoading = false;
-        state.displayResolution = { width: displayWidth, height: displayHeight };
         state.scaleFactor = scaleFactor;
         state.recordingArea = recordingArea;
+        state.captureMode = captureMode;
+
+        if (captureMode === 'window' && state.videoWidth && state.videoHeight) {
+          // Window recordings: use actual video dimensions for correct aspect ratio
+          state.displayResolution = { width: state.videoWidth, height: state.videoHeight };
+          // Default to 16:9 export canvas — background comes from aspect ratio difference
+          state.visualSettings.aspectRatio = '16:9';
+        } else {
+          state.displayResolution = { width: displayWidth, height: displayHeight };
+        }
       });
     } catch (error) {
       console.error('[MOUSE] Failed to load mouse events:', error);

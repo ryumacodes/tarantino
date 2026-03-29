@@ -58,10 +58,11 @@ impl RecordingAPI {
         {
             println!("Starting native ScreenCaptureKit recording");
 
-            // Extract display ID from config
-            let display_id = match &config.target {
-                RecordingTarget::Desktop { display_id, .. } => *display_id as u64,
-                _ => anyhow::bail!("Only desktop capture is supported currently"),
+            // Extract source ID and type from config
+            let (source_id, source_type) = match &config.target {
+                RecordingTarget::Desktop { display_id, .. } => (*display_id as u64, CaptureSourceType::Display),
+                RecordingTarget::Window { window_id, .. } => (*window_id, CaptureSourceType::Window),
+                RecordingTarget::Device { .. } => anyhow::bail!("Device capture is not supported yet"),
             };
 
             let fps = match config.quality {
@@ -76,8 +77,8 @@ impl RecordingAPI {
 
             // Configure capture
             let capture_config = CaptureConfig {
-                source_id: display_id,
-                source_type: CaptureSourceType::Display,
+                source_id,
+                source_type,
                 fps,
                 include_cursor: config.include_cursor,
                 include_audio: config.include_system_audio,

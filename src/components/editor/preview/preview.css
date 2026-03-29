@@ -22,9 +22,9 @@
 
 .video-canvas-frame {
   position: relative;
-  max-width: 100%;
-  max-height: 100%;
-  width: 100%;
+  /* Width and height are set dynamically via JS to maintain aspect ratio
+     within the container, since CSS aspect-ratio + width:100% + max-height:100%
+     breaks when the container is height-constrained. */
   overflow: hidden;
   border-radius: 8px 8px 0 0;
   background: var(--editor-bg-secondary);

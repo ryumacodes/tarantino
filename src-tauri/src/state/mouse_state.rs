@@ -186,12 +186,23 @@ impl UnifiedAppState {
             analysis.zoom_blocks.len()
         );
 
+        // Determine capture mode from current recording config
+        let capture_mode = if let Some(config) = self.recording.get_current_config() {
+            match &config.target {
+                crate::recording::types::RecordingTarget::Window { .. } => "window",
+                _ => "display",
+            }
+        } else {
+            "display"
+        };
+
         // Save zoom analysis and mouse events to sidecar files using persistence helper
         save_zoom_sidecar(
             video_path,
             &analysis,
             &session.mouse_events,
             (width, height, scale_factor, recording_area),
+            capture_mode,
         )?;
 
         println!("=== ZOOM_ANALYSIS: Complete! ===");
@@ -221,6 +232,19 @@ impl UnifiedAppState {
                             display.height,
                             display.scale_factor,
                             area.clone(),
+                        ));
+                    }
+                }
+                crate::recording::types::RecordingTarget::Window { window_id, .. } => {
+                    let app = self.app.read();
+                    if let Some(window) =
+                        app.windows.iter().find(|w| w.id == window_id.to_string())
+                    {
+                        return Some((
+                            window.width,
+                            window.height,
+                            1.0,
+                            None,
                         ));
                     }
                 }

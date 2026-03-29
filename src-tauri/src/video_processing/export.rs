@@ -157,11 +157,17 @@ pub async fn export_video(
     let placeholder_shape = image::RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 0]));
     let cursor_shape_ref: Option<&image::RgbaImage> = if cursor_enabled { Some(&placeholder_shape) } else { None };
 
+    // Resolve source dimensions: prefer frontend-provided, fallback to video_info
+    let src_w = settings.source_width.or(Some(source_width));
+    let src_h = settings.source_height.or(Some(source_height));
+
     // Build GPU compositor config
-    let gpu_config = build_gpu_config_with_webcam(&settings, &webcam_info);
+    let gpu_config = build_gpu_config_with_webcam(&settings, &webcam_info, src_w, src_h);
     let (out_width, out_height) = (gpu_config.output_width, gpu_config.output_height);
+    let (input_width, input_height) = (gpu_config.input_width, gpu_config.input_height);
 
     println!("=== GPU EXPORT START ===");
+    println!("  Input (decode): {}x{}", input_width, input_height);
     println!("  Output: {}x{} @ {}fps", out_width, out_height, target_fps);
     println!("  Zoom: {} frames", zoom_trajectory.as_ref().map_or(0, |t| t.len()));
     println!("  Cursor: {} positions", cursor_trajectory.as_ref().map_or(0, |t| t.len()));
@@ -193,10 +199,10 @@ pub async fn export_video(
     // Add trim
     add_trim_settings(&mut decoder_args, &settings);
 
-    // Simple decode filter: fps + scale only (all effects on GPU)
+    // Decode filter: fps + scale to input dims (aspect-correct, all effects on GPU)
     decoder_args.extend([
         "-vf".to_string(),
-        format!("fps={},scale={}:{}", target_fps, out_width, out_height),
+        format!("fps={},scale={}:{}", target_fps, input_width, input_height),
         "-f".to_string(), "rawvideo".to_string(),
         "-pix_fmt".to_string(), "rgba".to_string(),
         "-".to_string(),
@@ -257,11 +263,12 @@ pub async fn export_video(
     let encoder_stdin = encoder.stdin.take()
         .ok_or_else(|| anyhow!("Failed to get encoder stdin"))?;
 
-    let frame_size = (out_width * out_height * 4) as usize;
-    let mut reader = BufReader::with_capacity(frame_size * 4, decoder_stdout);
-    let mut writer = BufWriter::with_capacity(frame_size * 4, encoder_stdin);
+    let input_frame_size = (input_width * input_height * 4) as usize;
+    let output_frame_size = (out_width * out_height * 4) as usize;
+    let mut reader = BufReader::with_capacity(input_frame_size * 4, decoder_stdout);
+    let mut writer = BufWriter::with_capacity(output_frame_size * 4, encoder_stdin);
 
-    let mut frame_buffer = vec![0u8; frame_size];
+    let mut frame_buffer = vec![0u8; input_frame_size];
     let mut frame_idx: usize = 0;
     let start_time = std::time::Instant::now();
     let expected_frames = ((duration_ms as f64 * target_fps as f64) / 1000.0).ceil() as u64;

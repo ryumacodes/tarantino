@@ -33,6 +33,9 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
   } = useEditorStore();
 
   const handlePlayPause = () => {
+    if (!isPlaying && currentTime >= duration) {
+      setCurrentTime(0);
+    }
     setIsPlaying(!isPlaying);
   };
 
@@ -145,6 +148,9 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
           noise_gate: audioSettings.noiseGate,
           dual_track: audioSettings.dualTrack,
         },
+        // Source video dimensions for aspect-correct scaling
+        source_width: storeState.videoWidth ?? null,
+        source_height: storeState.videoHeight ?? null,
         // Animation settings — resolve preset to actual spring values (single source of truth)
         animation_speed: visualSettings.zoomSpeedPreset ?? 'mellow',
         zoom_spring_tension: SPRING_PRESETS[visualSettings.zoomSpeedPreset ?? 'mellow'].tension,

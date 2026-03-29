@@ -72,6 +72,7 @@ pub fn save_zoom_sidecar(
     analysis: &crate::auto_zoom::ZoomAnalysis,
     mouse_events: &[crate::event_capture::EnhancedMouseEvent],
     display_info: (u32, u32, f32, Option<crate::recording::types::RecordingArea>),
+    capture_mode: &str,
 ) -> Result<()> {
     use crate::auto_zoom::save_analysis;
 
@@ -87,6 +88,7 @@ pub fn save_zoom_sidecar(
     // Include display resolution, scale factor, and recording area for proper coordinate normalization
     let mouse_path = format!("{}.mouse.json", base_path);
     let mouse_sidecar = serde_json::json!({
+        "capture_mode": capture_mode,
         "display_width": width,
         "display_height": height,
         "scale_factor": scale_factor,

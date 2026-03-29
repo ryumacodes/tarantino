@@ -22,6 +22,12 @@ pub struct GpuCompositorConfig {
     /// Content placement offset (padding)
     pub content_offset_x: u32,
     pub content_offset_y: u32,
+    /// Input dimensions (aspect-fit source within content area)
+    pub input_width: u32,
+    pub input_height: u32,
+    /// Input placement offset within content area (letterbox/pillarbox)
+    pub input_offset_x: u32,
+    pub input_offset_y: u32,
     /// Background color (RGBA, 0.0-1.0)
     pub background_color: [f32; 4],
     /// Corner radius in pixels (0 = no rounding)
@@ -70,6 +76,12 @@ struct CompositeUniforms {
     // Content placement
     content_offset_x: f32,
     content_offset_y: f32,
+    // Input (aspect-fit within content)
+    input_width: f32,
+    input_height: f32,
+
+    input_offset_x: f32,
+    input_offset_y: f32,
     // Zoom
     zoom_scale: f32,
     zoom_center_x: f32,
@@ -204,6 +216,8 @@ pub struct GpuCompositor {
     // Cached bind group (rebuilt only when textures change)
     bind_group: Option<wgpu::BindGroup>,
     bind_group_dirty: bool,
+    // Row alignment for GPU readback
+    padded_bytes_per_row: u32,
     // Config
     config: GpuCompositorConfig,
     // Previous frame state for velocity calculation
@@ -220,6 +234,10 @@ struct Uniforms {
     content_height: f32,
     content_offset_x: f32,
     content_offset_y: f32,
+    input_width: f32,
+    input_height: f32,
+    input_offset_x: f32,
+    input_offset_y: f32,
     zoom_scale: f32,
     zoom_center_x: f32,
     zoom_center_y: f32,
@@ -453,20 +471,28 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let content_x = f32(x) - u.content_offset_x;
     let content_y = f32(y) - u.content_offset_y;
     if (content_x >= 0.0 && content_x < u.content_width && content_y >= 0.0 && content_y < u.content_height) {
-        let content_uv = vec2<f32>(content_x / u.content_width, content_y / u.content_height);
-        var content_color = sample_with_motion_blur(content_uv);
-        if (u.corner_radius > 0.0) {
-            let mask_uv = vec2<f32>(content_x / u.content_width, content_y / u.content_height);
-            let mask = textureSampleLevel(corner_mask_tex, bilinear_sampler, mask_uv, 0.0);
-            content_color.a = content_color.a * mask.a;
+        // Map content pixel to input area (centered within content)
+        let input_x = content_x - u.input_offset_x;
+        let input_y = content_y - u.input_offset_y;
+        if (input_x >= 0.0 && input_x < u.input_width && input_y >= 0.0 && input_y < u.input_height) {
+            let content_uv = vec2<f32>(input_x / u.input_width, input_y / u.input_height);
+            var content_color = sample_with_motion_blur(content_uv);
+            if (u.corner_radius > 0.0) {
+                let mask_uv = vec2<f32>(content_x / u.content_width, content_y / u.content_height);
+                let mask = textureSampleLevel(corner_mask_tex, bilinear_sampler, mask_uv, 0.0);
+                content_color.a = content_color.a * mask.a;
+            }
+            result = alpha_blend(result, content_color);
         }
-        result = alpha_blend(result, content_color);
     }
 
     // 4. Cursor SDF rendering
     if (u.cursor_enabled > 0.5) {
         let s = u.cursor_size;
-        let cursor_px = vec2<f32>(u.cursor_x * u.output_width, u.cursor_y * u.output_height);
+        let cursor_px = vec2<f32>(
+            u.content_offset_x + u.input_offset_x + u.cursor_x * u.input_width,
+            u.content_offset_y + u.input_offset_y + u.cursor_y * u.input_height
+        );
         let max_radius = 60.0 * s;
         let dist_to_cursor = length(px - cursor_px);
 
@@ -485,7 +511,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             for (var i = 0; i < 30; i = i + 1) {
                 if (i >= tc - 1) { break; }
                 let tp = trail_points[i];
-                let trail_px = vec2<f32>(tp.x * u.output_width, tp.y * u.output_height);
+                let trail_px = vec2<f32>(
+                    u.content_offset_x + u.input_offset_x + tp.x * u.input_width,
+                    u.content_offset_y + u.input_offset_y + tp.y * u.input_height
+                );
                 let dist = length(px - trail_px);
                 let mask = 1.0 - smoothstep(tp.size - 0.5, tp.size + 0.5, dist);
                 if (mask * tp.alpha > 0.001) {
@@ -497,7 +526,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         // 4b. Ripple effect (click_effect == 2)
         if (u.ripple_progress > 0.001 && u.ripple_progress < 1.0 && u.click_effect > 1.5) {
-            let rpx = vec2<f32>(u.ripple_x * u.output_width, u.ripple_y * u.output_height);
+            let rpx = vec2<f32>(
+                u.content_offset_x + u.input_offset_x + u.ripple_x * u.input_width,
+                u.content_offset_y + u.input_offset_y + u.ripple_y * u.input_height
+            );
             let dist = length(px - rpx);
             let p = u.ripple_progress;
             // Outer ring
@@ -521,7 +553,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         // 4c. Circle highlight (click_effect == 1)
         if (u.circle_hl_progress > 0.001 && u.circle_hl_progress < 1.0 && u.click_effect > 0.5 && u.click_effect < 1.5) {
-            let hl_px = vec2<f32>(u.circle_hl_x * u.output_width, u.circle_hl_y * u.output_height);
+            let hl_px = vec2<f32>(
+                u.content_offset_x + u.input_offset_x + u.circle_hl_x * u.input_width,
+                u.content_offset_y + u.input_offset_y + u.circle_hl_y * u.input_height
+            );
             let dist = length(px - hl_px);
             let p = u.circle_hl_progress;
             let radius = 20.0 * s;
@@ -752,12 +787,17 @@ impl GpuCompositor {
 
         let out_w = config.output_width;
         let out_h = config.output_height;
-        let frame_size = (out_w * out_h * 4) as u64;
+        let in_w = config.input_width;
+        let in_h = config.input_height;
+        let unpadded_bytes_per_row = out_w * 4;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
+        let frame_size = (padded_bytes_per_row * out_h) as u64;
 
-        // Source texture (video frame input)
+        // Source texture (video frame input — sized to input, not output)
         let source_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Source Video"),
-            size: wgpu::Extent3d { width: out_w, height: out_h, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d { width: in_w, height: in_h, depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -1072,6 +1112,7 @@ impl GpuCompositor {
             placeholder_texture,
             bind_group: None,
             bind_group_dirty: true,
+            padded_bytes_per_row,
             config,
             prev_zoom_state: None,
         })
@@ -1165,12 +1206,14 @@ impl GpuCompositor {
     ) -> Result<Vec<u8>> {
         let out_w = self.config.output_width;
         let out_h = self.config.output_height;
-        let frame_size = (out_w * out_h * 4) as usize;
+        let in_w = self.config.input_width;
+        let in_h = self.config.input_height;
+        let input_frame_size = (in_w * in_h * 4) as usize;
 
-        if source_frame.len() != frame_size {
+        if source_frame.len() != input_frame_size {
             return Err(anyhow!(
-                "Source frame size mismatch: got {}, expected {}",
-                source_frame.len(), frame_size
+                "Source frame size mismatch: got {}, expected {} ({}x{})",
+                source_frame.len(), input_frame_size, in_w, in_h
             ));
         }
 
@@ -1196,6 +1239,10 @@ impl GpuCompositor {
             content_height: self.config.content_height as f32,
             content_offset_x: self.config.content_offset_x as f32,
             content_offset_y: self.config.content_offset_y as f32,
+            input_width: self.config.input_width as f32,
+            input_height: self.config.input_height as f32,
+            input_offset_x: self.config.input_offset_x as f32,
+            input_offset_y: self.config.input_offset_y as f32,
             zoom_scale: zoom_state.scale as f32,
             zoom_center_x: zoom_state.center_x as f32,
             zoom_center_y: zoom_state.center_y as f32,
@@ -1282,10 +1329,10 @@ impl GpuCompositor {
             source_frame,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(out_w * 4),
-                rows_per_image: Some(out_h),
+                bytes_per_row: Some(in_w * 4),
+                rows_per_image: Some(in_h),
             },
-            wgpu::Extent3d { width: out_w, height: out_h, depth_or_array_layers: 1 },
+            wgpu::Extent3d { width: in_w, height: in_h, depth_or_array_layers: 1 },
         );
 
         // Ensure bind group is built (cached, only rebuilt when textures change)
@@ -1323,7 +1370,7 @@ impl GpuCompositor {
                 buffer: &self.download_buffer,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(out_w * 4),
+                    bytes_per_row: Some(self.padded_bytes_per_row),
                     rows_per_image: Some(out_h),
                 },
             },
@@ -1344,7 +1391,18 @@ impl GpuCompositor {
             .map_err(|e| anyhow!("GPU readback map error: {:?}", e))?;
 
         let data = buffer_slice.get_mapped_range();
-        let result = data.to_vec();
+        let unpadded_bytes_per_row = (out_w * 4) as usize;
+        let padded = self.padded_bytes_per_row as usize;
+        let result = if padded != unpadded_bytes_per_row {
+            let mut result = Vec::with_capacity(unpadded_bytes_per_row * out_h as usize);
+            for row in 0..out_h as usize {
+                let start = row * padded;
+                result.extend_from_slice(&data[start..start + unpadded_bytes_per_row]);
+            }
+            result
+        } else {
+            data.to_vec()
+        };
         drop(data);
         self.download_buffer.unmap();
 
@@ -1543,7 +1601,7 @@ impl GpuCompositor {
 }
 
 /// Build a GpuCompositorConfig from ExportSettings (mirrors what visual_effects.rs used to compute).
-pub fn build_gpu_config(settings: &super::types::ExportSettings) -> GpuCompositorConfig {
+pub fn build_gpu_config(settings: &super::types::ExportSettings, source_width: Option<u32>, source_height: Option<u32>) -> GpuCompositorConfig {
     let (out_w, out_h) = super::visual_effects::get_output_dimensions(settings);
 
     let visual = settings.visual_settings.as_ref();
@@ -1604,6 +1662,43 @@ pub fn build_gpu_config(settings: &super::types::ExportSettings) -> GpuComposito
             Some(DeviceFrameConfig { bezel, corner_radius, color })
         });
 
+    // Compute input dimensions (aspect-fit source within content area)
+    let (input_w, input_h, input_off_x, input_off_y) = if let (Some(sw), Some(sh)) = (source_width, source_height) {
+        if sw > 0 && sh > 0 {
+            let src_aspect = sw as f64 / sh as f64;
+            let cnt_aspect = content_w as f64 / content_h as f64;
+            let (mut iw, mut ih) = if (src_aspect - cnt_aspect).abs() < 0.01 {
+                // Same aspect ratio — input fills content
+                (content_w, content_h)
+            } else if src_aspect > cnt_aspect {
+                // Source wider — fit to content width, letterbox vertically
+                let h = (content_w as f64 / src_aspect).round() as u32;
+                (content_w, h)
+            } else {
+                // Source taller — fit to content height, pillarbox horizontally
+                let w = (content_h as f64 * src_aspect).round() as u32;
+                (w, content_h)
+            };
+            // Ensure even dims
+            iw = iw - (iw % 2);
+            ih = ih - (ih % 2);
+            // Clamp to content
+            iw = iw.min(content_w);
+            ih = ih.min(content_h);
+            let ox = (content_w - iw) / 2;
+            let oy = (content_h - ih) / 2;
+            (iw, ih, ox, oy)
+        } else {
+            (content_w, content_h, 0, 0)
+        }
+    } else {
+        // No source dims — fallback: input == content
+        (content_w, content_h, 0, 0)
+    };
+
+    println!("[GPU Config] output={}x{}, content={}x{}, input={}x{} offset=({},{})",
+        out_w, out_h, content_w, content_h, input_w, input_h, input_off_x, input_off_y);
+
     GpuCompositorConfig {
         output_width: out_w,
         output_height: out_h,
@@ -1611,6 +1706,10 @@ pub fn build_gpu_config(settings: &super::types::ExportSettings) -> GpuComposito
         content_height: content_h,
         content_offset_x: padding_x,
         content_offset_y: padding_y,
+        input_width: input_w,
+        input_height: input_h,
+        input_offset_x: input_off_x,
+        input_offset_y: input_off_y,
         background_color,
         corner_radius,
         shadow_enabled,
@@ -1630,8 +1729,10 @@ pub fn build_gpu_config(settings: &super::types::ExportSettings) -> GpuComposito
 pub fn build_gpu_config_with_webcam(
     settings: &super::types::ExportSettings,
     webcam_info: &Option<(std::path::PathBuf, f64, f64, f64, String)>,
+    source_width: Option<u32>,
+    source_height: Option<u32>,
 ) -> GpuCompositorConfig {
-    let mut config = build_gpu_config(settings);
+    let mut config = build_gpu_config(settings, source_width, source_height);
     if let Some((_, pos_x, pos_y, size, shape)) = webcam_info {
         config.webcam = Some(WebcamConfig {
             pos_x: *pos_x as f32,

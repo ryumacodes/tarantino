@@ -72,6 +72,8 @@ pub struct CaptureSourceInfo {
     pub scale_factor: f64,
     /// Whether this is the primary display
     pub is_primary: bool,
+    /// Owning application name (for windows)
+    pub owner_name: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

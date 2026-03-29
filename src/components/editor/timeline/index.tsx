@@ -196,16 +196,22 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
           setTimelineZoom(1);
           e.preventDefault();
           break;
-        case ' ':
-          setVideoPlaying(getVideoElement()?.paused ?? true);
+        case ' ': {
+          const video = getVideoElement();
+          const wantPlay = video?.paused ?? true;
+          if (wantPlay && currentTime >= duration) {
+            seekVideo(0);
+          }
+          setVideoPlaying(wantPlay);
           e.preventDefault();
           break;
+        }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [snappingEnabled, isExporting, setCurrentTool, setSnappingEnabled, setVideoPlaying, getVideoElement]);
+  }, [snappingEnabled, isExporting, setCurrentTool, setSnappingEnabled, setVideoPlaying, getVideoElement, currentTime, duration, seekVideo]);
 
   const handleTimelineClick = (e: React.MouseEvent) => {
     if (!timelineRef.current || isDragging) return;

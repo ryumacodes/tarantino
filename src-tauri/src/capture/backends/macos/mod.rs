@@ -69,6 +69,7 @@ impl ScreenCaptureKitBackend {
             height: display.height,
             scale_factor: display.scale_factor,
             is_primary: display.is_primary,
+            owner_name: String::new(),
         }
     }
 
@@ -82,6 +83,7 @@ impl ScreenCaptureKitBackend {
             height: window.height,
             scale_factor: 1.0, // Windows don't have independent scale
             is_primary: false,
+            owner_name: window.owner_name,
         }
     }
 }

@@ -143,6 +143,9 @@ pub struct ExportSettings {
     pub audio_settings: Option<AudioSettingsExport>,
     // Zoom blocks for effects
     pub zoom_blocks: Option<Vec<ZoomBlock>>,
+    // Source video dimensions for aspect-correct scaling
+    pub source_width: Option<u32>,
+    pub source_height: Option<u32>,
     // Animation speed preset + actual spring values from frontend (source of truth)
     pub animation_speed: Option<String>,
     pub zoom_spring_tension: Option<f64>,

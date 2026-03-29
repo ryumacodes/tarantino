@@ -173,11 +173,14 @@ const CaptureBar: React.FC = () => {
     // Backend expects: "desktop" | "window" | "device" (lowercase)
     const backendMode = mode === 'display' ? 'desktop' : mode;
     await invoke('capture_set_mode', { mode: backendMode });
-    
+
     if (mode === 'display' && displays.length > 0) {
       await selectDisplay(displays[0].id);
-    } else if (mode === 'window' && windows.length > 0) {
-      await selectWindow(windows[0].id);
+    } else if (mode === 'window') {
+      // Don't auto-select — user must pick a window from the menu
+      if (!selectedWindow) {
+        showWindowMenu();
+      }
     } else if (mode === 'device' && devices.length > 0) {
       await selectDevice(devices[0].id);
     }
@@ -308,6 +311,47 @@ const CaptureBar: React.FC = () => {
     await menu.popup();
   };
 
+  const showWindowMenu = async () => {
+    // Refresh window list before showing
+    let freshWindows = windows;
+    try {
+      const windowList = await invoke<any[]>('get_windows');
+      setWindows(windowList);
+      freshWindows = windowList;
+    } catch (e) {
+      console.error('Failed to refresh windows:', e);
+    }
+
+    // Backend already filters to layer-0 app windows with titles.
+    // Just exclude our own app here.
+    const appWindows = freshWindows.filter((w: any) => {
+      const appName = w.app_name || '';
+      if (appName === 'Tarantino' || appName === 'tarantino') return false;
+      return true;
+    });
+
+    if (appWindows.length === 0) {
+      const noItems = await MenuItem.new({ text: 'No windows available', enabled: false });
+      const menu = await Menu.new({ items: [noItems] });
+      await menu.popup();
+      return;
+    }
+
+    const items = await Promise.all(
+      appWindows.map((w: any) =>
+        MenuItem.new({
+          text: `${selectedWindow === w.id ? '\u2713 ' : '   '}${w.app_name ? w.app_name + ' — ' : ''}${w.title}`,
+          action: () => {
+            setSelectedWindow(w.id);
+            selectWindow(w.id);
+          },
+        })
+      )
+    );
+    const menu = await Menu.new({ items });
+    await menu.popup();
+  };
+
   const getOutputResolution = () => {
     // For non-display modes (window, area), use 16:9 aspect ratio (Screen Studio style)
     // For display mode, use the display's actual dimensions
@@ -331,7 +375,10 @@ const CaptureBar: React.FC = () => {
     }
   };
 
+  const canRecord = isRecording || captureMode !== 'window' || selectedWindow !== null;
+
   const handleRecord = async () => {
+    if (!canRecord) return;
     if (isRecording) {
       // Show capture bar again when stopping recording
       const captureWindow = Window.getCurrent();
@@ -377,7 +424,7 @@ const CaptureBar: React.FC = () => {
   return (
     <div className="capture-bar-pill" onMouseDown={handleDragStart}>
       <div
-        className={cn('capture-bar__record', { recording: isRecording })}
+        className={cn('capture-bar__record', { recording: isRecording, disabled: !canRecord })}
         onClick={handleRecord}
       >
         <div className="record-dot" />
@@ -418,12 +465,20 @@ const CaptureBar: React.FC = () => {
         </button>
         <button
           className={cn('capture-bar__mode', { active: captureMode === 'window' })}
-          onClick={() => handleModeChange('window')}
+          onClick={() => {
+            if (captureMode === 'window') {
+              showWindowMenu();
+            } else {
+              handleModeChange('window');
+            }
+          }}
           title="Capture Window"
         >
           <Square size={16} />
-          <span>Window</span>
+          <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{captureMode === 'window' && selectedWindow ? (windows.find((w: any) => w.id === selectedWindow)?.title || 'Window') : 'Window'}</span>
+          {captureMode === 'window' && <ChevronDown size={12} />}
         </button>
+        {/* Area capture: considering but not decided — hiding for now
         <button
           className={cn('capture-bar__mode', { active: captureMode === 'area' })}
           onClick={() => handleModeChange('area')}
@@ -432,6 +487,7 @@ const CaptureBar: React.FC = () => {
           <Crop size={16} />
           <span>Area</span>
         </button>
+        */}
         {/* TODO: Device capture not yet implemented - iOS/Android mirroring
         <button
           className={cn('capture-bar__mode', { active: captureMode === 'device' })}
