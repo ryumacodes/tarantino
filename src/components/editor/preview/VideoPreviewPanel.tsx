@@ -134,7 +134,9 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
     '1:1': 1, '21:9': 21/9,
   };
   const videoAspectNum = captureMode === 'window'
-    ? (ASPECT_RATIOS_NUM[visualSettings.aspectRatio] || 16/9)
+    ? (ASPECT_RATIOS_NUM[visualSettings.aspectRatio]
+        // 'auto' → use source video aspect (matches getExportDimensions behaviour)
+        || (displayResolution ? displayResolution.width / displayResolution.height : 16 / 9))
     : displayResolution
       ? displayResolution.width / displayResolution.height
       : 16 / 9;

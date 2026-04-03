@@ -109,7 +109,9 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
     '16:9': 16/9, '9:16': 9/16, '4:3': 4/3, '1:1': 1, '21:9': 21/9,
   };
   const videoAspect = captureMode === 'window'
-    ? (ASPECT_MAP[visualSettings.aspectRatio] || 16/9)
+    ? (ASPECT_MAP[visualSettings.aspectRatio]
+        // 'auto' → use source video aspect (matches getExportDimensions behaviour)
+        || (displayResolution ? displayResolution.width / displayResolution.height : 16 / 9))
     : displayResolution
       ? displayResolution.width / displayResolution.height
       : 16 / 9;
@@ -316,18 +318,29 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
     };
 
     if (captureMode === 'window') {
-      // Window mode: zoom crops within the fixed frame, background stays visible
-      const scaledW = Math.min(planeWidth * animatedScale, basePlaneWidth);
-      const scaledH = Math.min(planeHeight * animatedScale, basePlaneHeight);
-      meshRef.current.scale.set(scaledW, scaledH, 1);
+      // Window mode: zoom the entire canvas (video + background + shadow) as one unit
+      // so background bars zoom with the video, matching display/screen behavior.
+      // Only groupRef is touched here — display mode path below is completely unchanged.
+      if (groupRef.current) {
+        groupRef.current.scale.set(animatedScale, animatedScale, 1);
+        groupRef.current.position.set(offsetX, offsetY, 0);
+      }
+      meshRef.current.scale.set(planeWidth, planeHeight, 1);
+      meshRef.current.position.set(0, 0, 0);
     } else {
+      // Display mode: unchanged — zoom just the video mesh
+      // Reset group transform in case user switched from a window recording
+      if (groupRef.current) {
+        groupRef.current.scale.set(1, 1, 1);
+        groupRef.current.position.set(0, 0, 0);
+      }
       meshRef.current.scale.set(
         planeWidth * animatedScale,
         planeHeight * animatedScale,
         1
       );
+      meshRef.current.position.set(offsetX, offsetY, 0);
     }
-    meshRef.current.position.set(offsetX, offsetY, 0);
 
     videoTransformRef.current.scale = animatedScale;
     videoTransformRef.current.offsetX = offsetX;

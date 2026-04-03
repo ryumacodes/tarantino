@@ -161,15 +161,7 @@ export const drawCursor = (params: DrawCursorParams) => {
       drawArrowCursor(ctx, canvasX, canvasY, currentCursorColor, '#000000', 1.5 * cursorScale, cursorScale, cursorShadowIntensity, rotation);
   }
 
-  // Draw click highlight ring (only for pointer-style cursors)
-  if (isClicking && cursorStyle !== 'circle' && clickEffect === 'none') {
-    const hlRgb = parseColor(cursorHighlightColor);
-    ctx.beginPath();
-    ctx.arc(canvasX + 5 * cursorScale, canvasY + 5 * cursorScale, 18 * cursorScale, 0, 2 * Math.PI);
-    ctx.strokeStyle = `rgba(${hlRgb.r}, ${hlRgb.g}, ${hlRgb.b}, 0.7)`;
-    ctx.lineWidth = 3 * cursorScale;
-    ctx.stroke();
-  }
+  // clickEffect=none means no click visual at all
 
   ctx.restore();
 };

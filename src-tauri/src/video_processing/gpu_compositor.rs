@@ -677,28 +677,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 }
             }
 
-            // Click highlight ring (clickEffect=none, non-circle cursor)
-            if (u.is_clicking > 0.5 && u.click_effect < 0.5 && u.cursor_style > -0.5 && u.cursor_style < 0.5) {
-                let ring_center = cursor_px + vec2<f32>(5.0 * s, 5.0 * s);
-                let ring_dist = length(px - ring_center);
-                let ring_r = 18.0 * s;
-                let ring_d = abs(ring_dist - ring_r);
-                let ring_mask = 1.0 - smoothstep(0.0, 3.0 * s, ring_d);
-                if (ring_mask * 0.7 * opacity > 0.001) {
-                    result = alpha_blend(result, vec4<f32>(hl_color, ring_mask * 0.7 * opacity));
-                }
-            }
-            // Also for non-circle styles (style >= 2)
-            if (u.is_clicking > 0.5 && u.click_effect < 0.5 && u.cursor_style > 1.5) {
-                let ring_center = cursor_px + vec2<f32>(5.0 * s, 5.0 * s);
-                let ring_dist = length(px - ring_center);
-                let ring_r = 18.0 * s;
-                let ring_d = abs(ring_dist - ring_r);
-                let ring_mask = 1.0 - smoothstep(0.0, 3.0 * s, ring_d);
-                if (ring_mask * 0.7 * opacity > 0.001) {
-                    result = alpha_blend(result, vec4<f32>(hl_color, ring_mask * 0.7 * opacity));
-                }
-            }
+            // clickEffect=none means no click visual at all
         }
     }
 

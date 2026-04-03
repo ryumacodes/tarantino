@@ -66,6 +66,11 @@ class CursorEffectImpl extends Effect {
         ['uTrailPoints', new THREE.Uniform(trailDefault)],
         ['uResolutionX', new THREE.Uniform(1920.0)],
         ['uResolutionY', new THREE.Uniform(1080.0)],
+        ['uVideoClipEnabled', new THREE.Uniform(0.0)],
+        ['uVideoClipMinX', new THREE.Uniform(0.0)],
+        ['uVideoClipMinY', new THREE.Uniform(0.0)],
+        ['uVideoClipMaxX', new THREE.Uniform(99999.0)],
+        ['uVideoClipMaxY', new THREE.Uniform(99999.0)],
       ]),
     });
   }
@@ -246,17 +251,43 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     u.get('uRippleColorG')!.value = rippleCol.g;
     u.get('uRippleColorB')!.value = rippleCol.b;
     u.get('uShadowIntensity')!.value = vs.cursorShadowIntensity;
-    u.get('uRippleProgress')!.value = rippleProgress;
-    u.get('uRippleX')!.value = rippleScreenX;
-    u.get('uRippleY')!.value = rippleScreenY;
-    u.get('uCircleHlProgress')!.value = 0;
-    u.get('uCircleHlX')!.value = 0;
-    u.get('uCircleHlY')!.value = 0;
+    // Route animation data to the correct effect uniforms
+    if (clickEffectVal === 1) {
+      // Circle: use ripple animation data for circle highlight
+      u.get('uRippleProgress')!.value = 0;
+      u.get('uRippleX')!.value = 0;
+      u.get('uRippleY')!.value = 0;
+      u.get('uCircleHlProgress')!.value = rippleProgress;
+      u.get('uCircleHlX')!.value = rippleScreenX;
+      u.get('uCircleHlY')!.value = rippleScreenY;
+    } else {
+      // Ripple or None
+      u.get('uRippleProgress')!.value = rippleProgress;
+      u.get('uRippleX')!.value = rippleScreenX;
+      u.get('uRippleY')!.value = rippleScreenY;
+      u.get('uCircleHlProgress')!.value = 0;
+      u.get('uCircleHlX')!.value = 0;
+      u.get('uCircleHlY')!.value = 0;
+    }
     u.get('uTrailEnabled')!.value = vs.cursorTrailEnabled ? 1.0 : 0.0;
     u.get('uTrailCount')!.value = trailHistory.current.length;
     u.get('uTrailOpacity')!.value = vs.cursorTrailOpacity;
     u.get('uResolutionX')!.value = resX;
     u.get('uResolutionY')!.value = resY;
+
+    // Video plane bounds clipping (window mode only — display mode is unaffected)
+    if (store.captureMode === 'window') {
+      const halfW = transform.planeWidth * transform.scale / 2;
+      const halfH = transform.planeHeight * transform.scale / 2;
+      // Convert world coords to pixel coords (matching shader pixel space)
+      u.get('uVideoClipEnabled')!.value = 1.0;
+      u.get('uVideoClipMinX')!.value = (0.5 + (transform.offsetX - halfW) / transform.viewportWidth) * resX;
+      u.get('uVideoClipMinY')!.value = (0.5 + (transform.offsetY - halfH) / transform.viewportHeight) * resY;
+      u.get('uVideoClipMaxX')!.value = (0.5 + (transform.offsetX + halfW) / transform.viewportWidth) * resX;
+      u.get('uVideoClipMaxY')!.value = (0.5 + (transform.offsetY + halfH) / transform.viewportHeight) * resY;
+    } else {
+      u.get('uVideoClipEnabled')!.value = 0.0;
+    }
 
     // Trail points
     const trailUniform = u.get('uTrailPoints')!.value as THREE.Vector4[];

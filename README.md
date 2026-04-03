@@ -1,24 +1,29 @@
 # Tarantino
 
-A GPU-accelerated screen recording app with a minimal floating capture bar, draggable webcam overlay, and powerful editing features.
+A GPU-accelerated screen recording and editing app with a minimal floating capture bar, draggable webcam overlay, and a powerful video editor with real-time preview.
 
 ## Features
 
-- **Floating Capture Bar**: Minimal, always-on-top UI with four capture modes (Display, Window, Area, Device)
+- **Floating Capture Bar**: Minimal, always-on-top UI with capture modes (Display, Window, Area)
 - **Input Controls**: Camera, Microphone, and System Audio toggles with device selection
 - **Pre-record Webcam Overlay**: Draggable, resizable webcam preview with circle/rounded rectangle shapes
-- **GPU Compositor**: wgpu-based real-time compositing with zero-copy pipeline
-- **Hardware Encoding**: Platform-native encoders (VideoToolbox, Media Foundation, NVENC/VAAPI)
-- **Editor UI**: Three.js-powered viewer with timeline, zoom keyframes, and overlay tools
-- **Cross-platform**: macOS 13+, Windows 11+, Linux (Wayland/X11)
+- **GPU Compositor**: wgpu compute shaders for zoom, cursor, corners, shadow, motion blur, webcam overlay, and device frames
+- **Hardware Encoding**: VideoToolbox on macOS
+- **Video Editor**: Three.js real-time preview with timeline, spring-physics zoom blocks, SDF cursor rendering, and post-processing effects
+- **Smart Zoom**: Auto-detected and manual zoom blocks with per-block spring physics (slow/mellow/quick/rapid), cursor-follow phase, configurable in/out speeds
+- **Cursor Rendering**: SDF-based with 5 styles (pointer, circle, filled, outline, dotted), click effects (ripple, circle highlight), trail, idle fade, rotation
+- **Visual Effects**: Padding, corner radius, shadows, background (solid/gradient/wallpaper), device frames, motion blur (pan + zoom channels)
+- **Export Pipeline**: GPU-accelerated with FFmpeg decode/encode, wgpu compute compositing, audio muxing
 
 ## Tech Stack
 
-- **Backend**: Rust + Tauri 2.0
-- **GPU Pipeline**: wgpu (Metal/D3D12/Vulkan)
-- **Frontend**: React + TypeScript + Vite
-- **3D Viewer**: Three.js + React Three Fiber
-- **Styling**: Tailwind CSS
+- **Backend**: Rust + Tauri 2.9
+- **GPU Pipeline**: wgpu 0.19 (Metal/D3D12/Vulkan) with WGSL compute shaders
+- **Frontend**: React 19 + TypeScript 5.7 + Vite 5
+- **3D Preview**: Three.js 0.180 + React Three Fiber 9 + postprocessing 6
+- **State Management**: Zustand 4 + Immer
+- **Styling**: Tailwind CSS 3
+- **Package Manager**: pnpm 8
 
 ## Development
 
@@ -26,8 +31,9 @@ A GPU-accelerated screen recording app with a minimal floating capture bar, drag
 
 - Rust 1.75+
 - Node.js 18+
-- pnpm
-- Platform-specific requirements:
+- pnpm 8+
+- FFmpeg (runtime dependency for decode/encode)
+- Platform-specific:
   - macOS: Xcode Command Line Tools, Homebrew
   - Windows: Visual Studio 2022 with C++ tools
   - Linux: Development libraries for your distro
@@ -50,89 +56,82 @@ pnpm tauri:build
 
 ## Architecture
 
-### Capture Architecture (v0.2.0)
+### Capture Pipeline
 
-We use a thin cross‑platform abstraction with the best native backend per OS.
+Native backend per OS with a thin cross-platform abstraction.
 
 - Core trait: `NativeCaptureBackend` with `enumerate_sources`, `start_capture`, `frame_receiver`, `stop_capture`, and `capabilities`.
 - Backends:
-  - macOS: ScreenCaptureKit (✅ complete)
-  - Windows: DXGI Desktop Duplication (stub)
-  - Linux: PipeWire via xdg-desktop-portal (stub)
+  - macOS: ScreenCaptureKit (complete) — display, window, and area capture
+  - Windows: DXGI Desktop Duplication (planned)
+  - Linux: PipeWire via xdg-desktop-portal (planned)
 
-Why: native backends deliver higher FPS, lower latency, cursor/window inclusion, HDR/HiDPI awareness, and are maintained by platform vendors. The old FFmpeg/xcap-based implementations have been fully removed.
+### Recording Modes
 
-### Using the Backend (Low-Level)
+- **Display/Screen**: Full display capture at native resolution
+- **Window**: Individual window capture, aspect-fitted inside export canvas with background fill, padding, and letterbox/pillarbox
 
-```rust
-use crate::capture::backends::{CaptureBackendFactory, CaptureConfig, CaptureSourceType};
+### GPU Export Pipeline
 
-let mut backend = CaptureBackendFactory::create_backend()?;
-let perms = backend.check_permissions().await?;
-if !perms.screen_recording { backend.request_permissions().await?; }
+All per-frame effects run on the GPU via wgpu compute shaders:
 
-let sources = backend.enumerate_sources().await?;
-let primary = sources.iter().find(|s| s.is_primary).unwrap();
+1. FFmpeg decodes source video to raw RGBA frames
+2. wgpu compute shader composites each frame: background → shadow → zoom/pan → motion blur → rounded corners → video → SDF cursor → webcam → device frame
+3. FFmpeg encodes composited RGBA frames to output format with optional audio mux
 
-let handle = backend.start_capture(CaptureConfig {
-  source_id: primary.id,
-  source_type: CaptureSourceType::Display,
-  fps: 60,
-  include_cursor: true,
-  include_audio: false,
-  region: None,
-}).await?;
+### Video Editor Preview
 
-if let Some(mut rx) = backend.frame_receiver() {
-  while let Ok(frame) = rx.recv().await {
-    // frame.data (Bytes), frame.width, frame.height
-  }
-}
+Real-time Three.js preview matching the export pipeline:
 
-backend.stop_capture().await?;
-```
+- Spring-physics zoom with per-block speed presets and cursor-follow
+- SDF cursor via GLSL post-processing (same shapes as export WGSL)
+- Motion blur via directional + radial sampling
+- Video plane aspect-fitting and padding matching export layout
+- Window mode: entire canvas (video + background + shadow) zooms as one unit
 
-### macOS Notes (SCK)
-- Requires macOS 12.3+
-- Grant System Settings → Privacy & Security → Screen Recording
-- Use BGRA pixel format; window capture supported
+### Mouse Event Sidecar
 
-### State + IPC
-- Commands: `record_start_native`, `record_stop_native`, `project_open`, editor controls
-- The recording session manager is being reworked to sit on top of the new backends.
-
-### Encoding
-- macOS: VideoToolbox (planned wiring after capture migration)
-- Windows: Media Foundation (planned)
-- Linux: Pipeline with VAAPI/NVENC (planned)
+Mouse events captured via rdev during recording, stored as `.mouse.json` sidecar files. Coordinates normalized to [0,1] using recording area bounds. Same sidecar drives both preview and export cursor simulation.
 
 ### State Management
 
 - **Recording State**: Idle → PreRecord → Recording → Review
-- **Capture Modes**: Display, Window, Area, Device
-- **Input States**: Camera, Mic, System Audio (all default off)
+- **Capture Modes**: Display, Window, Area
+- **Editor Store**: Zustand + Immer with action slices (zoom, settings, playback)
 
 ### IPC Commands
 
-The app uses Tauri's IPC system for UI-to-native communication:
+Tauri IPC for UI-to-native communication:
 
-- `capture_set_mode`: Switch capture mode
-- `capture_select_*`: Select display/window/area/device
-- `input_set_*`: Configure camera/mic/system audio
-- `webcam_set_transform`: Update overlay position/size
-- `record_start/stop/pause/resume`: Control recording
-- `export_start`: Begin export with preset
+- `capture_set_mode` / `capture_select_*`: Capture configuration
+- `input_set_*`: Camera/mic/system audio
+- `webcam_set_transform`: Overlay position/size
+- `record_start_native` / `record_stop_native`: Recording control
+- `export_video`: GPU-accelerated export with full visual settings
+- `compute_cursor_trajectory`: Pre-compute cursor positions for preview
+
+### macOS Notes (ScreenCaptureKit)
+
+- Requires macOS 12.3+
+- Grant System Settings → Privacy & Security → Screen Recording
+- BGRA pixel format; window capture supported
+- HiDPI/Retina: coordinates from rdev are in logical pixels (points)
 
 ## Roadmap
 
-- [ ] Complete platform capture implementations
-- [ ] Hardware encoder integration
-- [ ] Audio DSP (noise gate, EQ)
-- [ ] Auto-dodge cursor avoidance
+- [ ] Windows capture backend (DXGI Desktop Duplication)
+- [ ] Linux capture backend (PipeWire / xdg-desktop-portal)
+- [ ] Windows hardware encoding (Media Foundation)
+- [ ] Linux hardware encoding (VAAPI/NVENC)
+- [ ] Audio DSP (noise gate, EQ, gain normalization)
+- [ ] Auto-dodge cursor avoidance for zoom
 - [ ] Export presets (1080p60, 1440p60, 4K60)
-- [ ] Sidecar JSON for non-destructive edits
-- [ ] Hotkey support
+- [ ] Hotkey / global shortcut support
 - [ ] Multi-monitor DPI handling
+- [ ] Area capture selection UI
+- [ ] Gradient and image background export support
+- [ ] Trim / split in timeline editor
+- [ ] Undo/redo for editor actions
 
 ## License
 

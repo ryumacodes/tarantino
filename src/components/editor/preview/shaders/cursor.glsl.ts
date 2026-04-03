@@ -46,6 +46,13 @@ uniform vec4 uTrailPoints[30];   // (x, y, alpha, size) in screen UV
 uniform float uResolutionX;
 uniform float uResolutionY;
 
+// Video plane bounds clipping (window mode only)
+uniform float uVideoClipEnabled;
+uniform float uVideoClipMinX;  // pixel coords
+uniform float uVideoClipMinY;
+uniform float uVideoClipMaxX;
+uniform float uVideoClipMaxY;
+
 // Distance from point p to line segment a-b
 float sdSegment(vec2 p, vec2 a, vec2 b) {
   vec2 pa = p - a;
@@ -144,6 +151,16 @@ vec4 alphaBlend(vec4 dst, vec4 src) {
 void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
   // Convert UV to pixel coordinates
   vec2 pixel = uv * vec2(uResolutionX, uResolutionY);
+
+  // Video plane bounds clipping — skip all cursor rendering outside video area (window mode)
+  if (uVideoClipEnabled > 0.5) {
+    if (pixel.x < uVideoClipMinX || pixel.x > uVideoClipMaxX ||
+        pixel.y < uVideoClipMinY || pixel.y > uVideoClipMaxY) {
+      outputColor = inputColor;
+      return;
+    }
+  }
+
   vec2 cursorPixel = vec2(uCursorX, uCursorY) * vec2(uResolutionX, uResolutionY);
 
   float s = uCursorScale;
@@ -393,32 +410,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
       }
     }
 
-    // --- 6. Click highlight ring (when clickEffect=none & clicking) ---
-    if (uIsClicking > 0.5 && uClickEffect < 0.5 && uCursorStyle > 0.5) {
-      // Don't show for circle style — match Canvas 2D behavior
-    }
-    if (uIsClicking > 0.5 && uClickEffect < 0.5 && uCursorStyle < 0.5) {
-      // For non-circle cursor styles with no click effect
-      vec2 ringCenter = cursorPixel + vec2(5.0 * s, -5.0 * s);
-      float dist = length(pixel - ringCenter);
-      float ringRadius = 18.0 * s;
-      float ring = abs(dist - ringRadius);
-      float ringMask = 1.0 - smoothstep(0.0, 3.0 * s, ring);
-      if (ringMask * 0.7 * opacity > 0.001) {
-        result = alphaBlend(result, vec4(highlightColor, ringMask * 0.7 * opacity));
-      }
-    }
-    // Also for filled/outline/dotted styles
-    if (uIsClicking > 0.5 && uClickEffect < 0.5 && uCursorStyle > 1.5) {
-      vec2 ringCenter = cursorPixel + vec2(5.0 * s, -5.0 * s);
-      float dist = length(pixel - ringCenter);
-      float ringRadius = 18.0 * s;
-      float ring = abs(dist - ringRadius);
-      float ringMask = 1.0 - smoothstep(0.0, 3.0 * s, ring);
-      if (ringMask * 0.7 * opacity > 0.001) {
-        result = alphaBlend(result, vec4(highlightColor, ringMask * 0.7 * opacity));
-      }
-    }
+    // --- 6. Click highlight ring (clickEffect=none means no visual) ---
   }
 
   outputColor = result;
