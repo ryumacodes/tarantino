@@ -377,24 +377,30 @@ pub async fn export_run(
 
 /// Hide UI elements for clean recording
 async fn hide_ui_for_recording(app: &AppHandle) -> Result<(), String> {
+    // Hide webcam preview FIRST so it doesn't appear in the screen recording
+    if let Some(wc) = app.get_webview_window("webcam-preview") {
+        wc.hide().map_err(|e| e.to_string())?;
+        println!("Webcam preview hidden for recording");
+    }
+
     // Hide capture bar
     if let Some(bar) = app.get_webview_window("capture-bar") {
         bar.hide().map_err(|e| e.to_string())?;
         println!("Capture bar hidden for recording");
     }
-    
+
     // Hide display preview
     if let Some(preview) = app.get_webview_window("display-preview") {
         preview.hide().map_err(|e| e.to_string())?;
         println!("Display preview hidden for recording");
     }
-    
+
     // Close any existing recording HUD
     if let Some(hud) = app.get_webview_window("recording-hud") {
         let _ = hud.close();
         println!("Recording HUD closed");
     }
-    
+
     Ok(())
 }
 

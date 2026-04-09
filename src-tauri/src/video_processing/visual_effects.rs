@@ -93,25 +93,42 @@ pub fn determine_output_path(settings: &ExportSettings, input_path: &Path) -> Re
     }
 }
 
-/// Get webcam info from sidecar
+/// Get webcam info — looks for {recording}.webcam.mp4 alongside the video.
+/// Falls back to old sidecar/webcam.webm format for compatibility.
 pub fn get_webcam_info(input_path: &Path) -> Option<(PathBuf, f64, f64, f64, String)> {
-    let sidecar_folder = input_path.parent()?.join(
-        format!("{}.sidecar", input_path.file_stem()?.to_str()?)
-    );
-    let webcam_path = sidecar_folder.join("webcam.webm");
-    let webcam_metadata_path = sidecar_folder.join("webcam.json");
+    let dir = input_path.parent()?;
+    let stem = input_path.file_stem()?.to_str()?;
 
-    if webcam_path.exists() && webcam_metadata_path.exists() {
-        let metadata_str = std::fs::read_to_string(&webcam_metadata_path).ok()?;
-        let webcam_meta: serde_json::Value = serde_json::from_str(&metadata_str).ok()?;
-        let pos_x = webcam_meta["position"]["x"].as_f64().unwrap_or(0.86);
-        let pos_y = webcam_meta["position"]["y"].as_f64().unwrap_or(0.14);
-        let size = webcam_meta["size"].as_f64().unwrap_or(0.12);
-        let shape = webcam_meta["shape"].as_str().unwrap_or("circle").to_string();
-        println!("Found webcam overlay: x={:.2}, y={:.2}, size={:.2}, shape={}",
-            pos_x, pos_y, size, shape);
-        Some((webcam_path, pos_x, pos_y, size, shape))
+    // Strip processed_ prefix to find the original webcam file
+    let base_stem = if stem.starts_with("processed_") {
+        &stem["processed_".len()..]
     } else {
-        None
+        stem
+    };
+
+    // New format: {base}.webcam.mp4 alongside the video
+    let webcam_mp4 = dir.join(format!("{}.webcam.mp4", base_stem));
+    if webcam_mp4.exists() {
+        // Use default position/size — editor settings are applied via GPU config
+        println!("Found webcam overlay: {}", webcam_mp4.display());
+        return Some((webcam_mp4, 0.85, 0.85, 0.15, "circle".to_string()));
     }
+
+    // Legacy: sidecar folder format
+    let sidecar_folder = dir.join(format!("{}.sidecar", base_stem));
+    let webcam_webm = sidecar_folder.join("webcam.webm");
+    if webcam_webm.exists() {
+        let webcam_metadata_path = sidecar_folder.join("webcam.json");
+        if let Ok(metadata_str) = std::fs::read_to_string(&webcam_metadata_path) {
+            if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&metadata_str) {
+                let pos_x = meta["position"]["x"].as_f64().unwrap_or(0.86);
+                let pos_y = meta["position"]["y"].as_f64().unwrap_or(0.14);
+                let size = meta["size"].as_f64().unwrap_or(0.12);
+                let shape = meta["shape"].as_str().unwrap_or("circle").to_string();
+                return Some((webcam_webm, pos_x, pos_y, size, shape));
+            }
+        }
+    }
+
+    None
 }

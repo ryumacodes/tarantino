@@ -187,6 +187,11 @@ export interface VisualSettings {
   // Device Frame
   deviceFrame: DeviceFrame;
   deviceFrameColor: string; // Frame color (e.g., 'black', 'silver', 'gold')
+
+  // Webcam
+  webcamCorner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  webcamSize: number; // 0.08-0.25 (fraction of video width)
+  webcamShape: 'circle' | 'roundrect';
 }
 
 // Simplified zoom types (matching new Rust backend)

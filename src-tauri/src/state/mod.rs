@@ -38,6 +38,18 @@ pub struct UnifiedAppState {
 
     /// Tray timer handle and its associated cancellation flag
     tray_timer: Arc<Mutex<Option<(tokio::task::JoinHandle<()>, Arc<AtomicBool>)>>>,
+
+    /// Camera input state
+    pub camera_enabled: AtomicBool,
+    pub camera_device_id: Mutex<Option<String>>,
+
+    /// Active webcam capture session and encoding task
+    #[cfg(target_os = "macos")]
+    pub webcam_capture: Mutex<Option<crate::webcam::WebcamCapture>>,
+    #[cfg(target_os = "macos")]
+    pub webcam_task: Mutex<Option<tokio::task::JoinHandle<Result<String, String>>>>,
+    #[cfg(target_os = "macos")]
+    pub webcam_stop_signal: Arc<AtomicBool>,
 }
 
 impl UnifiedAppState {
@@ -48,6 +60,14 @@ impl UnifiedAppState {
             recording: RecordingStateManager::new()?,
             ui: UIStateManager::new(),
             tray_timer: Arc::new(Mutex::new(None)),
+            camera_enabled: AtomicBool::new(false),
+            camera_device_id: Mutex::new(None),
+            #[cfg(target_os = "macos")]
+            webcam_capture: Mutex::new(None),
+            #[cfg(target_os = "macos")]
+            webcam_task: Mutex::new(None),
+            #[cfg(target_os = "macos")]
+            webcam_stop_signal: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -228,12 +248,18 @@ impl UnifiedAppState {
 
     pub async fn set_camera_input(
         &self,
-        _enabled: bool,
-        _device_id: Option<String>,
+        enabled: bool,
+        device_id: Option<String>,
         _shape: String,
     ) -> Result<()> {
-        // TODO: Implement camera input settings
+        self.camera_enabled.store(enabled, Ordering::SeqCst);
+        *self.camera_device_id.lock() = device_id;
+        println!("Camera input: enabled={}", enabled);
         Ok(())
+    }
+
+    pub fn is_camera_enabled(&self) -> bool {
+        self.camera_enabled.load(Ordering::SeqCst)
     }
 
     pub async fn set_mic_input(&self, _enabled: bool, _device_id: Option<String>) -> Result<()> {

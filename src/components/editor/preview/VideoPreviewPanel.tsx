@@ -6,6 +6,7 @@ import { useEditorStore } from '../../../stores/editor';
 import { VideoViewer } from './VideoViewer';
 import { MotionBlurEffect } from './MotionBlurEffect';
 import { CursorEffect } from './CursorEffect';
+import { WebcamPreviewOverlay } from './WebcamPreviewOverlay';
 import { ZoomControls, ViewControls, PlaybackControls } from './PreviewControls';
 import './preview.css';
 
@@ -32,7 +33,7 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
   onSeek,
   showMouseOverlay
 }) => {
-  const { duration, currentTime, visualSettings, videoFilePath, displayResolution, captureMode } = useEditorStore();
+  const { duration, currentTime, visualSettings, videoFilePath, displayResolution, captureMode, hasWebcam } = useEditorStore();
 
   console.log('%c[VideoPreviewPanel] RENDERING', 'background: #ff0000; color: white; font-size: 16px;', {
     videoFilePath,
@@ -213,6 +214,16 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
               </EffectComposer>
             )}
           </Canvas>
+
+          {/* Webcam PIP overlay */}
+          {hasWebcam && videoFilePath && (
+            <WebcamPreviewOverlay
+              videoFilePath={videoFilePath}
+              corner={visualSettings.webcamCorner}
+              size={visualSettings.webcamSize}
+              shape={visualSettings.webcamShape}
+            />
+          )}
         </div>
 
         {/* Video Overlay Controls */}

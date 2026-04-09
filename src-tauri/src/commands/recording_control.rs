@@ -33,6 +33,11 @@ pub async fn record_start(
 
     println!("!!! RECORD_START CALLED !!!");
 
+    // Hide webcam preview FIRST so it doesn't appear in the screen recording
+    if let Some(wc) = app.get_webview_window("webcam-preview") {
+        wc.hide().map_err(|e| e.to_string())?;
+    }
+
     // Hide preview windows
     if let Some(preview) = app.get_webview_window("display-preview") {
         preview.hide().map_err(|e| e.to_string())?;
@@ -235,13 +240,38 @@ pub async fn record_stop(
         println!("Warning: Failed to save sidecar: {}", e);
     }
 
+    let (has_mic, has_system_audio) = state.get_recording_audio_flags();
+    let has_webcam = state.is_camera_enabled();
+
+    // Stop native webcam capture and wait for encoding to finish
+    #[cfg(target_os = "macos")]
+    if has_webcam {
+        state.webcam_stop_signal.store(true, std::sync::atomic::Ordering::SeqCst);
+        {
+            let mut guard = state.webcam_capture.lock();
+            if let Some(ref mut capture) = *guard {
+                capture.stop_recording();
+            }
+            *guard = None;
+        }
+        let webcam_task = state.webcam_task.lock().take();
+        if let Some(task) = webcam_task {
+            match tokio::time::timeout(std::time::Duration::from_secs(5), task).await {
+                Ok(Ok(Ok(path))) => println!("[Webcam] Saved: {}", path),
+                Ok(Ok(Err(e))) => println!("[Webcam] Encoding error: {}", e),
+                Ok(Err(e)) => println!("[Webcam] Task panic: {}", e),
+                Err(_) => println!("[Webcam] Timeout waiting for encoding"),
+            }
+        }
+        state.camera_enabled.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
     // Post-processing
     let final_media_path = crate::commands::processing::apply_post_processing(&media_path)
         .await
         .unwrap_or(media_path.clone());
 
-    let (has_mic, has_system_audio) = state.get_recording_audio_flags();
-    crate::commands::processing::open_editor(&app, &final_media_path, &sidecar_path, false, has_mic, has_system_audio)
+    crate::commands::processing::open_editor(&app, &final_media_path, &sidecar_path, has_webcam, has_mic, has_system_audio)
         .await?;
 
     app.emit("recording-stopped", final_media_path.clone())
@@ -291,7 +321,32 @@ pub async fn record_stop_instant(
         Ok((temp_path, recording_start_time)) => {
             println!("Recording stop signaled, temp path: {}", temp_path);
             println!("🖱️ [STOP_INSTANT] Captured recording_start_time: {:?}", recording_start_time);
-            crate::commands::processing::open_editor_with_loading(&app, &temp_path)
+            let has_webcam = state.is_camera_enabled();
+
+            // Stop native webcam capture and wait for encoding to finish
+            #[cfg(target_os = "macos")]
+            if has_webcam {
+                state.webcam_stop_signal.store(true, std::sync::atomic::Ordering::SeqCst);
+                {
+                    let mut guard = state.webcam_capture.lock();
+                    if let Some(ref mut capture) = *guard {
+                        capture.stop_recording();
+                    }
+                    *guard = None;
+                }
+                let webcam_task = state.webcam_task.lock().take();
+                if let Some(task) = webcam_task {
+                    match tokio::time::timeout(std::time::Duration::from_secs(5), task).await {
+                        Ok(Ok(Ok(path))) => println!("[Webcam] Saved: {}", path),
+                        Ok(Ok(Err(e))) => println!("[Webcam] Encoding error: {}", e),
+                        Ok(Err(e)) => println!("[Webcam] Task panic: {}", e),
+                        Err(_) => println!("[Webcam] Timeout waiting for encoding"),
+                    }
+                }
+                state.camera_enabled.store(false, std::sync::atomic::Ordering::SeqCst);
+            }
+
+            crate::commands::processing::open_editor_with_loading(&app, &temp_path, has_webcam)
                 .await
                 .map_err(|e| e.to_string())?;
             crate::commands::processing::spawn_background_recording_processing(
@@ -309,7 +364,7 @@ pub async fn record_stop_instant(
                 std::env::temp_dir().display(),
                 chrono::Local::now().timestamp()
             );
-            crate::commands::processing::open_editor_with_loading(&app, &placeholder_path)
+            crate::commands::processing::open_editor_with_loading(&app, &placeholder_path, false)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(placeholder_path)

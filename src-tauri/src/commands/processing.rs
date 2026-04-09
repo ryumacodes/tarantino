@@ -37,6 +37,9 @@ pub async fn open_editor(
     if let Some(ov) = app.get_webview_window("display-preview") {
         let _ = ov.close();
     }
+    if let Some(wc) = app.get_webview_window("webcam-preview") {
+        let _ = wc.close();
+    }
     if let Some(bar) = app.get_webview_window("capture-bar") {
         let _ = bar.hide();
     }
@@ -87,18 +90,22 @@ pub async fn open_editor(
 }
 
 /// Open the editor with a loading state while processing continues
-pub async fn open_editor_with_loading(app: &tauri::AppHandle, temp_path: &str) -> Result<()> {
+pub async fn open_editor_with_loading(app: &tauri::AppHandle, temp_path: &str, has_webcam: bool) -> Result<()> {
     if app.get_webview_window("editor").is_some() {
         return Ok(());
     }
 
     let url = format!(
-        "editor.html?loading=true&temp_path={}",
-        urlencoding::encode(temp_path)
+        "editor.html?loading=true&temp_path={}&webcam={}",
+        urlencoding::encode(temp_path),
+        has_webcam
     );
 
     if let Some(preview) = app.get_webview_window("display-preview") {
         let _ = preview.close();
+    }
+    if let Some(wc) = app.get_webview_window("webcam-preview") {
+        let _ = wc.close();
     }
     if let Some(bar) = app.get_webview_window("capture-bar") {
         let _ = bar.hide();
@@ -314,6 +321,17 @@ pub async fn process_recorded_file(
                     println!("⚠️ [PROCESS] Failed to move auto_zoom.json: {}", e);
                 } else {
                     println!("📁 [PROCESS] Moved auto_zoom.json to: {}", final_zoom);
+                }
+            }
+
+            // Move webcam.mp4 (native AVFoundation capture)
+            let temp_webcam = format!("{}.webcam.mp4", temp_base);
+            let final_webcam = format!("{}.webcam.mp4", final_base);
+            if std::path::Path::new(&temp_webcam).exists() {
+                if let Err(e) = std::fs::rename(&temp_webcam, &final_webcam) {
+                    println!("⚠️ [PROCESS] Failed to move webcam.mp4: {}", e);
+                } else {
+                    println!("📁 [PROCESS] Moved webcam.mp4 to: {}", final_webcam);
                 }
             }
         }

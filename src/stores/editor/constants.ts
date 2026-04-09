@@ -168,4 +168,8 @@ export const DEFAULT_VISUAL_SETTINGS: VisualSettings = {
   aspectRatio: 'auto',
   deviceFrame: 'none',
   deviceFrameColor: 'black',
+  // Webcam
+  webcamCorner: 'bottom-right',
+  webcamSize: 0.15,
+  webcamShape: 'circle',
 };

@@ -21,6 +21,8 @@ mod recording_commands;
 mod sidecar;
 mod state;
 mod video_processing;
+#[cfg(target_os = "macos")]
+mod webcam;
 mod zoom_preview;
 
 use anyhow::Result;

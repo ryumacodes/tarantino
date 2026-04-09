@@ -210,6 +210,14 @@ const CaptureBar: React.FC = () => {
       deviceId: selectedCameraDevice,
       shape: 'circle'
     });
+    // Auto-enable mic when camera is turned on (webcam recordings need voice)
+    if (enabled && !micEnabled) {
+      setMicEnabled(true);
+      await invoke('input_set_mic', {
+        enabled: true,
+        deviceId: selectedMicDevice || audioDevices.microphones[0]?.id || null
+      });
+    }
   };
 
   const handleCameraDeviceSelect = async (deviceId: string) => {

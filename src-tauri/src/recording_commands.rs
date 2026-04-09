@@ -69,9 +69,29 @@ pub async fn record_start_new(
         }
     }
 
+    // Save output path before start_recording consumes the config
+    let recording_output_path = recording_config.output_path.clone();
+
     // Start recording through unified state
     state.start_recording(recording_config).await
         .map_err(|e| format!("Failed to start recording: {}", e))?;
+
+    // Start webcam frame recording if camera capture is already running (from toggle)
+    #[cfg(target_os = "macos")]
+    if state.is_camera_enabled() {
+        let mut capture_guard = state.webcam_capture.lock();
+        if let Some(ref mut capture) = *capture_guard {
+            let frame_rx = capture.start_recording();
+            let webcam_path = std::path::PathBuf::from(
+                recording_output_path.replace(".mp4", ".webcam.mp4")
+            );
+            state.webcam_stop_signal.store(false, std::sync::atomic::Ordering::SeqCst);
+            let stop = Arc::clone(&state.webcam_stop_signal);
+            let task = crate::webcam::spawn_webcam_task(frame_rx, webcam_path, 30, stop);
+            *state.webcam_task.lock() = Some(task);
+            println!("[Webcam] Frame recording started (preview hidden)");
+        }
+    }
 
     // Get the current timestamp for recording start
     let started_at_ms = chrono::Utc::now().timestamp_millis();
@@ -180,17 +200,44 @@ pub async fn record_stop_instant_new(
     let (temp_path, _recording_start_time) = state.signal_stop_recording().await
         .map_err(|e| format!("Failed to signal stop: {}", e))?;
 
+    let has_webcam = state.is_camera_enabled();
+
+    // Stop native webcam capture and wait for encoding to finish
+    #[cfg(target_os = "macos")]
+    if has_webcam {
+        // Signal encoding task to stop
+        state.webcam_stop_signal.store(true, std::sync::atomic::Ordering::SeqCst);
+        // Stop frame delivery from camera (but keep session for potential reuse)
+        {
+            let mut guard = state.webcam_capture.lock();
+            if let Some(ref mut capture) = *guard {
+                capture.stop_recording();
+            }
+            // Also fully stop and release the capture session
+            *guard = None;
+        }
+        // Wait for encoding task to finish
+        let webcam_task = state.webcam_task.lock().take();
+        if let Some(task) = webcam_task {
+            match tokio::time::timeout(std::time::Duration::from_secs(5), task).await {
+                Ok(Ok(Ok(path))) => println!("[Webcam] Saved: {}", path),
+                Ok(Ok(Err(e))) => println!("[Webcam] Encoding error: {}", e),
+                Ok(Err(e)) => println!("[Webcam] Task panic: {}", e),
+                Err(_) => println!("[Webcam] Timeout waiting for encoding"),
+            }
+        }
+        state.camera_enabled.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
     // Open editor immediately with loading state
-    open_editor_with_loading(&app, &temp_path).await?;
+    open_editor_with_loading(&app, &temp_path, has_webcam).await?;
 
     // Start background processing
-    // Note: This path uses generate_zoom_analysis() which happens synchronously in signal_stop_recording(),
-    // so we don't need to pass recording_start_time to spawn_background_completion
     spawn_background_completion(app.clone(), Arc::clone(&*state), temp_path.clone());
-    
+
     // Emit recording stopping event
     app.emit("recording-stopping", ()).map_err(|e| e.to_string())?;
-    
+
     println!("Recording stop signaled, editor opened");
     Ok(temp_path)
 }
@@ -336,23 +383,29 @@ fn build_recording_config(
 
 /// Hide UI elements during recording
 async fn hide_ui_elements(app: &AppHandle) -> Result<(), String> {
+    // Hide webcam preview FIRST so it doesn't appear in the screen recording
+    if let Some(wc) = app.get_webview_window("webcam-preview") {
+        wc.hide().map_err(|e| e.to_string())?;
+        println!("Webcam preview hidden for recording");
+    }
+
     // Hide preview windows
     if let Some(preview) = app.get_webview_window("display-preview") {
         preview.hide().map_err(|e| e.to_string())?;
     }
-    
+
     // Hide capture bar
     if let Some(bar) = app.get_webview_window("capture-bar") {
         bar.hide().map_err(|e| e.to_string())?;
     }
-    
+
     println!("UI elements hidden for recording");
     Ok(())
 }
 
 
 /// Open editor with loading state
-async fn open_editor_with_loading(app: &AppHandle, temp_path: &str) -> Result<(), String> {
+async fn open_editor_with_loading(app: &AppHandle, temp_path: &str, has_webcam: bool) -> Result<(), String> {
     use tauri::WebviewWindowBuilder;
 
     // Wait for file to be readable and valid
@@ -396,6 +449,12 @@ async fn open_editor_with_loading(app: &AppHandle, temp_path: &str) -> Result<()
         println!("Closed recording HUD window");
     }
 
+    // Close webcam preview
+    if let Some(wc) = app.get_webview_window("webcam-preview") {
+        let _ = wc.close();
+        println!("Closed webcam preview window");
+    }
+
     // Hide capture bar (don't close - it keeps the app alive)
     if let Some(bar) = app.get_webview_window("capture-bar") {
         let _ = bar.hide();
@@ -403,7 +462,8 @@ async fn open_editor_with_loading(app: &AppHandle, temp_path: &str) -> Result<()
     }
 
     // Create new editor window with overlay titlebar (native traffic lights, no title chrome)
-    let builder = WebviewWindowBuilder::new(app, "editor", tauri::WebviewUrl::App("editor.html".into()))
+    let url = if has_webcam { "editor.html?webcam=true" } else { "editor.html" };
+    let builder = WebviewWindowBuilder::new(app, "editor", tauri::WebviewUrl::App(url.into()))
         .title("Tarantino Editor")
         .decorations(true)
         .inner_size(1400.0, 900.0)
@@ -446,10 +506,12 @@ fn spawn_background_completion(
                 // Notify editor that recording is ready (include audio flags)
                 if let Some(editor) = app.get_webview_window("editor") {
                     let (has_mic, has_system_audio) = state.get_recording_audio_flags();
+                    let has_webcam = state.is_camera_enabled();
                     let payload = serde_json::json!({
                         "path": final_path,
                         "has_mic": has_mic,
                         "has_system_audio": has_system_audio,
+                        "has_webcam": has_webcam,
                     });
                     if let Err(e) = editor.emit("recording-ready", payload) {
                         println!("Failed to notify editor: {}", e);

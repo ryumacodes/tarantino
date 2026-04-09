@@ -133,12 +133,16 @@ pub async fn export_video(
 
     // Simulate cursor positions with spring physics (GPU SDF rendering path — no image generation)
     let cursor_config = get_cursor_config(&settings);
+    let is_window_mode = settings.capture_mode.as_deref() == Some("window");
     let cursor_trajectory = if cursor_enabled && mouse_events_path.exists() && duration_ms > 0 {
         let raw_events = load_raw_cursor_events(&mouse_events_path, source_width, source_height);
         let cursor_spring = get_cursor_spring_config(&settings);
 
+        // Window mode: don't pre-transform cursor through zoom — the shader's inverse-zoom
+        // remap handles this at the composite level. Display mode: pre-transform as before.
+        let cursor_zoom_ref = if is_window_mode { &None } else { &zoom_trajectory };
         let positions = simulate_cursor_positions(
-            &raw_events, &cursor_spring, target_fps as f64, duration_ms, &zoom_trajectory, &cursor_config,
+            &raw_events, &cursor_spring, target_fps as f64, duration_ms, cursor_zoom_ref, &cursor_config,
         );
         println!("Simulated {} cursor positions (spring physics, SDF rendering)", positions.len());
 
@@ -184,6 +188,75 @@ pub async fn export_video(
         ripple_color,
         cursor_settings_ref,
     )?;
+
+    // Spawn webcam decoder if webcam recording exists
+    let webcam_frame_size: Option<(u32, u32)>;
+    let mut webcam_decoder: Option<std::process::Child> = None;
+    if let Some((ref webcam_path, _, _, _, _)) = webcam_info {
+        if webcam_path.exists() {
+            // Get webcam dimensions via ffprobe
+            let probe_output = Command::new("ffprobe")
+                .args([
+                    "-v", "quiet", "-select_streams", "v:0",
+                    "-show_entries", "stream=width,height",
+                    "-of", "csv=p=0",
+                    &webcam_path.to_string_lossy(),
+                ])
+                .output();
+            let (wc_w, wc_h) = probe_output.ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .and_then(|s| {
+                    let parts: Vec<&str> = s.trim().split(',').collect();
+                    if parts.len() == 2 {
+                        Some((parts[0].parse::<u32>().ok()?, parts[1].parse::<u32>().ok()?))
+                    } else { None }
+                })
+                .unwrap_or((1920, 1080)); // fallback
+
+            if wc_w > 0 && wc_h > 0 {
+                webcam_frame_size = Some((wc_w, wc_h));
+
+                // Initialize webcam texture on GPU
+                compositor.set_webcam_texture(wc_w, wc_h);
+
+                // Spawn FFmpeg to decode webcam to raw RGBA, same fps as main video
+                let wc_decoder = Command::new("ffmpeg")
+                    .args([
+                        "-y",
+                        "-i", &webcam_path.to_string_lossy(),
+                        "-vf", &format!("fps={},scale={}:{}", target_fps, wc_w, wc_h),
+                        "-f", "rawvideo",
+                        "-pix_fmt", "rgba",
+                        "-",
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .spawn();
+
+                match wc_decoder {
+                    Ok(child) => {
+                        webcam_decoder = Some(child);
+                        println!("  Webcam decoder: {}x{} from {}", wc_w, wc_h, webcam_path.display());
+                    }
+                    Err(e) => println!("  Warning: Failed to spawn webcam decoder: {}", e),
+                }
+            } else {
+                webcam_frame_size = None;
+            }
+        } else {
+            webcam_frame_size = None;
+        }
+    } else {
+        webcam_frame_size = None;
+    }
+
+    // Webcam frame buffer (allocated once, reused per frame)
+    let mut webcam_frame_buffer: Option<Vec<u8>> = webcam_frame_size.map(|(w, h)| {
+        vec![0u8; (w * h * 4) as usize]
+    });
+    let mut webcam_reader: Option<BufReader<std::process::ChildStdout>> = webcam_decoder.as_mut()
+        .and_then(|d| d.stdout.take())
+        .map(BufReader::new);
 
     // Spawn FFmpeg decoder (raw RGBA output)
     let mut decoder_args = vec![
@@ -319,6 +392,16 @@ pub async fn export_video(
                 else { Some(&t[frame_idx.min(t.len() - 1)]) }
             });
 
+        // Upload webcam frame to GPU (if available)
+        if let (Some(ref mut wc_reader), Some(ref mut wc_buf), Some((wc_w, wc_h))) =
+            (&mut webcam_reader, &mut webcam_frame_buffer, webcam_frame_size)
+        {
+            match wc_reader.read_exact(wc_buf) {
+                Ok(()) => compositor.upload_webcam_frame(wc_buf, wc_w, wc_h),
+                Err(_) => {} // Webcam video ended — last frame stays on GPU
+            }
+        }
+
         // GPU composite: zoom + blur + corners + shadow + cursor + webcam + device frame
         let composited = compositor.composite_frame(
             &frame_buffer,
@@ -365,6 +448,11 @@ pub async fn export_video(
     }
 
     drop(writer);
+    drop(webcam_reader);
+    if let Some(mut wc) = webcam_decoder {
+        let _ = wc.kill();
+        let _ = wc.wait();
+    }
 
     // Collect stderr
     if let Some(handle) = decoder_stderr_handle {

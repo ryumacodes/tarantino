@@ -97,6 +97,10 @@ function EditorShell() {
       const finalPath = typeof payload === 'string' ? payload : payload.path;
       const hasMic = typeof payload === 'object' ? !!payload.has_mic : false;
       const hasSystemAudio = typeof payload === 'object' ? !!payload.has_system_audio : false;
+      const hasWebcamFromPayload = typeof payload === 'object' ? !!payload.has_webcam : false;
+      // Also check URL params (set when editor opened)
+      const urlHasWebcam = new URLSearchParams(window.location.search).get('webcam') === 'true';
+      const webcamEnabled = hasWebcamFromPayload || urlHasWebcam;
 
       // Update state to trigger React re-render and proper video initialization
       setMediaPath(finalPath);
@@ -104,14 +108,13 @@ function EditorShell() {
       setIsLoading(true); // Reset loading state to trigger re-initialization
 
       // Initialize the editor with the final path
-      // This will trigger VideoPreviewPanel to properly reload with the new path
-      initializeEditorWithPath(finalPath, hasMic, hasSystemAudio);
+      initializeEditorWithPath(finalPath, hasMic, hasSystemAudio, webcamEnabled);
     });
   };
 
-  const initializeEditorWithPath = async (path: string, hasMic = false, hasSystemAudio = false) => {
+  const initializeEditorWithPath = async (path: string, hasMic = false, hasSystemAudio = false, hasWebcam = false) => {
     try {
-      console.log('Initializing editor with final path:', path);
+      console.log('Initializing editor with final path:', path, 'hasWebcam:', hasWebcam);
 
       // Get actual video duration and metadata
       const videoInfo = await invoke<any>('get_video_metadata', { filePath: path });
@@ -126,7 +129,7 @@ function EditorShell() {
       }
 
       console.log('Initializing editor with duration:', duration, 'video size:', videoInfo.width, 'x', videoInfo.height);
-      await initializeEditor(path, duration, false, hasMic, hasSystemAudio, videoInfo.width ?? null, videoInfo.height ?? null);
+      await initializeEditor(path, duration, hasWebcam, hasMic, hasSystemAudio, videoInfo.width ?? null, videoInfo.height ?? null);
 
       setIsLoading(false);
       log('Editor initialization complete');

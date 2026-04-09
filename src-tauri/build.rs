@@ -18,6 +18,7 @@ fn build_macos_backend() {
 
     println!("cargo:rerun-if-changed=src/capture/backends/macos/sck_wrapper.mm");
     println!("cargo:rerun-if-changed=src/encoder/macos/vt_encoder.mm");
+    println!("cargo:rerun-if-changed=src/capture/backends/macos/avcapture_wrapper.mm");
 
     // Compile ScreenCaptureKit wrapper
     cc::Build::new()
@@ -40,7 +41,18 @@ fn build_macos_backend() {
         .cpp(true)
         .compile("vt_encoder");
 
+    // Compile AVFoundation webcam capture wrapper
+    cc::Build::new()
+        .file("src/capture/backends/macos/avcapture_wrapper.mm")
+        .flag("-std=c++17")
+        .flag("-ObjC++")
+        .flag("-fobjc-arc")
+        .flag("-mmacosx-version-min=10.15")
+        .cpp(true)
+        .compile("avcapture_wrapper");
+
     // Link macOS frameworks
+    println!("cargo:rustc-link-lib=framework=AVFoundation");
     println!("cargo:rustc-link-lib=framework=ScreenCaptureKit");
     println!("cargo:rustc-link-lib=framework=VideoToolbox");
     println!("cargo:rustc-link-lib=framework=CoreMedia");

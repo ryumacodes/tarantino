@@ -6,5 +6,9 @@
     <string>Tarantino needs accessibility permissions to track mouse movements during screen recording for automatic zoom generation.</string>
     <key>NSScreenCaptureDescription</key>
     <string>Tarantino requires screen recording permissions to capture your screen content for video creation.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Tarantino needs camera access to record your webcam for picture-in-picture overlay in your videos.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Tarantino needs microphone access to record audio narration for your videos.</string>
 </dict>
 </plist>

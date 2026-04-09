@@ -20,6 +20,7 @@ export default defineConfig({
         editor: resolve(__dirname, 'editor.html'),
         preview: resolve(__dirname, 'preview.html'),
         'recording-hud': resolve(__dirname, 'recording-hud.html'),
+        webcam: resolve(__dirname, 'webcam.html'),
       },
     },
   },

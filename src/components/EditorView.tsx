@@ -151,11 +151,17 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
         // Source video dimensions for aspect-correct scaling
         source_width: storeState.videoWidth ?? null,
         source_height: storeState.videoHeight ?? null,
+        // Capture mode for window-mode zoom behavior
+        capture_mode: storeState.captureMode ?? 'display',
         // Animation settings — resolve preset to actual spring values (single source of truth)
         animation_speed: visualSettings.zoomSpeedPreset ?? 'mellow',
         zoom_spring_tension: SPRING_PRESETS[visualSettings.zoomSpeedPreset ?? 'mellow'].tension,
         zoom_spring_friction: SPRING_PRESETS[visualSettings.zoomSpeedPreset ?? 'mellow'].friction,
         zoom_spring_mass: SPRING_PRESETS[visualSettings.zoomSpeedPreset ?? 'mellow'].mass,
+        // Webcam overlay settings
+        webcam_corner: visualSettings.webcamCorner ?? 'bottom-right',
+        webcam_size: visualSettings.webcamSize ?? 0.15,
+        webcam_shape: visualSettings.webcamShape ?? 'circle',
       };
 
       console.log('[Export] Starting export with full pipeline settings:', exportConfig);

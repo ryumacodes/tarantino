@@ -46,6 +46,8 @@ pub struct GpuCompositorConfig {
     pub motion_blur_enabled: bool,
     pub motion_blur_pan_intensity: f32,
     pub motion_blur_zoom_intensity: f32,
+    /// Window mode: zoom applies to entire composite (video + background) as one unit
+    pub window_mode: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -165,6 +167,9 @@ struct CompositeUniforms {
     trail_enabled: f32,
     trail_count: f32,
     trail_opacity: f32,
+
+    // Window mode (zoom entire composite)
+    window_mode: f32,
 }
 
 /// Trail point data sent to GPU (matches CursorFrameState trail_points)
@@ -297,6 +302,7 @@ struct Uniforms {
     trail_enabled: f32,
     trail_count: f32,
     trail_opacity: f32,
+    window_mode: f32,
 };
 
 struct TrailPoint {
@@ -356,6 +362,34 @@ fn sample_with_motion_blur(uv: vec2<f32>) -> vec4<f32> {
         offset = offset + from_center * zoom_blur * t;
         let sample_uv = clamp(uv + offset, vec2<f32>(0.0), vec2<f32>(1.0));
         color = color + sample_zoomed(sample_uv) * weight;
+        total_weight = total_weight + weight;
+    }
+    return color / total_weight;
+}
+
+// Window mode motion blur: pan blur only (no zoom component — zoom is composite-level).
+fn sample_window_motion_blur(uv: vec2<f32>) -> vec4<f32> {
+    let base = textureSampleLevel(source_tex, bilinear_sampler, uv, 0.0);
+    if (u.motion_blur_enabled < 0.5) {
+        return base;
+    }
+    let pan_speed = sqrt(u.velocity_x * u.velocity_x + u.velocity_y * u.velocity_y);
+    let pan_blur = min(pan_speed * u.motion_blur_pan_intensity * 0.008, 0.012);
+    if (pan_blur < 0.001) {
+        return base;
+    }
+    var pan_dir = vec2<f32>(u.velocity_x, u.velocity_y);
+    let dir_mag = length(pan_dir);
+    if (dir_mag > 0.001) { pan_dir = pan_dir / dir_mag; } else { return base; }
+    var color = vec4<f32>(0.0);
+    var total_weight = 0.0;
+    let samples = 12;
+    for (var i = 0; i < samples; i = i + 1) {
+        let t = f32(i) / f32(samples - 1) - 0.5;
+        let weight = 1.0 - abs(t) * 0.5;
+        let offset = pan_dir * pan_blur * t;
+        let sample_uv = clamp(uv + offset, vec2<f32>(0.0), vec2<f32>(1.0));
+        color = color + textureSampleLevel(source_tex, bilinear_sampler, sample_uv, 0.0) * weight;
         total_weight = total_weight + weight;
     }
     return color / total_weight;
@@ -446,6 +480,18 @@ fn arrow_edge_dist(p: vec2<f32>, s: f32) -> f32 {
     return min_dist;
 }
 
+// Window mode: apply inverse zoom to get the pre-zoom composite coordinate.
+// This makes zoom apply to the entire composite (video + background + shadow) as one unit,
+// matching the preview behavior where the whole group scales together.
+fn window_inverse_zoom(out_px: vec2<f32>) -> vec2<f32> {
+    let scale = u.zoom_scale;
+    let center = vec2<f32>(
+        u.content_offset_x + u.input_offset_x + u.zoom_center_x * u.input_width,
+        u.content_offset_y + u.input_offset_y + u.zoom_center_y * u.input_height
+    );
+    return center + (out_px - center) / scale;
+}
+
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let x = gid.x;
@@ -455,28 +501,44 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (x >= out_w || y >= out_h) { return; }
 
     let pixel = vec2<i32>(i32(x), i32(y));
-    let px = vec2<f32>(f32(x), f32(y));
+    let out_px = vec2<f32>(f32(x), f32(y));
+
+    // Window mode: remap pixel through inverse zoom so the entire composite zooms as one unit.
+    // Display mode: px is the raw output pixel (zoom is applied per-texture in sample_zoomed).
+    let is_window = u.window_mode > 0.5;
+    var px = out_px;
+    if (is_window) {
+        px = window_inverse_zoom(out_px);
+    }
 
     // 1. Background color
     var result = vec4<f32>(u.bg_r, u.bg_g, u.bg_b, u.bg_a);
 
     // 2. Shadow
     if (u.shadow_enabled > 0.5) {
-        let shadow_uv = vec2<f32>(f32(x) / u.output_width, f32(y) / u.output_height);
+        let shadow_uv = vec2<f32>(px.x / u.output_width, px.y / u.output_height);
         let shadow = textureSampleLevel(shadow_tex, bilinear_sampler, shadow_uv, 0.0);
         result = alpha_blend(result, shadow);
     }
 
-    // 3. Content (zoomed video + motion blur + rounded corners)
-    let content_x = f32(x) - u.content_offset_x;
-    let content_y = f32(y) - u.content_offset_y;
+    // 3. Content (video + rounded corners; zoom handled by inverse remap in window mode, by sample_zoomed in display mode)
+    let content_x = px.x - u.content_offset_x;
+    let content_y = px.y - u.content_offset_y;
     if (content_x >= 0.0 && content_x < u.content_width && content_y >= 0.0 && content_y < u.content_height) {
         // Map content pixel to input area (centered within content)
         let input_x = content_x - u.input_offset_x;
         let input_y = content_y - u.input_offset_y;
         if (input_x >= 0.0 && input_x < u.input_width && input_y >= 0.0 && input_y < u.input_height) {
             let content_uv = vec2<f32>(input_x / u.input_width, input_y / u.input_height);
-            var content_color = sample_with_motion_blur(content_uv);
+            // Window mode: zoom already applied via inverse remap — sample source directly
+            // (motion blur still applies for pan, but zoom blur is N/A since zoom is composite-level).
+            // Display mode: zoom applied inside sample_with_motion_blur → sample_zoomed.
+            var content_color: vec4<f32>;
+            if (is_window) {
+                content_color = sample_window_motion_blur(content_uv);
+            } else {
+                content_color = sample_with_motion_blur(content_uv);
+            }
             if (u.corner_radius > 0.0) {
                 let mask_uv = vec2<f32>(content_x / u.content_width, content_y / u.content_height);
                 let mask = textureSampleLevel(corner_mask_tex, bilinear_sampler, mask_uv, 0.0);
@@ -486,6 +548,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     }
 
+    // For cursor/effects: in window mode, positions are in pre-zoom space and px is already remapped,
+    // so everything lines up. In display mode, cursor coords are pre-zoom-transformed by the Rust side.
     // 4. Cursor SDF rendering
     if (u.cursor_enabled > 0.5) {
         let s = u.cursor_size;
@@ -1283,6 +1347,7 @@ impl GpuCompositor {
                 // trail_opacity is baked into trail_points alpha, just pass 1.0 as multiplier
                 1.0
             }),
+            window_mode: if self.config.window_mode { 1.0 } else { 0.0 },
         };
 
         // Upload trail points
@@ -1701,6 +1766,7 @@ pub fn build_gpu_config(settings: &super::types::ExportSettings, source_width: O
         motion_blur_enabled,
         motion_blur_pan_intensity,
         motion_blur_zoom_intensity,
+        window_mode: settings.capture_mode.as_deref() == Some("window"),
     }
 }
 
@@ -1712,12 +1778,24 @@ pub fn build_gpu_config_with_webcam(
     source_height: Option<u32>,
 ) -> GpuCompositorConfig {
     let mut config = build_gpu_config(settings, source_width, source_height);
-    if let Some((_, pos_x, pos_y, size, shape)) = webcam_info {
+    if webcam_info.is_some() {
+        // Map corner name to normalized center position
+        let size = settings.webcam_size.unwrap_or(0.15) as f32;
+        let margin = 0.03_f32;
+        let half = size / 2.0;
+        let shape = settings.webcam_shape.clone().unwrap_or_else(|| "circle".to_string());
+        let corner = settings.webcam_corner.as_deref().unwrap_or("bottom-right");
+        let (pos_x, pos_y) = match corner {
+            "top-left" => (margin + half, margin + half),
+            "top-right" => (1.0 - margin - half, margin + half),
+            "bottom-left" => (margin + half, 1.0 - margin - half),
+            _ => (1.0 - margin - half, 1.0 - margin - half), // bottom-right default
+        };
         config.webcam = Some(WebcamConfig {
-            pos_x: *pos_x as f32,
-            pos_y: *pos_y as f32,
-            size: *size as f32,
-            shape: shape.clone(),
+            pos_x,
+            pos_y,
+            size,
+            shape,
         });
     }
     config

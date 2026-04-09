@@ -151,6 +151,12 @@ pub struct ExportSettings {
     pub zoom_spring_tension: Option<f64>,
     pub zoom_spring_friction: Option<f64>,
     pub zoom_spring_mass: Option<f64>,
+    // Webcam overlay settings
+    pub webcam_corner: Option<String>,  // "top-left", "top-right", "bottom-left", "bottom-right"
+    pub webcam_size: Option<f64>,       // fraction of output width (0.08-0.25)
+    pub webcam_shape: Option<String>,   // "circle" or "roundrect"
+    // Capture mode: "display" or "window" (affects how zoom is applied in export)
+    pub capture_mode: Option<String>,
     // Legacy fields for compatibility
     #[serde(default)]
     pub zoom_keyframes: Option<serde_json::Value>,
