@@ -70,6 +70,7 @@ const initialState: EditorState = {
   videoWidth: null,
   videoHeight: null,
   displayResolution: null,
+  screenResolution: null,
   scaleFactor: 1.0,
   recordingArea: null,
   captureMode: null,

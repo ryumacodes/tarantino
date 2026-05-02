@@ -157,6 +157,9 @@ pub struct ExportSettings {
     pub webcam_shape: Option<String>,   // "circle" or "roundrect"
     // Capture mode: "display" or "window" (affects how zoom is applied in export)
     pub capture_mode: Option<String>,
+    // For window mode: host display dimensions (for proportional window sizing on the canvas)
+    pub screen_width: Option<u32>,
+    pub screen_height: Option<u32>,
     // Legacy fields for compatibility
     #[serde(default)]
     pub zoom_keyframes: Option<serde_json::Value>,

@@ -1706,32 +1706,56 @@ pub fn build_gpu_config(settings: &super::types::ExportSettings, source_width: O
             Some(DeviceFrameConfig { bezel, corner_radius, color })
         });
 
-    // Compute input dimensions (aspect-fit source within content area)
+    // Compute input dimensions
+    // Display mode: aspect-fit source to fill content area (existing behavior)
+    // Window mode: scale window proportionally to its size on the host display, then center on canvas
+    let is_window_mode = settings.capture_mode.as_deref() == Some("window");
+    let screen_w = settings.screen_width;
+    let screen_h = settings.screen_height;
     let (input_w, input_h, input_off_x, input_off_y) = if let (Some(sw), Some(sh)) = (source_width, source_height) {
         if sw > 0 && sh > 0 {
-            let src_aspect = sw as f64 / sh as f64;
-            let cnt_aspect = content_w as f64 / content_h as f64;
-            let (mut iw, mut ih) = if (src_aspect - cnt_aspect).abs() < 0.01 {
-                // Same aspect ratio — input fills content
-                (content_w, content_h)
-            } else if src_aspect > cnt_aspect {
-                // Source wider — fit to content width, letterbox vertically
-                let h = (content_w as f64 / src_aspect).round() as u32;
-                (content_w, h)
+            if is_window_mode && screen_w.is_some() && screen_h.is_some() {
+                // Window mode: scale by display fit (preserves the window's proportional size on the canvas)
+                let dw = screen_w.unwrap() as f64;
+                let dh = screen_h.unwrap() as f64;
+                let display_fit_scale = (content_w as f64 / dw).min(content_h as f64 / dh);
+                let mut iw = (sw as f64 * display_fit_scale).round() as u32;
+                let mut ih = (sh as f64 * display_fit_scale).round() as u32;
+                // Ensure even dims
+                iw = iw - (iw % 2);
+                ih = ih - (ih % 2);
+                // Clamp to content (window can't exceed canvas even at low resolutions)
+                iw = iw.min(content_w);
+                ih = ih.min(content_h);
+                let ox = (content_w - iw) / 2;
+                let oy = (content_h - ih) / 2;
+                (iw, ih, ox, oy)
             } else {
-                // Source taller — fit to content height, pillarbox horizontally
-                let w = (content_h as f64 * src_aspect).round() as u32;
-                (w, content_h)
-            };
-            // Ensure even dims
-            iw = iw - (iw % 2);
-            ih = ih - (ih % 2);
-            // Clamp to content
-            iw = iw.min(content_w);
-            ih = ih.min(content_h);
-            let ox = (content_w - iw) / 2;
-            let oy = (content_h - ih) / 2;
-            (iw, ih, ox, oy)
+                // Display mode (or window mode with missing screen dims): aspect-fit to fill content
+                let src_aspect = sw as f64 / sh as f64;
+                let cnt_aspect = content_w as f64 / content_h as f64;
+                let (mut iw, mut ih) = if (src_aspect - cnt_aspect).abs() < 0.01 {
+                    // Same aspect ratio — input fills content
+                    (content_w, content_h)
+                } else if src_aspect > cnt_aspect {
+                    // Source wider — fit to content width, letterbox vertically
+                    let h = (content_w as f64 / src_aspect).round() as u32;
+                    (content_w, h)
+                } else {
+                    // Source taller — fit to content height, pillarbox horizontally
+                    let w = (content_h as f64 * src_aspect).round() as u32;
+                    (w, content_h)
+                };
+                // Ensure even dims
+                iw = iw - (iw % 2);
+                ih = ih - (ih % 2);
+                // Clamp to content
+                iw = iw.min(content_w);
+                ih = ih.min(content_h);
+                let ox = (content_w - iw) / 2;
+                let oy = (content_h - ih) / 2;
+                (iw, ih, ox, oy)
+            }
         } else {
             (content_w, content_h, 0, 0)
         }

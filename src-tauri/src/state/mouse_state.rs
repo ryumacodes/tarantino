@@ -109,9 +109,9 @@ impl UnifiedAppState {
         println!("=== ZOOM_ANALYSIS: Got {} mouse events, {} key events ===", events.len(), key_events.len());
 
         // Get display resolution, scale factor, and recording area from current config
-        let (width, height, scale_factor, recording_area) = self
+        let (width, height, scale_factor, recording_area, screen_dims) = self
             .get_recording_info()
-            .unwrap_or((1920, 1080, 1.0, None));
+            .unwrap_or((1920, 1080, 1.0, None, None));
         println!(
             "=== ZOOM_ANALYSIS: Using display resolution {}x{}, scale_factor: {} ===",
             width, height, scale_factor
@@ -203,6 +203,7 @@ impl UnifiedAppState {
             &session.mouse_events,
             (width, height, scale_factor, recording_area),
             capture_mode,
+            screen_dims,
         )?;
 
         println!("=== ZOOM_ANALYSIS: Complete! ===");
@@ -210,7 +211,9 @@ impl UnifiedAppState {
     }
 
     /// Get recording resolution and scale factor from current config
-    /// Returns (width, height, scale_factor, recording_area)
+    /// Returns (width, height, scale_factor, recording_area, screen_dims)
+    /// screen_dims = Some((screen_w, screen_h)) for window recordings (the host display),
+    /// None for display recordings.
     pub(crate) fn get_recording_info(
         &self,
     ) -> Option<(
@@ -218,6 +221,7 @@ impl UnifiedAppState {
         u32,
         f32,
         Option<crate::recording::types::RecordingArea>,
+        Option<(u32, u32)>,
     )> {
         if let Some(config) = self.recording.get_current_config() {
             match &config.target {
@@ -232,6 +236,7 @@ impl UnifiedAppState {
                             display.height,
                             display.scale_factor,
                             area.clone(),
+                            None,
                         ));
                     }
                 }
@@ -240,11 +245,20 @@ impl UnifiedAppState {
                     if let Some(window) =
                         app.windows.iter().find(|w| w.id == window_id.to_string())
                     {
+                        // Find the host display for proportional sizing in the editor.
+                        // Prefer the primary display; fall back to the first available.
+                        let screen = app
+                            .displays
+                            .iter()
+                            .find(|d| d.is_primary)
+                            .or_else(|| app.displays.first())
+                            .map(|d| (d.width, d.height));
                         return Some((
                             window.width,
                             window.height,
                             1.0,
                             None,
+                            screen,
                         ));
                     }
                 }

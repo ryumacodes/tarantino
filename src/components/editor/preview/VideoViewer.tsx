@@ -72,7 +72,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
   videoTransformRef,
   previewZoom = 1
 }) => {
-  const { videoFilePath, zoomAnalysis, currentTime, loadMouseEvents, visualSettings, displayResolution, captureMode } = useEditorStore();
+  const { videoFilePath, zoomAnalysis, currentTime, loadMouseEvents, visualSettings, displayResolution, screenResolution, videoWidth, videoHeight, captureMode } = useEditorStore();
   const meshRef = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
   const { viewport } = useThree();
@@ -145,18 +145,31 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
 
   if (captureMode === 'window') {
     // Window mode: canvas is the export ratio (e.g. 16:9).
-    // Video is aspect-fit inside — background fills the rest naturally.
-    // Padding matches export: padding % is removed from each side.
-    const sourceAspect = displayResolution
-      ? displayResolution.width / displayResolution.height
-      : videoAspect;
+    // Window is sized proportionally to its share of the host display, then centered on the canvas.
+    // Padding matches export: padding % is removed from each side, then proportional sizing applies inside.
     const inset = Math.max(0.01, 1 - 2 * (visualSettings.padding / 100));
-    if (sourceAspect > videoAspect) {
-      planeWidth = basePlaneWidth * inset;
-      planeHeight = (basePlaneWidth / sourceAspect) * inset;
+    const contentW = basePlaneWidth * inset;
+    const contentH = basePlaneHeight * inset;
+    if (screenResolution && videoWidth && videoHeight) {
+      // Same proportional formula as build_gpu_config: scale window by display fit
+      const displayFitScale = Math.min(
+        contentW / screenResolution.width,
+        contentH / screenResolution.height
+      );
+      planeWidth = Math.min(contentW, videoWidth * displayFitScale);
+      planeHeight = Math.min(contentH, videoHeight * displayFitScale);
     } else {
-      planeHeight = basePlaneHeight * inset;
-      planeWidth = (basePlaneHeight * sourceAspect) * inset;
+      // Fallback (no screen dims known): aspect-fit window into content
+      const sourceAspect = (videoWidth && videoHeight)
+        ? videoWidth / videoHeight
+        : (displayResolution ? displayResolution.width / displayResolution.height : videoAspect);
+      if (sourceAspect > videoAspect) {
+        planeWidth = contentW;
+        planeHeight = contentW / sourceAspect;
+      } else {
+        planeHeight = contentH;
+        planeWidth = contentH * sourceAspect;
+      }
     }
   } else {
     // Display mode: padding matches export — padding % is removed from each side

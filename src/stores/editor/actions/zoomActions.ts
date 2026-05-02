@@ -248,6 +248,8 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
       let displayHeight = 1080;
       let scaleFactor = 1.0;
       let recordingArea: { x: number; y: number; width: number; height: number } | null = null;
+      let screenWidth: number | null = null;
+      let screenHeight: number | null = null;
 
       let captureMode: 'display' | 'window' | null = null;
 
@@ -260,7 +262,9 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
         scaleFactor = rawData.scale_factor || 1.0;
         recordingArea = rawData.recording_area || null;
         captureMode = rawData.capture_mode || null;
-        console.log('Display dimensions from sidecar:', displayWidth, 'x', displayHeight, 'mode:', captureMode);
+        screenWidth = rawData.screen_width ?? null;
+        screenHeight = rawData.screen_height ?? null;
+        console.log('Display dimensions from sidecar:', displayWidth, 'x', displayHeight, 'mode:', captureMode, 'screen:', screenWidth, 'x', screenHeight);
       } else {
         throw new Error('Invalid sidecar format');
       }
@@ -303,12 +307,17 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
         state.captureMode = captureMode;
 
         if (captureMode === 'window' && state.videoWidth && state.videoHeight) {
-          // Window recordings: use actual video dimensions for correct aspect ratio
+          // Window recordings: displayResolution = window dims (used for cursor normalization).
+          // screenResolution = host display dims (used for proportional sizing on the canvas).
           state.displayResolution = { width: state.videoWidth, height: state.videoHeight };
+          state.screenResolution = (screenWidth && screenHeight)
+            ? { width: screenWidth, height: screenHeight }
+            : null;
           // Default to 16:9 export canvas — background comes from aspect ratio difference
           state.visualSettings.aspectRatio = '16:9';
         } else {
           state.displayResolution = { width: displayWidth, height: displayHeight };
+          state.screenResolution = null;
         }
       });
     } catch (error) {

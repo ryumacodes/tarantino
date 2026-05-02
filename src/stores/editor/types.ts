@@ -300,6 +300,8 @@ export interface EditorState {
   videoWidth: number | null;
   videoHeight: number | null;
   displayResolution: { width: number; height: number } | null;
+  // For window recordings: the host display dimensions (used for proportional sizing)
+  screenResolution: { width: number; height: number } | null;
   scaleFactor: number;
   recordingArea: { x: number; y: number; width: number; height: number } | null;
   captureMode: 'display' | 'window' | null;

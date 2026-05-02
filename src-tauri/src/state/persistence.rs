@@ -73,6 +73,7 @@ pub fn save_zoom_sidecar(
     mouse_events: &[crate::event_capture::EnhancedMouseEvent],
     display_info: (u32, u32, f32, Option<crate::recording::types::RecordingArea>),
     capture_mode: &str,
+    screen_dims: Option<(u32, u32)>,
 ) -> Result<()> {
     use crate::auto_zoom::save_analysis;
 
@@ -91,6 +92,9 @@ pub fn save_zoom_sidecar(
         "capture_mode": capture_mode,
         "display_width": width,
         "display_height": height,
+        // For window recordings, the host display dimensions (used for proportional sizing in editor)
+        "screen_width": screen_dims.map(|(w, _)| w),
+        "screen_height": screen_dims.map(|(_, h)| h),
         "scale_factor": scale_factor,
         "recording_area": recording_area.as_ref().map(|area| serde_json::json!({
             "x": area.x,

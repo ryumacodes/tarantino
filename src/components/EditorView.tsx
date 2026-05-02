@@ -153,6 +153,9 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
         source_height: storeState.videoHeight ?? null,
         // Capture mode for window-mode zoom behavior
         capture_mode: storeState.captureMode ?? 'display',
+        // Host display dimensions (for window mode proportional sizing)
+        screen_width: storeState.screenResolution?.width ?? null,
+        screen_height: storeState.screenResolution?.height ?? null,
         // Animation settings — resolve preset to actual spring values (single source of truth)
         animation_speed: visualSettings.zoomSpeedPreset ?? 'mellow',
         zoom_spring_tension: SPRING_PRESETS[visualSettings.zoomSpeedPreset ?? 'mellow'].tension,
