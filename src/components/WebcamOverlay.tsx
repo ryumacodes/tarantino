@@ -189,19 +189,34 @@ const WebcamOverlay: React.FC<WebcamOverlayProps> = ({ onRecordingDataReady }) =
     if (!isDragging || !containerRef.current) return;
 
     const rect = containerRef.current.getBoundingClientRect();
-    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    const overlaySize = Math.min(window.innerWidth, window.innerHeight) * size;
+    const halfX = Math.min(0.5, overlaySize / rect.width / 2);
+    const halfY = Math.min(0.5, overlaySize / rect.height / 2);
+    const margin = 16;
+    const marginX = Math.min(0.08, margin / rect.width);
+    const marginY = Math.min(0.08, margin / rect.height);
+    const nearX = Math.min(0.5, halfX + marginX);
+    const farX = Math.max(0.5, 1 - halfX - marginX);
+    const nearY = Math.min(0.5, halfY + marginY);
+    const farY = Math.max(0.5, 1 - halfY - marginY);
+    const x = Math.max(nearX, Math.min(farX, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(nearY, Math.min(farY, (e.clientY - rect.top) / rect.height));
 
-    // Snap to edges/corners
-    const snapThreshold = 0.05;
-    const snapPositions = [0, 0.5, 1];
-    
-    const snappedX = snapPositions.reduce((prev, curr) => 
-      Math.abs(curr - x) < Math.abs(prev - x) && Math.abs(curr - x) < snapThreshold ? curr : prev, x
-    );
-    const snappedY = snapPositions.reduce((prev, curr) =>
-      Math.abs(curr - y) < Math.abs(prev - y) && Math.abs(curr - y) < snapThreshold ? curr : prev, y
-    );
+    const snapThreshold = 0.08;
+    const corners = [
+      { x: nearX, y: nearY },
+      { x: farX, y: nearY },
+      { x: nearX, y: farY },
+      { x: farX, y: farY },
+    ];
+    const nearestCorner = corners.reduce((nearest, corner) => {
+      const nearestDistance = Math.hypot(nearest.x - x, nearest.y - y);
+      const cornerDistance = Math.hypot(corner.x - x, corner.y - y);
+      return cornerDistance < nearestDistance ? corner : nearest;
+    }, { x, y });
+    const shouldSnap = Math.hypot(nearestCorner.x - x, nearestCorner.y - y) < snapThreshold;
+    const snappedX = shouldSnap ? nearestCorner.x : x;
+    const snappedY = shouldSnap ? nearestCorner.y : y;
 
     setPosition({ x: snappedX, y: snappedY });
     updateTransform(snappedX, snappedY, size, shape);

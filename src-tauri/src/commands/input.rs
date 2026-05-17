@@ -415,12 +415,18 @@ pub async fn save_webcam_recording(
 pub async fn start_webview_webcam_recording(
     app: &AppHandle,
     output_path: &str,
+    state: &UnifiedAppState,
 ) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("webcam-preview") {
+        let (webcam_x, webcam_y, webcam_size, webcam_shape) = state.webcam_transform();
         win.emit(
             "recording:started",
             serde_json::json!({
                 "output_path": output_path,
+                "webcam_x": webcam_x,
+                "webcam_y": webcam_y,
+                "webcam_size": webcam_size,
+                "webcam_shape": webcam_shape,
             }),
         )
         .map_err(|e| e.to_string())?;
@@ -431,11 +437,13 @@ pub async fn start_webview_webcam_recording(
 pub async fn stop_webview_webcam_recording(
     app: &AppHandle,
     output_path: &str,
+    state: &UnifiedAppState,
 ) -> Result<(), String> {
     let Some(win) = app.get_webview_window("webcam-preview") else {
         return Ok(());
     };
 
+    sync_webcam_window_transform(&win, state).await;
     win.emit("webcam:stop", ()).map_err(|e| e.to_string())?;
 
     let webcam_path = format!("{}.webcam.webm", output_path.trim_end_matches(".mp4"));
@@ -463,4 +471,36 @@ pub async fn stop_webview_webcam_recording(
     tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
     let _ = win.close();
     Ok(())
+}
+
+async fn sync_webcam_window_transform(win: &tauri::WebviewWindow, state: &UnifiedAppState) {
+    let Ok(position) = win.outer_position() else {
+        return;
+    };
+    let Ok(size) = win.outer_size() else {
+        return;
+    };
+    let Ok(Some(monitor)) = win.current_monitor() else {
+        return;
+    };
+
+    let monitor_position = monitor.position();
+    let monitor_size = monitor.size();
+    if monitor_size.width == 0 || monitor_size.height == 0 {
+        return;
+    }
+
+    let center_x = position.x - monitor_position.x + (size.width as i32 / 2);
+    let center_y = position.y - monitor_position.y + (size.height as i32 / 2);
+    let x_norm = (center_x as f32 / monitor_size.width as f32).clamp(0.0, 1.0);
+    let y_norm = (center_y as f32 / monitor_size.height as f32).clamp(0.0, 1.0);
+
+    let (_, _, _, shape) = state.webcam_transform();
+    let size_norm = (size.width as f32 / monitor_size.width as f32).clamp(0.08, 0.25);
+    if let Err(error) = state
+        .set_webcam_transform(x_norm, y_norm, size_norm, shape)
+        .await
+    {
+        println!("Warning: failed to sync webcam window transform: {}", error);
+    }
 }

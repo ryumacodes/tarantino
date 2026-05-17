@@ -166,7 +166,9 @@ pub async fn record_stop(
     println!("Recording stopped, temp path: {}", temp_path);
     let has_webcam_before_release = state.is_camera_enabled();
     if has_webcam_before_release {
-        let _ = crate::commands::input::stop_webview_webcam_recording(&app, &temp_path).await;
+        let _ =
+            crate::commands::input::stop_webview_webcam_recording(&app, &temp_path, state.inner())
+                .await;
     }
     crate::commands::lifecycle::release_recording_surfaces(
         &app,
@@ -253,10 +255,46 @@ pub async fn record_stop(
         }
     }
 
+    let video_info = match crate::video_processing::VideoProcessor::new() {
+        Ok(processor) => match processor.get_video_info(media_path.clone()).await {
+            Ok(info) => Some(info),
+            Err(error) => {
+                println!(
+                    "Warning: Failed to read video metadata for sidecar, using recording fallback: {}",
+                    error
+                );
+                None
+            }
+        },
+        Err(error) => {
+            println!(
+                "Warning: Failed to initialize video processor for sidecar metadata, using recording fallback: {}",
+                error
+            );
+            None
+        }
+    };
+    let fps = video_info
+        .as_ref()
+        .map(|info| info.fps.round().max(1.0) as u32)
+        .unwrap_or(30);
+    let duration_ms = video_info
+        .as_ref()
+        .map(|info| info.duration_ms)
+        .unwrap_or_else(|| {
+            mouse_events
+                .iter()
+                .map(|event| event.timestamp)
+                .max()
+                .unwrap_or(0)
+        });
+    let width = video_info.as_ref().map(|info| info.width).unwrap_or(1920);
+    let height = video_info.as_ref().map(|info| info.height).unwrap_or(1080);
+
     // Create sidecar
     let sidecar_path = format!("{}.sidecar.json", media_path);
     let mut sidecar =
-        crate::sidecar::Sidecar::new_for_recording(&media_path, 30, 10000, 1920, 1080);
+        crate::sidecar::Sidecar::new_for_recording(&media_path, fps, duration_ms, width, height);
     sidecar.mouse_events = mouse_events;
     if let Err(e) = sidecar.save(&sidecar_path) {
         println!("Warning: Failed to save sidecar: {}", e);
@@ -362,7 +400,6 @@ pub async fn record_stop_instant(
 
     let has_webcam = state.is_camera_enabled();
     let (has_mic, has_system_audio) = state.get_recording_audio_flags();
-    let webcam_shape = state.webcam_shape();
     let stop_result = state.signal_stop_recording().await;
     let _ = crate::commands::tray::reset_tray_to_idle_impl(app.clone()).await;
 
@@ -374,9 +411,14 @@ pub async fn record_stop_instant(
                 recording_start_time
             );
             if has_webcam {
-                let _ =
-                    crate::commands::input::stop_webview_webcam_recording(&app, &temp_path).await;
+                let _ = crate::commands::input::stop_webview_webcam_recording(
+                    &app,
+                    &temp_path,
+                    state.inner(),
+                )
+                .await;
             }
+            let (webcam_x, webcam_y, webcam_size, webcam_shape) = state.webcam_transform();
 
             // Stop native webcam capture and wait for encoding to finish
             #[cfg(target_os = "macos")]
@@ -422,6 +464,9 @@ pub async fn record_stop_instant(
                 &temp_path,
                 has_webcam,
                 &webcam_shape,
+                webcam_x,
+                webcam_y,
+                webcam_size,
             )
             .await
             .map_err(|e| e.to_string())?;
@@ -434,6 +479,9 @@ pub async fn record_stop_instant(
                 has_mic,
                 has_system_audio,
                 webcam_shape,
+                webcam_x,
+                webcam_y,
+                webcam_size,
             );
             Ok(temp_path)
         }
@@ -454,6 +502,9 @@ pub async fn record_stop_instant(
                 &placeholder_path,
                 false,
                 "circle",
+                0.895,
+                0.895,
+                0.15,
             )
             .await
             .map_err(|e| e.to_string())?;

@@ -98,9 +98,12 @@ pub async fn record_start_new(
     let recording_output_path = recording_config.output_path.clone();
 
     if state.is_camera_enabled() {
-        let _ =
-            crate::commands::input::start_webview_webcam_recording(&app, &recording_output_path)
-                .await;
+        let _ = crate::commands::input::start_webview_webcam_recording(
+            &app,
+            &recording_output_path,
+            state.inner(),
+        )
+        .await;
     }
 
     #[cfg(target_os = "macos")]
@@ -127,9 +130,12 @@ pub async fn record_start_new(
     if let Err(e) = state.start_recording(recording_config).await {
         println!("Recording failed during native start: {}", e);
         if state.is_camera_enabled() {
-            let _ =
-                crate::commands::input::stop_webview_webcam_recording(&app, &recording_output_path)
-                    .await;
+            let _ = crate::commands::input::stop_webview_webcam_recording(
+                &app,
+                &recording_output_path,
+                state.inner(),
+            )
+            .await;
         }
         #[cfg(target_os = "macos")]
         if state.is_camera_enabled() {
@@ -267,7 +273,9 @@ pub async fn record_stop_instant_new(
 
     let has_webcam = state.is_camera_enabled();
     if has_webcam {
-        let _ = crate::commands::input::stop_webview_webcam_recording(&app, &temp_path).await;
+        let _ =
+            crate::commands::input::stop_webview_webcam_recording(&app, &temp_path, state.inner())
+                .await;
     }
 
     // Stop native webcam capture and wait for encoding to finish
@@ -314,8 +322,17 @@ pub async fn record_stop_instant_new(
     );
 
     // Open editor immediately with loading state
-    let webcam_shape = state.webcam_shape();
-    open_editor_with_loading(&app, &temp_path, has_webcam, &webcam_shape).await?;
+    let (webcam_x, webcam_y, webcam_size, webcam_shape) = state.webcam_transform();
+    open_editor_with_loading(
+        &app,
+        &temp_path,
+        has_webcam,
+        &webcam_shape,
+        webcam_x,
+        webcam_y,
+        webcam_size,
+    )
+    .await?;
 
     // Start background processing
     spawn_background_completion(
@@ -324,6 +341,9 @@ pub async fn record_stop_instant_new(
         temp_path.clone(),
         has_webcam,
         webcam_shape,
+        webcam_x,
+        webcam_y,
+        webcam_size,
     );
 
     // Emit recording stopping event
@@ -819,6 +839,9 @@ async fn open_editor_with_loading(
     temp_path: &str,
     has_webcam: bool,
     webcam_shape: &str,
+    webcam_x: f32,
+    webcam_y: f32,
+    webcam_size: f32,
 ) -> Result<(), String> {
     use tauri::WebviewWindowBuilder;
 
@@ -881,8 +904,11 @@ async fn open_editor_with_loading(
     // Create new editor window with overlay titlebar (native traffic lights, no title chrome)
     let url = if has_webcam {
         format!(
-            "editor.html?webcam=true&webcam_shape={}",
-            urlencoding::encode(webcam_shape)
+            "editor.html?webcam=true&webcam_shape={}&webcam_x={:.4}&webcam_y={:.4}&webcam_size={:.4}",
+            urlencoding::encode(webcam_shape),
+            webcam_x,
+            webcam_y,
+            webcam_size
         )
     } else {
         "editor.html".to_string()
@@ -922,6 +948,9 @@ fn spawn_background_completion(
     _temp_path: String,
     has_webcam: bool,
     webcam_shape: String,
+    webcam_x: f32,
+    webcam_y: f32,
+    webcam_size: f32,
 ) {
     tokio::spawn(async move {
         println!("Starting background completion processing");
@@ -939,6 +968,9 @@ fn spawn_background_completion(
                         "has_system_audio": has_system_audio,
                         "has_webcam": has_webcam,
                         "webcam_shape": webcam_shape,
+                        "webcam_x": webcam_x,
+                        "webcam_y": webcam_y,
+                        "webcam_size": webcam_size,
                     });
                     if let Err(e) = editor.emit("recording-ready", payload) {
                         println!("Failed to notify editor: {}", e);

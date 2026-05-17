@@ -65,7 +65,21 @@ let setupProcessingEventListeners: () => void;
 type WebcamShape = 'circle' | 'roundrect';
 
 const normalizeWebcamShape = (shape: string | null | undefined): WebcamShape => {
-  return shape === 'roundrect' || shape === 'rounded' ? 'roundrect' : 'circle';
+  return shape === 'roundrect' || shape === 'rounded' || shape === 'square' ? 'roundrect' : 'circle';
+};
+
+const readWebcamTransform = (source: Record<string, unknown> | URLSearchParams | null | undefined) => {
+  const readNumber = (key: string, fallback: number) => {
+    const raw = source instanceof URLSearchParams ? source.get(key) : source?.[key];
+    const value = typeof raw === 'number' ? raw : Number(raw);
+    return Number.isFinite(value) ? value : fallback;
+  };
+
+  return {
+    webcamX: readNumber('webcam_x', 0.895),
+    webcamY: readNumber('webcam_y', 0.895),
+    webcamSize: readNumber('webcam_size', 0.15),
+  };
 };
 
 function EditorShell() {
@@ -111,12 +125,19 @@ function EditorShell() {
       const webcamShapeFromPayload = typeof payload === 'object'
         ? normalizeWebcamShape(payload.webcam_shape)
         : normalizeWebcamShape(null);
+      const webcamTransformFromPayload = typeof payload === 'object'
+        ? readWebcamTransform(payload)
+        : null;
       // Also check URL params (set when editor opened)
       const urlParams = new URLSearchParams(window.location.search);
       const urlHasWebcam = urlParams.get('webcam') === 'true';
       const webcamShapeFromUrl = normalizeWebcamShape(urlParams.get('webcam_shape'));
+      const webcamTransformFromUrl = readWebcamTransform(urlParams);
       const webcamEnabled = hasWebcamFromPayload || urlHasWebcam;
       const webcamShape = hasWebcamFromPayload ? webcamShapeFromPayload : webcamShapeFromUrl;
+      const webcamTransform = hasWebcamFromPayload && webcamTransformFromPayload
+        ? webcamTransformFromPayload
+        : webcamTransformFromUrl;
 
       // Update state to trigger React re-render and proper video initialization
       setMediaPath(finalPath);
@@ -124,7 +145,7 @@ function EditorShell() {
       setIsLoading(true); // Reset loading state to trigger re-initialization
 
       // Initialize the editor with the final path
-      initializeEditorWithPath(finalPath, hasMic, hasSystemAudio, webcamEnabled, webcamShape);
+      initializeEditorWithPath(finalPath, hasMic, hasSystemAudio, webcamEnabled, webcamShape, webcamTransform);
     });
   };
 
@@ -133,7 +154,8 @@ function EditorShell() {
     hasMic = false,
     hasSystemAudio = false,
     hasWebcam = false,
-    webcamShape: WebcamShape = 'circle'
+    webcamShape: WebcamShape = 'circle',
+    webcamTransform = { webcamX: 0.895, webcamY: 0.895, webcamSize: 0.15 }
   ) => {
     try {
       console.log('Initializing editor with final path:', path, 'hasWebcam:', hasWebcam);
@@ -153,7 +175,7 @@ function EditorShell() {
       console.log('Initializing editor with duration:', duration, 'video size:', videoInfo.width, 'x', videoInfo.height);
       await initializeEditor(path, duration, hasWebcam, hasMic, hasSystemAudio, videoInfo.width ?? null, videoInfo.height ?? null);
       if (hasWebcam) {
-        updateVisualSettings({ webcamShape });
+        updateVisualSettings({ webcamShape, ...webcamTransform });
       }
 
       setIsLoading(false);
@@ -193,6 +215,7 @@ function EditorShell() {
       const hasMic = params.get('mic') === 'true';
       const hasSystemAudio = params.get('system_audio') === 'true';
       const webcamShape = normalizeWebcamShape(params.get('webcam_shape'));
+      const webcamTransform = readWebcamTransform(params);
       const loading = params.get('loading') === 'true';
       const tempPath = params.get('temp_path');
 
@@ -241,7 +264,7 @@ function EditorShell() {
       console.log('Initializing editor with path:', decodedPath, 'duration:', duration);
       initializeEditor(decodedPath, duration, hasWebcam, hasMic, hasSystemAudio, videoInfo.width ?? null, videoInfo.height ?? null);
       if (hasWebcam) {
-        updateVisualSettings({ webcamShape });
+        updateVisualSettings({ webcamShape, ...webcamTransform });
       }
 
       // Verify initialization worked

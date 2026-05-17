@@ -344,13 +344,36 @@ impl UnifiedAppState {
 
     pub async fn set_webcam_transform(
         &self,
-        _x_norm: f32,
-        _y_norm: f32,
-        _size_norm: f32,
-        _shape: String,
+        x_norm: f32,
+        y_norm: f32,
+        size_norm: f32,
+        shape: String,
     ) -> Result<()> {
-        // TODO: Implement webcam transform settings
+        let mut app = self.app.write();
+        app.webcam_config.position.x_percent = (x_norm.clamp(0.0, 1.0) * 100.0).round();
+        app.webcam_config.position.y_percent = (y_norm.clamp(0.0, 1.0) * 100.0).round();
+        app.webcam_config.size_percent = size_norm.clamp(0.08, 0.25);
+        app.webcam_config.shape = match shape.as_str() {
+            "roundrect" | "rounded" => crate::state::app::WebcamShape::Rounded,
+            "square" => crate::state::app::WebcamShape::Square,
+            _ => crate::state::app::WebcamShape::Circle,
+        };
         Ok(())
+    }
+
+    pub fn webcam_transform(&self) -> (f32, f32, f32, String) {
+        let app = self.app.read();
+        (
+            (app.webcam_config.position.x_percent / 100.0).clamp(0.0, 1.0),
+            (app.webcam_config.position.y_percent / 100.0).clamp(0.0, 1.0),
+            app.webcam_config.size_percent.clamp(0.08, 0.25),
+            match app.webcam_config.shape {
+                crate::state::app::WebcamShape::Rounded => "roundrect",
+                crate::state::app::WebcamShape::Square => "roundrect",
+                crate::state::app::WebcamShape::Circle => "circle",
+            }
+            .to_string(),
+        )
     }
 
     pub async fn set_webcam_autododge(

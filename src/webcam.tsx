@@ -24,6 +24,7 @@ const WebcamApp: React.FC = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const outputPathRef = useRef<string | null>(null);
+  const transformRef = useRef({ x: 0.85, y: 0.15, size: 0.15 });
   const [error, setError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
 
@@ -151,8 +152,8 @@ const WebcamApp: React.FC = () => {
             stopCameraStream();
             await invoke('save_webcam_recording', {
               dataBase64,
-              position: { x: 0.85, y: 0.85 },
-              size: 0.15,
+              position: { x: transformRef.current.x, y: transformRef.current.y },
+              size: transformRef.current.size,
               shape,
               outputPath: outputPathRef.current,
             });
@@ -195,12 +196,28 @@ const WebcamApp: React.FC = () => {
       const payload = event.payload;
       if (payload && typeof payload === 'object' && typeof payload.output_path === 'string') {
         outputPathRef.current = payload.output_path;
+        const webcamX = Number(payload.webcam_x);
+        const webcamY = Number(payload.webcam_y);
+        const webcamSize = Number(payload.webcam_size);
+        transformRef.current = {
+          x: Number.isFinite(webcamX) ? webcamX : transformRef.current.x,
+          y: Number.isFinite(webcamY) ? webcamY : transformRef.current.y,
+          size: Number.isFinite(webcamSize) ? webcamSize : transformRef.current.size,
+        };
       } else if (typeof payload === 'string') {
         try {
           const parsed = JSON.parse(payload);
           if (typeof parsed.output_path === 'string') {
             outputPathRef.current = parsed.output_path;
           }
+          const webcamX = Number(parsed.webcam_x);
+          const webcamY = Number(parsed.webcam_y);
+          const webcamSize = Number(parsed.webcam_size);
+          transformRef.current = {
+            x: Number.isFinite(webcamX) ? webcamX : transformRef.current.x,
+            y: Number.isFinite(webcamY) ? webcamY : transformRef.current.y,
+            size: Number.isFinite(webcamSize) ? webcamSize : transformRef.current.size,
+          };
         } catch {
           // Older start events only carried timer data; keep the last output path.
         }

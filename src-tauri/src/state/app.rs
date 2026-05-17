@@ -117,6 +117,8 @@ pub struct WebcamConfig {
     pub enabled: bool,
     pub device_id: Option<String>,
     pub position: WebcamPosition,
+    #[serde(default = "default_webcam_size_percent")]
+    pub size_percent: f32,
     pub size: WebcamSize,
     pub shape: WebcamShape,
     pub auto_dodge: bool,
@@ -346,11 +348,16 @@ impl Default for WebcamConfig {
                 x_percent: 85.0,
                 y_percent: 15.0,
             },
+            size_percent: default_webcam_size_percent(),
             size: WebcamSize::Medium,
             shape: WebcamShape::Circle,
             auto_dodge: false,
         }
     }
+}
+
+fn default_webcam_size_percent() -> f32 {
+    0.15
 }
 
 impl Default for MicrophoneConfig {

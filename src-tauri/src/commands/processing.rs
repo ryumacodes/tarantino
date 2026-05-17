@@ -130,16 +130,22 @@ pub async fn open_editor_with_loading(
     temp_path: &str,
     has_webcam: bool,
     webcam_shape: &str,
+    webcam_x: f32,
+    webcam_y: f32,
+    webcam_size: f32,
 ) -> Result<()> {
     if app.get_webview_window("editor").is_some() {
         return Ok(());
     }
 
     let url = format!(
-        "editor.html?loading=true&temp_path={}&webcam={}&webcam_shape={}",
+        "editor.html?loading=true&temp_path={}&webcam={}&webcam_shape={}&webcam_x={:.4}&webcam_y={:.4}&webcam_size={:.4}",
         urlencoding::encode(temp_path),
         has_webcam,
-        urlencoding::encode(webcam_shape)
+        urlencoding::encode(webcam_shape),
+        webcam_x,
+        webcam_y,
+        webcam_size
     );
 
     if let Some(preview) = app.get_webview_window("display-preview") {
@@ -195,6 +201,9 @@ pub async fn notify_editor_ready(
     has_mic: bool,
     has_system_audio: bool,
     webcam_shape: &str,
+    webcam_x: f32,
+    webcam_y: f32,
+    webcam_size: f32,
 ) -> Result<()> {
     if let Some(editor) = app.get_webview_window("editor") {
         editor
@@ -206,6 +215,9 @@ pub async fn notify_editor_ready(
                     "has_mic": has_mic,
                     "has_system_audio": has_system_audio,
                     "webcam_shape": webcam_shape,
+                    "webcam_x": webcam_x,
+                    "webcam_y": webcam_y,
+                    "webcam_size": webcam_size,
                 }),
             )
             .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -227,6 +239,9 @@ pub fn spawn_background_recording_processing(
     has_mic: bool,
     has_system_audio: bool,
     webcam_shape: String,
+    webcam_x: f32,
+    webcam_y: f32,
+    webcam_size: f32,
 ) {
     println!("🎬 [BG_PROCESS] Spawning background recording processing");
     println!("🎬 [BG_PROCESS] Temp path: {}", temp_path);
@@ -326,6 +341,9 @@ pub fn spawn_background_recording_processing(
                         has_mic,
                         has_system_audio,
                         &webcam_shape,
+                        webcam_x,
+                        webcam_y,
+                        webcam_size,
                     )
                     .await;
                 } else {
