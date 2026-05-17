@@ -57,7 +57,7 @@ pub struct GpuCompositorConfig {
     pub motion_blur_enabled: bool,
     pub motion_blur_pan_intensity: f32,
     pub motion_blur_zoom_intensity: f32,
-    /// Window mode: zoom applies to entire composite (video + background) as one unit
+    /// Window mode: zoom applies to the captured window layer, not the static background
     pub window_mode: bool,
 }
 
@@ -216,7 +216,7 @@ struct CompositeUniforms {
     trail_count: f32,
     trail_opacity: f32,
 
-    // Window mode (zoom entire composite)
+    // Window mode
     window_mode: f32,
 }
 

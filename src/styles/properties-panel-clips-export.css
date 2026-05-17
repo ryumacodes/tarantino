@@ -58,6 +58,38 @@
   font-weight: 600;
 }
 
+.clip-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.clip-delete-btn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--editor-bg-primary);
+  border: 1px solid var(--editor-border);
+  border-radius: 4px;
+  color: var(--editor-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.clip-delete-btn:hover:not(:disabled) {
+  color: #ff5555;
+  border-color: #ff5555;
+  background: rgba(255, 85, 85, 0.1);
+}
+
+.clip-delete-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .speed-presets {
   display: flex;
   gap: 6px;

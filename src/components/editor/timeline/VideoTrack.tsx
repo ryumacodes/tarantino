@@ -18,10 +18,12 @@ interface VideoTrackProps {
   trimEnd: number;
   duration: number;
   clips: Clip[];
+  selectedClipIds: string[];
   isExporting: boolean;
   onToggleVisibility: () => void;
   onTrimStartDrag: (e: React.MouseEvent) => void;
   onTrimEndDrag: (e: React.MouseEvent) => void;
+  onClipClick: (clipId: string, e: React.MouseEvent) => void;
 }
 
 const VideoTrack: React.FC<VideoTrackProps> = ({
@@ -33,10 +35,12 @@ const VideoTrack: React.FC<VideoTrackProps> = ({
   trimEnd,
   duration,
   clips,
+  selectedClipIds,
   isExporting,
   onToggleVisibility,
   onTrimStartDrag,
   onTrimEndDrag,
+  onClipClick,
 }) => {
   const videoClips = clips?.filter(c => c.trackId === 'video-track-main') || [];
 
@@ -123,28 +127,34 @@ const VideoTrack: React.FC<VideoTrackProps> = ({
         />
 
         {/* Clip boundaries */}
-        {videoClips.length > 1 && (
-          videoClips.map((clip, index) => {
-            if (index === 0) return null;
-            return (
-              <div
-                key={`clip-boundary-${clip.id}`}
-                className="clip-boundary"
-                style={{
-                  left: `${clip.startTime * pixelsPerMs}px`,
-                  height: '100%',
-                  position: 'absolute',
-                  top: 0,
-                  width: '2px',
-                  background: 'linear-gradient(to bottom, #f59e0b 0%, #f59e0b 40%, transparent 40%, transparent 60%, #f59e0b 60%, #f59e0b 100%)',
-                  zIndex: 10,
-                  pointerEvents: 'none',
-                }}
-                title={`Cut at ${(clip.startTime / 1000).toFixed(2)}s`}
-              />
-            );
-          })
-        )}
+        {videoClips.map((clip, index) => {
+          const isSelected = selectedClipIds.includes(clip.id);
+
+          return (
+            <div
+              key={`clip-region-${clip.id}`}
+              className={`clip-region ${isSelected ? 'selected' : ''} ${isExporting ? 'disabled' : ''}`}
+              style={{
+                left: `${clip.startTime * pixelsPerMs}px`,
+                width: `${clip.duration * pixelsPerMs}px`,
+              }}
+              onClick={(e) => onClipClick(clip.id, e)}
+              title={`${index === 0 ? 'Clip' : `Clip ${index + 1}`} • ${(clip.duration / 1000).toFixed(2)}s`}
+            />
+          );
+        })}
+
+        {videoClips.length > 1 && videoClips.map((clip, index) => {
+          if (index === 0) return null;
+          return (
+            <div
+              key={`clip-boundary-${clip.id}`}
+              className="clip-boundary"
+              style={{ left: `${clip.startTime * pixelsPerMs}px` }}
+              title={`Cut at ${(clip.startTime / 1000).toFixed(2)}s`}
+            />
+          );
+        })}
       </div>
     </div>
   );

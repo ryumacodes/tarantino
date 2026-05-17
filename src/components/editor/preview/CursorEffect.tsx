@@ -96,6 +96,8 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
   const effect = useMemo(() => new CursorEffectImpl(), []);
   const { size } = useThree();
   const cursorScale = useEditorStore((state) => state.visualSettings.cursorScale);
+  const hideCursorWhenIdle = useEditorStore((state) => state.visualSettings.hideCursorWhenIdle);
+  const idleTimeout = useEditorStore((state) => state.visualSettings.idleTimeout);
   const stopCursorAtEnd = useEditorStore((state) => state.visualSettings.stopCursorAtEnd);
   const stopCursorDuration = useEditorStore((state) => state.visualSettings.stopCursorDuration);
   const loopCursorPosition = useEditorStore((state) => state.visualSettings.loopCursorPosition);
@@ -119,6 +121,8 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
           videoWidth: videoWidth,
           videoHeight: videoHeight,
           cursorScale: cursorScale ?? 3.0,
+          hideCursorWhenIdle,
+          idleTimeout,
           stopCursorAtEnd,
           stopCursorDuration,
           loopCursorPosition,
@@ -132,7 +136,17 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     };
 
     load();
-  }, [sidecarPath, videoWidth, videoHeight, cursorScale, stopCursorAtEnd, stopCursorDuration, loopCursorPosition]);
+  }, [
+    sidecarPath,
+    videoWidth,
+    videoHeight,
+    cursorScale,
+    hideCursorWhenIdle,
+    idleTimeout,
+    stopCursorAtEnd,
+    stopCursorDuration,
+    loopCursorPosition,
+  ]);
 
   useFrame(() => {
     if (!visible || !trajectory || trajectory.length === 0) {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, FastForward } from 'lucide-react';
+import { Film, FastForward, Trash2 } from 'lucide-react';
 import { useEditorStore } from '../../../stores/editor';
 import type { TabProps } from './types';
 
@@ -19,7 +19,7 @@ const formatTime = (ms: number): string => {
 };
 
 const ClipsTab: React.FC<TabProps> = ({ isExporting = false }) => {
-  const { tracks, setClipPlaybackRate } = useEditorStore();
+  const { tracks, setClipPlaybackRate, deleteClip } = useEditorStore();
 
   // Get all clips from all tracks
   const allClips = tracks.flatMap((track) => track.clips);
@@ -51,9 +51,19 @@ const ClipsTab: React.FC<TabProps> = ({ isExporting = false }) => {
                       {formatTime(clip.startTime)} - {formatTime(clip.startTime + clip.duration)} • {(clip.duration / 1000).toFixed(1)}s
                     </div>
                   </div>
-                  <div className="clip-speed-badge">
-                    <FastForward size={12} />
-                    {clip.playbackRate}x
+                  <div className="clip-actions">
+                    <div className="clip-speed-badge">
+                      <FastForward size={12} />
+                      {clip.playbackRate}x
+                    </div>
+                    <button
+                      className="clip-delete-btn"
+                      onClick={() => deleteClip(clip.id)}
+                      title="Delete clip"
+                      disabled={isExporting}
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 </div>
 
@@ -98,7 +108,8 @@ const ClipsTab: React.FC<TabProps> = ({ isExporting = false }) => {
           <h3>Tips</h3>
         </div>
         <div className="tips-content">
-          <p>• Use scissors tool (S key) to cut clips at playhead</p>
+          <p>• Use scissors tool (C key) to cut clips and zoom blocks at the playhead</p>
+          <p>• Select a clip or zoom block, then press Delete to remove it</p>
           <p>• Speed up boring sections with 2x-4x</p>
           <p>• Slow down important actions with 0.5x</p>
         </div>

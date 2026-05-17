@@ -327,7 +327,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var px = out_px;
     if (is_window) { px = window_inverse_zoom(out_px); }
 
-    var result = background_at(px);
+    // Keep wallpaper/gradient/solid backgrounds locked to the export canvas.
+    // Window-mode zoom remaps only the captured window layer below.
+    var result = background_at(out_px);
 
     if (u.shadow_enabled > 0.5) {
         let shadow_uv = vec2<f32>(px.x / u.output_width, px.y / u.output_height);

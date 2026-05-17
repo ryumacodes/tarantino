@@ -66,7 +66,7 @@ pub async fn record_start_new(
     let webcam_shape = normalize_webcam_shape(webcam_shape.as_deref().unwrap_or("circle"));
     state.set_webcam_shape(webcam_shape.clone());
 
-    let (effective_quality, maybe_mic_device, mic_enabled_default) = {
+    let (effective_quality, maybe_mic_device) = {
         let app_read = state.app.read();
         (
             if quality.eq_ignore_ascii_case("Default") {
@@ -75,7 +75,6 @@ pub async fn record_start_new(
                 quality
             },
             app_read.microphone_config.device_id.clone(),
-            app_read.microphone_config.enabled,
         )
     };
 
@@ -89,11 +88,8 @@ pub async fn record_start_new(
         output_path,
     )?;
 
-    if recording_config.include_microphone || mic_enabled_default {
-        recording_config.include_microphone = true;
-        if recording_config.microphone_device.is_none() {
-            recording_config.microphone_device = maybe_mic_device;
-        }
+    if recording_config.include_microphone && recording_config.microphone_device.is_none() {
+        recording_config.microphone_device = maybe_mic_device;
     }
 
     validate_recording_target(&state, &recording_config)?;

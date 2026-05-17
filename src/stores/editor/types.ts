@@ -352,6 +352,7 @@ export interface EditorActions {
   updateZoomBlock: (blockId: string, updates: Partial<ZoomBlock>) => void;
   deleteZoomBlock: (blockId: string) => void;
   addZoomBlock: (block: ZoomBlock) => void;
+  splitZoomBlocksAtTime: (time: number) => void;
   saveZoomData: () => Promise<void>;
   setSelectedBlockId: (id: string | null) => void;
   // Preview zoom actions

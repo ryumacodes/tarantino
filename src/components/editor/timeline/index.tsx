@@ -81,6 +81,9 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
     selectedBlockId,
     setSelectedBlockId,
     clips,
+    selection,
+    selectClips,
+    clearSelection,
     currentTool,
     setCurrentTool,
     snappingEnabled,
@@ -110,6 +113,21 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
       }
     }
   }, [getVideoElement]);
+
+  const getTimeFromClientX = useCallback((clientX: number) => {
+    if (!timelineRef.current) return currentTime;
+    const rect = timelineRef.current.getBoundingClientRect();
+    const x = clientX - rect.left - trackHeaderWidth;
+    return Math.max(0, Math.min(duration, x / pixelsPerMs));
+  }, [currentTime, duration, pixelsPerMs]);
+
+  const splitAtTime = useCallback((time: number) => {
+    if (isExporting) return;
+    store.cutClipsAtTime(time);
+    store.splitZoomBlocksAtTime(time);
+    setCurrentTime(time);
+    seekVideo(time);
+  }, [isExporting, seekVideo, setCurrentTime, store]);
 
   const setVideoPlaying = useCallback((playing: boolean) => {
     const playFunction = window.__TARANTINO_SET_PLAYING;
@@ -163,7 +181,10 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
           e.preventDefault();
           break;
         case 'c':
-          if (!isExporting) setCurrentTool('scissors');
+          if (!isExporting) {
+            setCurrentTool('scissors');
+            splitAtTime(currentTime);
+          }
           e.preventDefault();
           break;
         case 't':
@@ -205,36 +226,61 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
           e.preventDefault();
           break;
         }
+        case 'backspace':
+        case 'delete':
+          if (!isExporting) {
+            if (selection.clipIds.length > 0) {
+              selection.clipIds.forEach((clipId) => store.deleteClip(clipId));
+              clearSelection();
+            } else if (selectedBlockId) {
+              deleteZoomBlock(selectedBlockId);
+            }
+            e.preventDefault();
+          }
+          break;
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [snappingEnabled, isExporting, setCurrentTool, setSnappingEnabled, setVideoPlaying, getVideoElement, currentTime, duration, seekVideo]);
+  }, [snappingEnabled, isExporting, setCurrentTool, setSnappingEnabled, setVideoPlaying, getVideoElement, currentTime, duration, seekVideo, splitAtTime, selection.clipIds, store, clearSelection, selectedBlockId, deleteZoomBlock]);
 
   const handleTimelineClick = (e: React.MouseEvent) => {
     if (!timelineRef.current || isDragging) return;
 
-    const rect = timelineRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left - trackHeaderWidth;
-    const time = Math.max(0, Math.min(duration, x / pixelsPerMs));
+    const time = getTimeFromClientX(e.clientX);
 
     if (selectedBlockId) {
       setSelectedBlockId(null);
     }
 
     if (currentTool === 'scissors' && !isExporting) {
-      const clipsAtTime = store.getClipsAtTime(time);
-      if (clipsAtTime.length > 0) {
-        store.cutClipsAtTime(time);
-      }
-      setCurrentTool('select');
+      splitAtTime(time);
     } else {
+      clearSelection();
       setCurrentTime(time);
       seekVideo(time);
     }
 
     e.stopPropagation();
+  };
+
+  const handleClipClick = (clipId: string, event: React.MouseEvent) => {
+    if (isExporting) return;
+    event.stopPropagation();
+
+    const time = getTimeFromClientX(event.clientX);
+    if (currentTool === 'scissors') {
+      splitAtTime(time);
+      return;
+    }
+
+    if (selectedBlockId) {
+      setSelectedBlockId(null);
+    }
+    selectClips([clipId], event.shiftKey || event.metaKey);
+    setCurrentTime(time);
+    seekVideo(time);
   };
 
   const handleBlockClick = (blockId: string, event: React.MouseEvent) => {
@@ -309,6 +355,7 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
         onFitTimeline={() => setTimelineZoom(1)}
         onToggleCollapse={onToggleCollapse}
         onAddZoomBlock={handleAddZoomBlock}
+        onSplitAtPlayhead={() => splitAtTime(currentTime)}
         isExporting={isExporting}
       />
 
@@ -328,10 +375,12 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
               trimEnd={trimEnd}
               duration={duration}
               clips={clips}
+              selectedClipIds={selection.clipIds}
               isExporting={isExporting}
               onToggleVisibility={() => toggleTrackVisibility('video')}
               onTrimStartDrag={(e) => handleMouseDown(e, 'trim-start')}
               onTrimEndDrag={(e) => handleMouseDown(e, 'trim-end')}
+              onClipClick={handleClipClick}
             />
           )}
 

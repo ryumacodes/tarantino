@@ -184,6 +184,37 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
     state.historyIndex++;
   }),
 
+  splitZoomBlocksAtTime: (time: number) => set((state) => {
+    if (!state.zoomAnalysis) return;
+
+    const blocksToSplit = state.zoomAnalysis.zoom_blocks.filter(
+      block => time > block.start_time && time < block.end_time
+    );
+    if (blocksToSplit.length === 0) return;
+
+    blocksToSplit.forEach((block) => {
+      const originalEnd = block.end_time;
+      const originalCenters = block.centers ?? [];
+      const secondBlock = {
+        ...block,
+        id: crypto.randomUUID(),
+        start_time: time,
+        end_time: originalEnd,
+        centers: originalCenters.filter(center => center.time >= time),
+        is_manual: true,
+      };
+
+      block.end_time = time;
+      block.centers = originalCenters.filter(center => center.time < time);
+      block.is_manual = true;
+      state.zoomAnalysis!.zoom_blocks.push(secondBlock);
+    });
+
+    state.zoomAnalysis.zoom_blocks.sort((a, b) => a.start_time - b.start_time);
+    state.history.push({ ...state });
+    state.historyIndex++;
+  }),
+
   saveZoomData: async () => {
     const state = get();
     if (!state.videoFilePath || !state.zoomAnalysis) {

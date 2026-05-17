@@ -175,7 +175,6 @@ const CaptureBar: React.FC = () => {
   const handleCameraToggle = async () => {
     const enabled = !cameraEnabled;
     const previousCameraEnabled = cameraEnabled;
-    const previousMicEnabled = micEnabled;
     setCameraError(null);
     setCameraEnabled(enabled);
 
@@ -186,13 +185,6 @@ const CaptureBar: React.FC = () => {
         shape: webcamShape
       });
 
-      if (enabled && !micEnabled) {
-        setMicEnabled(true);
-        await invoke('input_set_mic', {
-          enabled: true,
-          deviceId: selectedMicDevice || audioDevices.microphones[0]?.id || null
-        });
-      }
     } catch (error) {
       console.error('Failed to toggle camera:', error);
       const message = error instanceof Error ? error.message : String(error);
@@ -206,7 +198,6 @@ const CaptureBar: React.FC = () => {
         });
       }
       setCameraEnabled(previousCameraEnabled);
-      setMicEnabled(previousMicEnabled);
       setCameraError(message);
       if (message.toLowerCase().includes('permission denied')) {
         const shouldOpenSettings = window.confirm('Camera access is turned off for Tarantino. Open Camera settings now?');

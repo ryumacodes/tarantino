@@ -26,6 +26,7 @@ interface TimelineHeaderProps {
   onFitTimeline: () => void;
   onToggleCollapse?: () => void;
   onAddZoomBlock: () => void;
+  onSplitAtPlayhead: () => void;
   isExporting: boolean;
 }
 
@@ -49,6 +50,7 @@ const TimelineHeader: React.FC<TimelineHeaderProps> = ({
   onFitTimeline,
   onToggleCollapse,
   onAddZoomBlock,
+  onSplitAtPlayhead,
   isExporting,
 }) => {
   return (
@@ -71,8 +73,12 @@ const TimelineHeader: React.FC<TimelineHeaderProps> = ({
           </button>
           <button
             className={`tool-btn ${currentTool === 'scissors' ? 'active' : ''} ${isExporting ? 'disabled' : ''}`}
-            onClick={() => !isExporting && setCurrentTool('scissors')}
-            title={isExporting ? "Disabled during export" : "Scissors Tool (C)"}
+            onClick={() => {
+              if (isExporting) return;
+              setCurrentTool('scissors');
+              onSplitAtPlayhead();
+            }}
+            title={isExporting ? "Disabled during export" : "Split at Playhead (C)"}
             disabled={isExporting}
           >
             <Scissors size={16} />
