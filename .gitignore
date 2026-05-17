@@ -1,0 +1,75 @@
+# Logs
+logs
+*.log
+*.out
+*.err
+*.trace
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Captured command/build output
+/build-output*.txt
+/build.log
+/cargo-build*.txt
+/tauri-build*.txt
+/vite-output*.txt
+/command-output*.txt
+/terminal-output*.txt
+/stdout.txt
+/stderr.txt
+
+# Dependencies and generated output
+node_modules
+dist
+dist-ssr
+coverage
+.coverage
+.nyc_output
+*.local
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Local workspace/tool artifacts
+.claude/settings.local.json
+.codex/
+.cursor/
+.tmp/
+.temp/
+.cache/
+.vite/
+/vite
+/tauri
+/tarantino@*
+/:-
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+._*
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Rust
+target/
+**/*.rs.bk
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/android/
+src-tauri/gen/apple/
+src-tauri/binaries/
+src-tauri/.tauri/
+src-tauri/*.log

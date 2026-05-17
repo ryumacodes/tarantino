@@ -1,0 +1,159 @@
+.shortcut-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: rgba(12, 12, 14, 0.54);
+}
+
+.shortcut-modal,
+.command-menu {
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(680px, calc(100vh - 32px));
+  overflow: hidden;
+  color: var(--editor-text-primary);
+  background: var(--editor-bg-secondary);
+  border: 1px solid var(--editor-border);
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+}
+
+.shortcut-modal header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--editor-border);
+}
+
+.shortcut-modal h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.shortcut-modal header button,
+.speaker-notes-panel button {
+  color: var(--editor-text-secondary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.shortcut-list,
+.command-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 540px;
+  overflow: auto;
+  padding: 8px;
+}
+
+.shortcut-row,
+.command-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 0 10px;
+  color: var(--editor-text-primary);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.command-list button {
+  cursor: pointer;
+  text-align: left;
+}
+
+.command-list button:hover {
+  background: var(--editor-bg-tertiary);
+}
+
+.shortcut-row kbd,
+.command-list kbd {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  color: var(--editor-text-secondary);
+  background: var(--editor-bg-primary);
+  border: 1px solid var(--editor-border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.command-menu input {
+  width: calc(100% - 24px);
+  margin: 12px;
+  padding: 12px 14px;
+  color: var(--editor-text-primary);
+  background: var(--editor-bg-primary);
+  border: 1px solid var(--editor-border);
+  border-radius: 7px;
+  outline: none;
+  font-size: 14px;
+}
+
+.speaker-notes-panel {
+  position: fixed;
+  right: 18px;
+  bottom: 46px;
+  z-index: 900;
+  width: min(360px, calc(100vw - 36px));
+  height: 260px;
+  color: var(--editor-text-primary);
+  background: rgba(34, 34, 38, 0.96);
+  border: 1px solid var(--editor-border);
+  border-radius: 8px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.32);
+  overflow: hidden;
+}
+
+.speaker-notes-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--editor-border);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.speaker-notes-panel textarea {
+  width: 100%;
+  height: calc(100% - 38px);
+  padding: 12px;
+  resize: none;
+  color: var(--editor-text-primary);
+  background: transparent;
+  border: 0;
+  outline: none;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.recording-flags {
+  position: fixed;
+  left: 18px;
+  bottom: 46px;
+  z-index: 900;
+  display: flex;
+  gap: 8px;
+}
+
+.recording-flags span {
+  padding: 6px 10px;
+  color: var(--editor-text-primary);
+  background: rgba(40, 42, 54, 0.92);
+  border: 1px solid var(--editor-border);
+  border-radius: 6px;
+  font-size: 12px;
+}

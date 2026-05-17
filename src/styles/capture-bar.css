@@ -1,0 +1,269 @@
+/* Zoom Block Timeline Styles (Screen Studio inspired) */
+.zoom-block-container:hover .resize-handle {
+  opacity: 1 !important;
+}
+
+.zoom-block-container:hover .zoom-block-body {
+  box-shadow: 0 2px 8px rgba(189, 147, 249, 0.4) !important;
+  transform: translateY(-1px);
+}
+
+.zoom-block-body:active {
+  transform: translateY(0px) !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3) !important;
+}
+
+/* Timeline track styles */
+.timeline-track {
+  position: relative;
+  border-bottom: 1px solid var(--border);
+}
+
+.track-content {
+  position: relative;
+  height: 32px;
+  background: linear-gradient(90deg, 
+    rgba(68, 71, 90, 0.05) 0%, 
+    rgba(68, 71, 90, 0.1) 50%, 
+    rgba(68, 71, 90, 0.05) 100%);
+}
+
+.app { 
+  width: 710px; 
+  height: 60px; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  padding: 0 5px;
+}
+
+.capture-bar-pill {
+  display: flex; 
+  align-items: center; 
+  gap: 8px; 
+  padding: 0 12px;
+  background: rgba(0, 0, 0, .85);
+  border-radius: 30px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  color: white;
+  -webkit-app-region: drag;
+  height: 60px;
+  width: auto;
+  box-sizing: border-box;
+  overflow: visible;
+  min-width: fit-content;
+}
+
+.capture-bar-pill button, .capture-bar__record, .no-drag { 
+  -webkit-app-region: no-drag; 
+}
+
+
+/* Capture Bar Button Styles */
+.capture-bar__exit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.capture-bar__exit:hover {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: white;
+}
+
+.capture-bar__modes {
+  display: flex;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  padding: 4px;
+  gap: 4px;
+}
+
+.capture-bar__mode {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 8px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.capture-bar__mode:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.capture-bar__mode:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.capture-bar__mode:disabled:hover {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.capture-bar__mode.active {
+  background: #ff6b6b;
+  color: white;
+}
+
+.capture-bar__inputs {
+  display: flex;
+  gap: 8px;
+}
+
+.capture-bar__input {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.capture-bar__input-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px 0 0 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.capture-bar__input-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.capture-bar__input-toggle.active {
+  background: var(--success);
+  border-color: var(--success);
+  color: white;
+}
+
+.capture-bar__input-select {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.capture-bar__input-select:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.capture-bar__camera-error {
+  max-width: 110px;
+  color: #ff8a8a;
+  font-size: 11px;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capture-bar__settings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.capture-bar__settings:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  transform: rotate(90deg);
+}
+
+.capture-bar__record {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.capture-bar__record:hover:not(.disabled) {
+  transform: scale(1.1);
+  box-shadow: 0 0 20px rgba(255, 107, 107, 0.4);
+}
+
+.capture-bar__record.disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.capture-bar__record.recording {
+  animation: pulse 1.5s infinite;
+}
+
+.record-dot {
+  width: 12px;
+  height: 12px;
+  background: var(--accent);
+  border-radius: 50%;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.capture-bar__record.recording {
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.capture-bar__record.recording .record-dot {
+  width: 8px;
+  height: 8px;
+  background: white;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(255, 107, 107, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 107, 107, 0);
+  }
+}

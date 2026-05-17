@@ -1,0 +1,46 @@
+{
+  "name": "tarantino",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "check:repo-hygiene": "sh scripts/check-repo-hygiene.sh",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:dev:raw": "TARANTINO_DEV_LAUNCH_MODE=raw TARANTINO_RAW_DEV=1 tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
+    "@react-three/postprocessing": "^3.0.4",
+    "@tauri-apps/api": "2.11.0",
+    "@tauri-apps/plugin-shell": "2.3.5",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.38.0",
+    "immer": "^10.2.0",
+    "lucide-react": "^1.16.0",
+    "postprocessing": "^6.39.1",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "tailwind-merge": "^2.6.1",
+    "three": "^0.180.0",
+    "zustand": "^4.5.7"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.184.1",
+    "@vitejs/plugin-react": "^5.2.0",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.14",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.2"
+  },
+  "packageManager": "pnpm@8.15.0"
+}

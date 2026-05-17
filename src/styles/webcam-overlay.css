@@ -1,0 +1,205 @@
+/* Webcam Overlay */
+.webcam-overlay-container {
+  position: fixed;
+  top: 100px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.webcam-overlay {
+  position: absolute;
+  background: linear-gradient(135deg, rgba(26, 26, 26, 0.9), rgba(10, 10, 10, 0.9));
+  border: 2px solid var(--accent);
+  overflow: hidden;
+  cursor: move;
+  pointer-events: all;
+  transition: border-color 0.2s ease;
+}
+
+.webcam-overlay.circle {
+  border-radius: 50%;
+}
+
+.webcam-overlay.roundrect {
+  border-radius: 20%;
+}
+
+.webcam-overlay.dragging {
+  border-color: var(--warning);
+  opacity: 0.8;
+}
+
+.webcam-overlay__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.webcam-overlay__controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.webcam-overlay:hover .webcam-overlay__controls {
+  opacity: 1;
+}
+
+.webcam-overlay__shape-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.webcam-overlay__shape-toggle:hover {
+  background: var(--accent);
+}
+
+.webcam-overlay__resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.webcam-overlay:hover .webcam-overlay__resize-handle {
+  opacity: 1;
+}
+
+.webcam-overlay__resize-handle::before {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 0 10px 10px;
+  border-color: transparent transparent var(--accent) transparent;
+}
+
+.webcam-overlay__guides {
+  position: fixed;
+  top: 100px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.webcam-overlay__guide {
+  position: absolute;
+  background: rgba(255, 203, 0, 0.3);
+}
+
+.webcam-overlay__guide--horizontal {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.webcam-overlay__guide--vertical {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+/* Webcam Toggle Button */
+.webcam-toggle-button {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  border: 2px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  transition: all 0.2s ease;
+  pointer-events: all;
+}
+
+.webcam-toggle-button:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.webcam-toggle-button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.webcam-toggle-button.recording {
+  border-color: var(--error);
+}
+
+.webcam-toggle-button__recording-indicator {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  background: var(--error);
+  border-radius: 50%;
+  animation: pulse 1s infinite;
+}
+
+/* Webcam Recording Badge */
+.webcam-overlay__recording-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: var(--error);
+  border-radius: 4px;
+  font-size: 8px;
+  font-weight: bold;
+  color: white;
+  animation: pulse 1s infinite;
+}
+
+/* Webcam Recording state */
+.webcam-overlay.recording {
+  border-color: var(--error);
+}
+
+/* Webcam Error */
+.webcam-overlay__error {
+  position: fixed;
+  bottom: 70px;
+  left: 20px;
+  padding: 8px 12px;
+  background: var(--error);
+  color: white;
+  border-radius: 6px;
+  font-size: 12px;
+  z-index: 1000;
+  pointer-events: all;
+}

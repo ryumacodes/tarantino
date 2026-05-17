@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #1a1a1a;
+  --bg-tertiary: #2a2a2a;
+  --border: #3a3a3a;
+  --text-primary: #ffffff;
+  --text-secondary: #a0a0a0;
+  --accent: #ff6b6b;
+  --accent-hover: #ff5252;
+  --success: #4ade80;
+  --warning: #ffc800;
+  --error: #ef4444;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root, .app { 
+  background: transparent; 
+  margin: 0; 
+  padding: 0; 
+}
+
+button {
+  background: none;
+  border: none;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+}

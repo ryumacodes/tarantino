@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Debug Editor</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 20px;
+        background: #1C1B19;
+        color: #FCE8C3;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      .debug-info {
+        margin-bottom: 20px;
+      }
+      .debug-info h2 {
+        margin-bottom: 10px;
+        color: #EF2F27;
+      }
+      .debug-info pre {
+        background: #121212;
+        padding: 10px;
+        border-radius: 4px;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="debug-info">
+      <h2>Debug Editor Loading</h2>
+      <p>URL: <span id="url"></span></p>
+      <p>Timestamp: <span id="timestamp"></span></p>
+    </div>
+
+    <div class="debug-info">
+      <h2>URL Parameters</h2>
+      <pre id="params"></pre>
+    </div>
+
+    <div class="debug-info">
+      <h2>Console Messages</h2>
+      <pre id="console-output"></pre>
+    </div>
+
+    <script type="module">
+      // Capture console messages
+      const consoleOutput = document.getElementById('console-output');
+      const originalLog = console.log;
+      const originalError = console.error;
+      
+      function addToConsole(type, ...args) {
+        const message = args.map(arg => 
+          typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+        ).join(' ');
+        consoleOutput.textContent += `[${type}] ${message}\n`;
+        consoleOutput.scrollTop = consoleOutput.scrollHeight;
+      }
+      
+      console.log = (...args) => {
+        originalLog(...args);
+        addToConsole('LOG', ...args);
+      };
+      
+      console.error = (...args) => {
+        originalError(...args);
+        addToConsole('ERROR', ...args);
+      };
+
+      // Display basic info
+      document.getElementById('url').textContent = window.location.href;
+      document.getElementById('timestamp').textContent = new Date().toISOString();
+      
+      // Parse URL parameters
+      const params = new URLSearchParams(window.location.search);
+      const paramObj = {};
+      for (const [key, value] of params) {
+        paramObj[key] = decodeURIComponent(value);
+      }
+      document.getElementById('params').textContent = JSON.stringify(paramObj, null, 2);
+      
+      console.log('Debug editor loaded');
+      console.log('URL Parameters:', paramObj);
+      
+      // Test if we can import the store
+      try {
+        console.log('Testing store import...');
+        const { useEditorStore } = await import('./src/stores/editor.ts');
+        console.log('Store imported successfully:', useEditorStore);
+        
+        // Test if we can invoke Tauri commands
+        console.log('Testing Tauri import...');
+        const { invoke } = await import('@tauri-apps/api/core');
+        console.log('Tauri imported successfully');
+        
+        // Test metadata loading
+        if (paramObj.media) {
+          console.log('Testing video metadata loading...');
+          try {
+            const videoInfo = await invoke('get_video_metadata', { filePath: paramObj.media });
+            console.log('Video metadata loaded:', videoInfo);
+          } catch (error) {
+            console.error('Failed to load video metadata:', error);
+          }
+        }
+        
+      } catch (error) {
+        console.error('Import error:', error);
+      }
+    </script>
+  </body>
+</html>
