@@ -40,12 +40,13 @@ export {
   ASPECT_RATIOS,
   DEVICE_FRAMES,
   WALLPAPERS,
+  getWallpaperBackground,
   SPRING_PRESETS,
   ZOOM_SPEED_PRESETS,
   DEFAULT_VISUAL_SETTINGS,
 } from './constants';
 
-export type { SpringPreset } from './constants';
+export type { SpringPreset, Wallpaper } from './constants';
 
 // Store
 export { useEditorStore } from './store';

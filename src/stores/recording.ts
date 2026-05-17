@@ -14,6 +14,10 @@ interface RecordingStore {
   resumeRecording: () => void;
 }
 
+interface VideoMetadata {
+  duration_ms: number;
+}
+
 export const useRecordingStore = create<RecordingStore>((set) => ({
   state: 'idle',
   startTime: null,
@@ -29,29 +33,21 @@ export const useRecordingStore = create<RecordingStore>((set) => ({
   }),
   
   stopRecording: async (filePath) => {
-    console.log('Recording store: stopRecording called with filePath:', filePath);
-    
-    // Get actual video duration from FFmpeg
     let videoDuration = 0;
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      const videoInfo = await invoke('get_video_metadata', { filePath });
-      videoDuration = (videoInfo as any).duration_ms;
-      console.log('Recording store: got video duration from FFmpeg:', videoDuration, 'ms');
+      const videoInfo = await invoke<VideoMetadata>('get_video_metadata', { filePath });
+      videoDuration = videoInfo.duration_ms;
     } catch (error) {
       console.error('Recording store: failed to get video metadata, using estimated duration:', error);
-      // Fallback to estimated duration using passed state
       const storeState = useRecordingStore.getState();
       videoDuration = storeState.startTime ? Date.now() - storeState.startTime : 30000;
     }
     
-    set((state) => {
-      console.log('Recording store: transitioning from', state.state, 'to review with duration:', videoDuration);
-      return {
-        state: 'review',
-        filePath,
-        duration: videoDuration
-      };
+    set({
+      state: 'review',
+      filePath,
+      duration: videoDuration
     });
   },
   

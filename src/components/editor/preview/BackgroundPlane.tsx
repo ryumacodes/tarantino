@@ -16,7 +16,6 @@ export const BackgroundPlane: React.FC<BackgroundPlaneProps> = ({ width, height,
     ? WALLPAPERS[settings.wallpaperId as keyof typeof WALLPAPERS]
     : null;
 
-  // Create gradient/wallpaper texture
   const backgroundTexture = useMemo(() => {
     const wallpaper = settings.backgroundType === 'wallpaper' && settings.wallpaperId
       ? WALLPAPERS[settings.wallpaperId as keyof typeof WALLPAPERS]
@@ -37,7 +36,6 @@ export const BackgroundPlane: React.FC<BackgroundPlaneProps> = ({ width, height,
     } else if (settings.gradientDirection === 'to-bottom') {
       gradient = ctx.createLinearGradient(0, 0, 0, 512);
     } else {
-      // to-bottom-right
       gradient = ctx.createLinearGradient(0, 0, 512, 512);
     }
 
@@ -66,62 +64,25 @@ export const BackgroundPlane: React.FC<BackgroundPlaneProps> = ({ width, height,
 
   useEffect(() => {
     const imageSrc = settings.customBackgroundImage;
-    (window as any).__TARANTINO_BACKGROUND_STATE = {
-      backgroundType: settings.backgroundType,
-      wallpaperId: settings.wallpaperId,
-      hasCustomBackgroundImage: Boolean(imageSrc),
-      customBackgroundImageLength: imageSrc?.length ?? 0,
-      planeWidth: width,
-      planeHeight: height,
-      renderer: imageSrc && settings.backgroundType === 'wallpaper' && !settings.wallpaperId
-        ? 'custom-wallpaper-image'
-        : settings.wallpaperId
-          ? 'preset-wallpaper'
-          : settings.backgroundType,
-    };
     if (settings.backgroundType !== 'wallpaper' || settings.wallpaperId || !imageSrc) {
-      console.info('[Wallpaper Image] preview using non-custom background', {
-        backgroundType: settings.backgroundType,
-        wallpaperId: settings.wallpaperId,
-        hasCustomImage: Boolean(imageSrc),
-      });
       setImageTexture(null);
       return;
     }
 
-    console.info('[Wallpaper Image] preview loading custom image', {
-      dataUrlLength: imageSrc.length,
-      prefix: imageSrc.slice(0, 48),
-      planeWidth: width,
-      planeHeight: height,
-    });
     let cancelled = false;
     const image = new window.Image();
     image.crossOrigin = 'anonymous';
     image.onload = () => {
       if (cancelled) return;
-      console.info('[Wallpaper Image] preview image decoded', {
-        naturalWidth: image.width,
-        naturalHeight: image.height,
-      });
       const aspect = Math.max(width / Math.max(height, 0.001), 0.001);
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(1024 * aspect));
       canvas.height = 1024;
       const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        console.warn('[Wallpaper Image] preview canvas context unavailable');
-        return;
-      }
+      if (!ctx) return;
       const scale = Math.max(canvas.width / image.width, canvas.height / image.height);
       const drawW = image.width * scale;
       const drawH = image.height * scale;
-      console.info('[Wallpaper Image] preview texture prepared', {
-        canvasWidth: canvas.width,
-        canvasHeight: canvas.height,
-        drawWidth: Math.round(drawW),
-        drawHeight: Math.round(drawH),
-      });
       ctx.drawImage(image, (canvas.width - drawW) / 2, (canvas.height - drawH) / 2, drawW, drawH);
       const texture = new THREE.CanvasTexture(canvas);
       texture.needsUpdate = true;
@@ -129,10 +90,6 @@ export const BackgroundPlane: React.FC<BackgroundPlaneProps> = ({ width, height,
     };
     image.onerror = () => {
       if (cancelled) return;
-      console.warn('[Wallpaper Image] preview failed to load custom image', {
-        dataUrlLength: imageSrc.length,
-        prefix: imageSrc.slice(0, 48),
-      });
       setImageTexture(null);
     };
     image.src = imageSrc;

@@ -95,13 +95,12 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
   const trackHeaderWidth = 140;
   const audioBasePath = videoFilePath?.replace(/\.[^/.]+$/, '') ?? null;
 
-  // Video control helpers
   const getVideoElement = useCallback((): HTMLVideoElement | null => {
-    return (window as any).__TARANTINO_VIDEO_ELEMENT || null;
+    return window.__TARANTINO_VIDEO_ELEMENT || null;
   }, []);
 
   const seekVideo = useCallback((timeMs: number) => {
-    const seekFunction = (window as any).__TARANTINO_SEEK_VIDEO;
+    const seekFunction = window.__TARANTINO_SEEK_VIDEO;
     if (seekFunction) {
       seekFunction(timeMs);
     } else {
@@ -113,13 +112,12 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
   }, [getVideoElement]);
 
   const setVideoPlaying = useCallback((playing: boolean) => {
-    const playFunction = (window as any).__TARANTINO_SET_PLAYING;
+    const playFunction = window.__TARANTINO_SET_PLAYING;
     if (playFunction) {
       playFunction(playing);
     }
   }, []);
 
-  // Drag hooks
   const { isDragging, dragType, handleMouseDown } = useTimelineDrag({
     timelineRef,
     pixelsPerMs,

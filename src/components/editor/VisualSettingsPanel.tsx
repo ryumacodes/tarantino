@@ -2,6 +2,7 @@ import React from 'react';
 import {
   useEditorStore,
   WALLPAPERS,
+  getWallpaperBackground,
   ZOOM_SPEED_PRESETS,
   ASPECT_RATIOS,
   DEVICE_FRAMES,
@@ -188,9 +189,7 @@ const VisualSettingsPanel: React.FC = () => {
                 className={`wallpaper-btn ${visualSettings.wallpaperId === id ? 'active' : ''}`}
                 onClick={() => applyWallpaper(id)}
                 style={{
-                  background: wallpaper.type === 'gradient'
-                    ? `linear-gradient(135deg, ${(wallpaper as any).colors.join(', ')})`
-                    : (wallpaper as any).color,
+                  background: getWallpaperBackground(wallpaper),
                 }}
                 title={id.replace('gradient-', '').replace('solid-', '')}
               />

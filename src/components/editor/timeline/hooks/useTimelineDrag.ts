@@ -41,7 +41,6 @@ export function useTimelineDrag({
   const [dragType, setDragType] = useState<DragType>(null);
 
   const handleMouseDown = useCallback((e: React.MouseEvent, type: DragType) => {
-    // Disable trim editing during export (but allow playhead seeking)
     if (isExporting && (type === 'trim-start' || type === 'trim-end')) {
       return;
     }
@@ -65,11 +64,10 @@ export function useTimelineDrag({
           setCurrentTime(time);
           seekVideo(time);
 
-          // Pause video during scrubbing for better performance
           const video = getVideoElement();
           if (video && !video.paused) {
             video.pause();
-            (window as any).__TARANTINO_WAS_PLAYING = true;
+            window.__TARANTINO_WAS_PLAYING = true;
           }
           break;
         case 'trim-start':
@@ -82,13 +80,12 @@ export function useTimelineDrag({
     };
 
     const handleMouseUp = () => {
-      // Resume playback if it was playing before scrubbing
-      if (dragType === 'playhead' && (window as any).__TARANTINO_WAS_PLAYING) {
+      if (dragType === 'playhead' && window.__TARANTINO_WAS_PLAYING) {
         const video = getVideoElement();
         if (video && video.paused) {
           video.play().catch(console.error);
         }
-        (window as any).__TARANTINO_WAS_PLAYING = false;
+        window.__TARANTINO_WAS_PLAYING = false;
       }
 
       setIsDragging(false);
@@ -107,7 +104,6 @@ export function useTimelineDrag({
   return { isDragging, dragType, handleMouseDown };
 }
 
-// Zoom block drag hook
 interface ZoomBlock {
   id: string;
   startTime: number;

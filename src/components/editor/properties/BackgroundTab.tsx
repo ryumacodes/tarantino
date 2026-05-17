@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { Image, Layers, Monitor, Palette } from 'lucide-react';
-import { useEditorStore, ASPECT_RATIOS, WALLPAPERS, type AspectRatio, type BackgroundType, type GradientDirection } from '../../../stores/editor';
+import { useEditorStore, ASPECT_RATIOS, WALLPAPERS, getWallpaperBackground, type AspectRatio, type BackgroundType, type GradientDirection } from '../../../stores/editor';
 import type { TabProps } from './types';
 
 const backgroundTypes: { type: BackgroundType; label: string; icon: React.ReactNode }[] = [
@@ -31,21 +31,11 @@ const isSupportedWallpaperImage = (file: File) =>
   SUPPORTED_WALLPAPER_IMAGE_TYPES.has(file.type) || SUPPORTED_WALLPAPER_IMAGE_EXTENSIONS.test(file.name);
 
 const readWallpaperImage = (file: File) => new Promise<string>((resolve, reject) => {
-  console.info('[Wallpaper Image] reading file as data URL', {
-    name: file.name,
-    type: file.type || '(unknown)',
-    sizeBytes: file.size,
-  });
   const reader = new FileReader();
   reader.onload = () => {
     if (typeof reader.result === 'string') {
-      console.info('[Wallpaper Image] file read complete', {
-        dataUrlLength: reader.result.length,
-        prefix: reader.result.slice(0, 48),
-      });
       resolve(reader.result);
     } else {
-      console.warn('[Wallpaper Image] file reader returned non-string result');
       reject(new Error('Invalid image data'));
     }
   };
@@ -238,27 +228,12 @@ const BackgroundTab: React.FC<TabProps> = ({ isExporting = false }) => {
               onChange={async (event) => {
                 const file = event.target.files?.[0];
                 if (!file) return;
-                console.info('[Wallpaper Image] selected file', {
-                  name: file.name,
-                  type: file.type || '(unknown)',
-                  sizeBytes: file.size,
-                  lastModified: file.lastModified,
-                });
                 try {
                   if (!isSupportedWallpaperImage(file)) {
-                    console.warn('[Wallpaper Image] unsupported file rejected', {
-                      name: file.name,
-                      type: file.type || '(unknown)',
-                    });
                     window.alert('Choose a JPG, PNG, WebP, GIF, AVIF, or BMP image.');
                     return;
                   }
                   const imageDataUrl = await readWallpaperImage(file);
-                  console.info('[Wallpaper Image] applying custom wallpaper from tab', {
-                    backgroundType: 'wallpaper',
-                    wallpaperId: null,
-                    dataUrlLength: imageDataUrl.length,
-                  });
                   applyCustomWallpaper(imageDataUrl);
                 } catch (error) {
                   console.error('Failed to load wallpaper image:', error);
@@ -280,9 +255,7 @@ const BackgroundTab: React.FC<TabProps> = ({ isExporting = false }) => {
                 <div
                   className="wallpaper-preview"
                   style={{
-                    background: wallpaper.type === 'gradient'
-                      ? `linear-gradient(135deg, ${(wallpaper as any).colors.join(', ')})`
-                      : (wallpaper as any).color,
+                    background: getWallpaperBackground(wallpaper),
                   }}
                 />
                 <span className="wallpaper-name">{id.replace('gradient-', '').replace('solid-', '')}</span>

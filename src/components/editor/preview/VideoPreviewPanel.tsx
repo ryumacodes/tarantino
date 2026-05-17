@@ -35,21 +35,13 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
 }) => {
   const { duration, currentTime, visualSettings, videoFilePath, displayResolution, captureMode, hasWebcam } = useEditorStore();
 
-  console.log('%c[VideoPreviewPanel] RENDERING', 'background: #ff0000; color: white; font-size: 16px;', {
-    videoFilePath,
-    displayResolution,
-    showMouseOverlay,
-  });
-
   const [isMuted, setIsMuted] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Velocity ref for motion blur
   const velocityRef = useRef({ scale: 0, x: 0, y: 0 });
 
-  // Video transform ref for cursor overlay synchronization
   const videoTransformRef = useRef<VideoTransform>({
     scale: 1,
     offsetX: 0,
@@ -60,12 +52,9 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
     planeHeight: 1
   });
 
-  // Derive sidecar path from video file path
-  // For processed_ files, also check the original recording path
   const sidecarPath = useMemo(() => {
     if (!videoFilePath) return null;
     const directPath = videoFilePath.replace('.mp4', '.mouse.json');
-    // If video is processed_recording_*, the mouse.json may be at recording_* instead
     const fileName = videoFilePath.split('/').pop() || '';
     if (fileName.startsWith('processed_')) {
       const dir = videoFilePath.substring(0, videoFilePath.lastIndexOf('/'));
@@ -74,14 +63,6 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
     }
     return directPath;
   }, [videoFilePath]);
-
-  useEffect(() => {
-    console.log('[VideoPreviewPanel] videoFilePath:', videoFilePath);
-    console.log('[VideoPreviewPanel] sidecarPath:', sidecarPath);
-    console.log('[VideoPreviewPanel] showMouseOverlay:', showMouseOverlay);
-    console.log('[VideoPreviewPanel] displayResolution:', displayResolution);
-    console.log('[VideoPreviewPanel] Will render CursorEffect:', !!(showMouseOverlay && sidecarPath));
-  }, [videoFilePath, sidecarPath, showMouseOverlay, displayResolution]);
 
   const handleSeekToEnd = () => {
     onSeek(duration);

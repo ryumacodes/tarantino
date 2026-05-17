@@ -6,14 +6,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../../stores/editor';
 import { cursorFragmentShader } from './shaders/cursor.glsl';
 
-// --- Types ---
-
 interface TrailPosition {
-  x: number; // screen UV
+  x: number;
   y: number;
 }
-
-// --- Helpers ---
 
 function parseColor(hex: string): { r: number; g: number; b: number } {
   const match = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
@@ -26,8 +22,6 @@ function parseColor(hex: string): { r: number; g: number; b: number } {
   }
   return { r: 0.39, g: 0.71, b: 1.0 };
 }
-
-// --- Effect implementation ---
 
 class CursorEffectImpl extends Effect {
   constructor() {
@@ -76,8 +70,6 @@ class CursorEffectImpl extends Effect {
   }
 }
 
-// --- React component ---
-
 interface CursorEffectProps {
   sidecarPath: string;
   videoWidth: number;
@@ -108,12 +100,9 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
   const stopCursorDuration = useEditorStore((state) => state.visualSettings.stopCursorDuration);
   const loopCursorPosition = useEditorStore((state) => state.visualSettings.loopCursorPosition);
 
-  // Pre-computed trajectory from backend (same simulation as export)
-  // Each frame: [x, y, opacity, isClicking, rippleProgress, rippleX, rippleY]
   const [trajectory, setTrajectory] = useState<number[][] | null>(null);
   const trailHistory = useRef<TrailPosition[]>([]);
 
-  // Load pre-computed cursor trajectory from backend
   useEffect(() => {
     const load = async () => {
       if (!sidecarPath) return;
@@ -136,7 +125,6 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
         });
 
         const frames = JSON.parse(result) as number[][];
-        console.log(`[CursorEffect] Loaded pre-computed trajectory: ${frames.length} frames`);
         setTrajectory(frames);
       } catch (error) {
         console.error('[CursorEffect] Failed to compute cursor trajectory:', error);
@@ -146,7 +134,6 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     load();
   }, [sidecarPath, videoWidth, videoHeight, cursorScale, stopCursorAtEnd, stopCursorDuration, loopCursorPosition]);
 
-  // Per-frame rendering using pre-computed trajectory
   useFrame(() => {
     if (!visible || !trajectory || trajectory.length === 0) {
       effect.uniforms.get('uCursorOpacity')!.value = 0;
@@ -157,23 +144,20 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     const vs = store.visualSettings;
     const duration = store.duration || 0;
 
-    // Get current video time
     let currentTime = 0;
-    const video = (window as any).__TARANTINO_VIDEO_ELEMENT;
+    const video = window.__TARANTINO_VIDEO_ELEMENT;
     if (video && video.duration > 0) {
       currentTime = video.currentTime * 1000;
     } else {
-      const editorTime = (window as any).__TARANTINO_CURRENT_TIME;
+      const editorTime = window.__TARANTINO_CURRENT_TIME;
       if (editorTime !== undefined) currentTime = editorTime;
     }
 
-    // Map time to frame index (same as export: frame_idx = time * fps / 1000)
     const frameIdx = Math.min(
       Math.floor((currentTime / 1000) * 60),
       trajectory.length - 1
     );
     const frame = trajectory[Math.max(0, frameIdx)];
-    // frame: [x, y, opacity, isClicking, rippleProgress, rippleX, rippleY]
     const cursorX = frame[0];
     const cursorY = frame[1];
     const opacity = vs.hideCursor ? 0 : frame[2];
@@ -184,9 +168,6 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
 
     const effectiveCursorStyle = vs.alwaysUsePointer ? 'pointer' : vs.cursorStyle;
 
-    // --- Coordinate transform: video-normalized → screen UV ---
-    // Three.js postprocessing UV is Y-up (OpenGL convention): (0,0) = bottom-left, (1,1) = top-right.
-    // World Y-up: positive wy → higher screen position → higher v.
     const transform = videoTransformRef.current;
     const toScreenUV = (normX: number, normY: number) => {
       const lx = normX - 0.5;
@@ -201,14 +182,12 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
 
     const { u: screenU, v: screenV } = toScreenUV(cursorX, cursorY);
 
-    // Pixel density: scale cursor so it matches export 1:1
     const canvasPixelHeight = size.height * (window.devicePixelRatio || 1);
     const videoPlaneCanvasPixels = (transform.planeHeight / transform.viewportHeight) * canvasPixelHeight;
     const densityScale = videoPlaneCanvasPixels / videoHeight;
     const windowZoomScale = store.captureMode === 'window' ? transform.scale : 1;
     const adjustedCursorScale = vs.cursorScale * densityScale * windowZoomScale;
 
-    // Trail
     if (vs.cursorTrailEnabled && opacity > 0.01) {
       trailHistory.current.push({ x: screenU, y: screenV });
       while (trailHistory.current.length > vs.cursorTrailLength) trailHistory.current.shift();
@@ -216,30 +195,24 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
       trailHistory.current = [];
     }
 
-    // Ripple screen position
     const { u: rippleScreenX, v: rippleScreenY } = rippleProgress > 0.001
       ? toScreenUV(rippleNormX, rippleNormY)
       : { u: 0, v: 0 };
 
-    // Style enum
     const styleMap: Record<string, number> = { pointer: 0, circle: 1, filled: 2, outline: 3, dotted: 4 };
     const styleVal = styleMap[effectiveCursorStyle] ?? 0;
 
-    // Click effect enum
     const clickEffectMap: Record<string, number> = { none: 0, circle: 1, ripple: 2 };
     const clickEffectVal = clickEffectMap[vs.clickEffect] ?? 2;
 
-    // Colors
     const cursorCol = parseColor(isClicking ? vs.cursorHighlightColor : vs.cursorColor);
     const hlCol = parseColor(vs.cursorHighlightColor);
     const rippleCol = parseColor(vs.cursorRippleColor);
 
-    // Resolution
     const pixelRatio = window.devicePixelRatio || 1;
     const resX = size.width * pixelRatio;
     const resY = size.height * pixelRatio;
 
-    // Set uniforms
     const u = effect.uniforms;
     u.get('uCursorX')!.value = screenU;
     u.get('uCursorY')!.value = screenV;

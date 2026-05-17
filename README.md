@@ -1,8 +1,8 @@
 # Tarantino
 
-Tarantino is a fast screen recording and editing app for making polished product videos without dragging every detail around by hand.
+Recording good product demos should be fast and accessible. Tarantino was built for that.
 
-It is built around a simple idea: record quickly, make the result feel intentional, and export fast enough that iteration does not become a chore.
+Tarantino is a screen recording and editing app for making polished product videos without dragging every detail around by hand. It is built around a simple idea: record quickly, make the result feel intentional, and export fast enough that iteration does not become a chore.
 
 ## What It Does
 
@@ -36,9 +36,13 @@ The editor focuses on the things that usually make a screen recording feel bette
 - Clean audio/video output
 - Fast preview and export loops
 
-## Current Focus
+## Platform Support
 
-The app is currently strongest on macOS, with native capture and hardware-friendly export work underway.
+Tarantino currently works on macOS.
+
+Linux and Windows support are planned next.
+
+## Current Focus
 
 The priority is to keep improving:
 
@@ -63,7 +67,7 @@ Run the app in development:
 pnpm tauri:dev
 ```
 
-On macOS, development runs in raw mode so camera and screen permissions belong to the terminal that launched Tarantino. Run this from Terminal or iTerm2 when testing camera or screen access; Codex can edit and build the app, but macOS may block Codex-launched camera prompts.
+On macOS, development runs in raw mode so camera and screen permissions belong to the terminal that launched Tarantino. Run this from Terminal or iTerm2 when testing camera or screen access.
 
 Packaged builds use the normal app permission flow.
 
@@ -75,4 +79,6 @@ pnpm tauri:build
 
 ## License
 
-MIT
+PolyForm Noncommercial License 1.0.0.
+
+Commercial use is not permitted without prior written permission from the copyright holder.

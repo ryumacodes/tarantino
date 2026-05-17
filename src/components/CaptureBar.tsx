@@ -71,8 +71,6 @@ const CaptureBar: React.FC = () => {
 
   useEffect(() => {
     const unlisten = listen<string>('recording-stopped', async (event) => {
-      console.log('Received recording-stopped event:', event.payload);
-
       if (event.payload) {
         await stopRecording(event.payload);
       }
@@ -102,7 +100,6 @@ const CaptureBar: React.FC = () => {
         invoke<any[]>('get_devices'),
         invoke<any>('get_audio_devices')
       ]);
-      console.log('Loaded devices:', { displayList, deviceList });
       setDisplays(displayList);
       setDevices(deviceList);
       setAudioDevices(audioList);
@@ -120,8 +117,7 @@ const CaptureBar: React.FC = () => {
           await invoke('capture_set_mode', { mode: 'desktop' });
           await invoke('capture_select_display', { id: primary.id });
         }
-      } catch (e) {
-        console.warn('Could not get selected display, falling back:', e);
+      } catch {
         if (displayList.length > 0) {
           const primary = displayList.find((d: any) => d.is_primary) || displayList[0];
           setSelectedDisplay(primary);
@@ -317,7 +313,7 @@ const CaptureBar: React.FC = () => {
       }),
     ]);
     const items = cameraItems.length > 0
-      ? [...cameraItems, ...(shapeItems as any)]
+      ? cameraItems.concat(shapeItems)
       : shapeItems;
     const menu = await Menu.new({ items });
     await menu.popup();

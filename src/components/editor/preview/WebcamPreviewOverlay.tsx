@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../../stores/editor';
 
@@ -7,7 +7,7 @@ interface WebcamPreviewOverlayProps {
   corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
   x: number;
   y: number;
-  size: number; // fraction of container width (0.08-0.25)
+  size: number;
   shape: 'circle' | 'roundrect';
 }
 
@@ -21,22 +21,17 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hasSource, setHasSource] = useState(false);
 
-  // Derive webcam.webm path from video file path
-  // Pattern: recording.mp4 → recording.webcam.webm (alongside video)
   const webcamSrcs = useMemo(() => {
     if (!videoFilePath) return [];
     const dir = videoFilePath.substring(0, videoFilePath.lastIndexOf('/'));
     let baseName = videoFilePath.split('/').pop()?.replace('.mp4', '') || '';
-    // If video is processed_recording_*, the webcam.mp4 is at recording_* instead
     if (baseName.startsWith('processed_')) {
       baseName = baseName.replace('processed_', '');
     }
-    const sources = [
+    return [
       convertFileSrc(`${dir}/${baseName}.webcam.mp4`),
       convertFileSrc(`${dir}/${baseName}.webcam.webm`),
     ];
-    console.log('[WebcamOverlay] videoFilePath:', videoFilePath, 'webcamSrcs:', sources);
-    return sources;
   }, [videoFilePath]);
   const [srcIndex, setSrcIndex] = useState(0);
   const webcamSrc = webcamSrcs[srcIndex] ?? null;
@@ -47,31 +42,22 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
   }, [webcamSrcs]);
 
   useEffect(() => {
-    console.log('[WebcamOverlay] hasSource:', hasSource, 'webcamSrc:', webcamSrc);
-  }, [hasSource, webcamSrc]);
-
-  // Sync webcam video with main video using editor store time
-  useEffect(() => {
     if (!videoRef.current || !hasSource) return;
     const vid = videoRef.current;
 
     let rafId: number;
-    let lastTime = -1;
 
     const sync = () => {
-      // Read current time from the main video element or editor store
-      const mainVideo = (window as any).__TARANTINO_VIDEO_ELEMENT as HTMLVideoElement | undefined;
+      const mainVideo = window.__TARANTINO_VIDEO_ELEMENT;
       const currentTimeSec = mainVideo
         ? mainVideo.currentTime
         : useEditorStore.getState().currentTime / 1000;
       const isPlaying = mainVideo ? !mainVideo.paused : false;
 
-      // Seek webcam to match
       if (Math.abs(vid.currentTime - currentTimeSec) > 0.15) {
         vid.currentTime = currentTimeSec;
       }
 
-      // Match play/pause state
       if (isPlaying && vid.paused) {
         vid.play().catch(() => {});
       } else if (!isPlaying && !vid.paused) {
@@ -122,8 +108,7 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
           playsInline
           onLoadedData={() => setHasSource(true)}
           onCanPlay={() => setHasSource(true)}
-          onError={(event) => {
-            console.warn('[WebcamOverlay] failed to load webcam video', webcamSrc, event);
+          onError={() => {
             if (srcIndex < webcamSrcs.length - 1) {
               setSrcIndex((index) => index + 1);
               return;

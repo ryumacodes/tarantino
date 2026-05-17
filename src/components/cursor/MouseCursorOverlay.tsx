@@ -165,18 +165,6 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
         const effectiveWidth = recordingArea?.width ?? displayWidth;
         const effectiveHeight = recordingArea?.height ?? displayHeight;
 
-        console.log('[MouseCursorOverlay] Coordinate normalization:', {
-          displayWidth,
-          displayHeight,
-          scaleFactor: sidecarData.scale_factor,
-          recordingArea,
-          effectiveX,
-          effectiveY,
-          effectiveWidth,
-          effectiveHeight,
-          sampleEvent: rawEvents[0] ? { x: rawEvents[0].base?.x || rawEvents[0].x, y: rawEvents[0].base?.y || rawEvents[0].y } : null
-        });
-
         const convertedEvents: CursorMouseEvent[] = rawEvents.map((e: any) => {
           const event = e.base || e;
           let eventType: CursorMouseEvent['event_type'] = {};
@@ -250,7 +238,7 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
   useEffect(() => {
     if (!canvasRef.current || !visible) return;
 
-    const video = videoRef.current || (window as any).__TARANTINO_VIDEO_ELEMENT;
+    const video = videoRef.current || window.__TARANTINO_VIDEO_ELEMENT;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -267,7 +255,7 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
       if (video && video.duration > 0) {
         currentTime = video.currentTime * 1000;
       } else {
-        const editorTime = (window as any).__TARANTINO_CURRENT_TIME;
+        const editorTime = window.__TARANTINO_CURRENT_TIME;
         if (editorTime !== undefined) currentTime = editorTime;
       }
 

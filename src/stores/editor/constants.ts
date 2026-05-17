@@ -90,6 +90,13 @@ export const WALLPAPERS = {
   'solid-blue': { type: 'solid', color: '#0a192f' },
 } as const;
 
+export type Wallpaper = (typeof WALLPAPERS)[keyof typeof WALLPAPERS];
+
+export const getWallpaperBackground = (wallpaper: Wallpaper): string =>
+  wallpaper.type === 'gradient'
+    ? `linear-gradient(135deg, ${wallpaper.colors.join(', ')})`
+    : wallpaper.color;
+
 // Spring physics presets (Screen Studio style: Slow, Mellow, Quick, Rapid)
 // Critically-damped or slightly over-damped to prevent bounce/overshoot
 // Critical damping: friction = 2 * sqrt(tension * mass)

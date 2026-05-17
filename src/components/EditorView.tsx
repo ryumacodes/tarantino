@@ -4,7 +4,7 @@ import VideoPreviewPanel from './editor/VideoPreviewPanel';
 import PropertiesPanel from './editor/PropertiesPanel';
 import ProfessionalTimeline from './editor/ProfessionalTimeline';
 import { EditorShortcutOverlays, type EditorShortcutAction } from './editor/EditorShortcutOverlays';
-import { useEditorStore, SPRING_PRESETS } from '../stores/editor';
+import { useEditorStore, SPRING_PRESETS, type ZoomBlock } from '../stores/editor';
 import '../styles/dracula-theme.css';
 
 interface EditorViewProps {
@@ -63,13 +63,11 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
       const zoomBlocks = storeState.zoomAnalysis?.zoom_blocks || [];
       const dimensions = storeState.getExportDimensions();
 
-      // Get projectTitle for export filename
       const projectTitleForExport = storeState.projectTitle || 'Untitled Recording';
 
-      // Build export configuration from store settings
       const exportConfig = {
-        output_path: null, // Let backend choose path based on format
-        project_title: projectTitleForExport, // Used for output filename
+        output_path: null,
+        project_title: projectTitleForExport,
         resolution: dimensions,
         frame_rate: exportSettings.frameRate,
         quality: exportSettings.quality,
@@ -77,8 +75,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
         codec: exportSettings.format === 'mov' ? 'prores' : 'h264',
         trim_start: trimStart,
         trim_end: trimEnd,
-        // Zoom blocks for effects rendering
-        zoom_blocks: zoomBlocks.map((block: any) => ({
+        zoom_blocks: zoomBlocks.map((block: ZoomBlock) => ({
           start_time_ms: block.start_time,
           end_time_ms: block.end_time,
           zoom_level: block.zoom_factor,
@@ -89,10 +86,8 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
           zoom_out_speed: block.zoom_out_speed ?? null,
           centers: block.centers ?? [],
         })),
-        // Legacy zoom data for compatibility
         zoom_keyframes: zoomKeyframes,
         zoom_analysis: zoomAnalysis,
-        // Visual settings for background/padding/shadows
         visual_settings: {
           background_type: visualSettings.backgroundType,
           background_color: visualSettings.backgroundColor,
@@ -109,73 +104,57 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
           shadow_offset_x: visualSettings.shadowOffsetX,
           shadow_offset_y: visualSettings.shadowOffsetY,
           aspect_ratio: visualSettings.aspectRatio,
-          // Motion blur settings for Screen Studio-style effects
           motion_blur_enabled: visualSettings.motionBlurEnabled,
           motion_blur_pan_intensity: visualSettings.motionBlurPanIntensity / 100,
           motion_blur_zoom_intensity: visualSettings.motionBlurZoomIntensity / 100,
           motion_blur_cursor_intensity: visualSettings.motionBlurCursorIntensity / 100,
-          // Device frame settings
           device_frame: visualSettings.deviceFrame,
           device_frame_color: visualSettings.deviceFrameColor,
         },
-        // Cursor settings - pass all visual settings for cursor rendering in export
         cursor_settings: {
           enabled: !visualSettings.hideCursor,
           size: visualSettings.cursorScale ?? 1.0,
           highlight_clicks: true,
           smoothing: visualSettings.cursorSmoothing ?? 0.15,
-          // Visual style
           style: visualSettings.cursorStyle ?? 'pointer',
           always_use_pointer: visualSettings.alwaysUsePointer ?? false,
           color: visualSettings.cursorColor ?? '#ffffff',
           highlight_color: visualSettings.cursorHighlightColor ?? '#ff6b6b',
           ripple_color: visualSettings.cursorRippleColor ?? '#64b4ff',
           shadow_intensity: visualSettings.cursorShadowIntensity ?? 30,
-          // Trail settings
           trail_enabled: visualSettings.cursorTrailEnabled ?? false,
           trail_length: visualSettings.cursorTrailLength ?? 10,
           trail_opacity: visualSettings.cursorTrailOpacity ?? 0.5,
-          // Click effect
           click_effect: visualSettings.clickEffect ?? 'ripple',
-          // Spring physics — resolve preset to actual values (single source of truth)
           speed_preset: visualSettings.cursorSpeedPreset ?? 'mellow',
           spring_tension: SPRING_PRESETS[visualSettings.cursorSpeedPreset ?? 'mellow'].tension,
           spring_friction: SPRING_PRESETS[visualSettings.cursorSpeedPreset ?? 'mellow'].friction,
           spring_mass: SPRING_PRESETS[visualSettings.cursorSpeedPreset ?? 'mellow'].mass,
-          // Rotation
           rotation: visualSettings.cursorRotation ?? 0,
           rotate_while_moving: visualSettings.rotateCursorWhileMoving ?? false,
           rotation_intensity: visualSettings.rotationIntensity ?? 50,
-          // Idle behavior
           hide_when_idle: visualSettings.hideCursorWhenIdle ?? true,
           idle_timeout: visualSettings.idleTimeout ?? 3000,
-          // End behavior
           stop_at_end: visualSettings.stopCursorAtEnd ?? false,
           stop_duration_ms: visualSettings.stopCursorDuration ?? 0,
           loop_to_start: visualSettings.loopCursorPosition ?? false,
           loop_duration_ms: 500,
         },
-        // Audio settings
         audio_settings: {
           mic_gain: audioSettings.micGain,
           system_gain: audioSettings.systemGain,
           noise_gate: audioSettings.noiseGate,
           dual_track: audioSettings.dualTrack,
         },
-        // Source video dimensions for aspect-correct scaling
         source_width: storeState.videoWidth ?? null,
         source_height: storeState.videoHeight ?? null,
-        // Capture mode for window-mode zoom behavior
         capture_mode: storeState.captureMode ?? 'display',
-        // Host display dimensions (for window mode proportional sizing)
         screen_width: storeState.screenResolution?.width ?? null,
         screen_height: storeState.screenResolution?.height ?? null,
-        // Animation settings — resolve preset to actual spring values (single source of truth)
         animation_speed: visualSettings.zoomSpeedPreset ?? 'mellow',
         zoom_spring_tension: SPRING_PRESETS[visualSettings.zoomSpeedPreset ?? 'mellow'].tension,
         zoom_spring_friction: SPRING_PRESETS[visualSettings.zoomSpeedPreset ?? 'mellow'].friction,
         zoom_spring_mass: SPRING_PRESETS[visualSettings.zoomSpeedPreset ?? 'mellow'].mass,
-        // Webcam overlay settings
         webcam_corner: visualSettings.webcamCorner ?? 'bottom-right',
         webcam_x: visualSettings.webcamX ?? 0.895,
         webcam_y: visualSettings.webcamY ?? 0.895,
@@ -183,46 +162,30 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
         webcam_shape: visualSettings.webcamShape ?? 'circle',
       };
 
-      console.log('[Export] Starting export with full pipeline settings:', exportConfig);
-
-      // Listen for real-time progress events from backend
-      console.log('[Export] Setting up progress event listener...');
       const { listen } = await import('@tauri-apps/api/event');
       const unlisten = await listen<{ current: number; total: number; percentage: number }>('export:progress', (event) => {
-        console.log('[Export] Progress event received:', event.payload);
         setExportProgress(Math.round(event.payload.percentage));
       });
-      console.log('[Export] Progress listener set up');
 
-      // Call the export command
-      console.log('[Export] Calling invoke("export_video") with inputPath:', videoFilePath);
       const outputPath = await invoke<string>('export_video', {
         inputPath: videoFilePath,
         settings: exportConfig
       });
-      console.log('[Export] invoke returned outputPath:', outputPath);
 
       setExportProgress(100);
-      unlisten(); // Clean up listener
+      unlisten();
 
-      console.log('[Export] Export completed successfully:', outputPath);
-
-      // Show success message
       setTimeout(() => {
         setIsExporting(false);
         setExportProgress(0);
         alert(`Export completed successfully!\nSaved to: ${outputPath}`);
       }, 1000);
-
-    } catch (error: any) {
-      console.error('[Export] Export failed with error:', error);
-      console.error('[Export] Error type:', typeof error);
-      console.error('[Export] Error message:', error?.message);
-      console.error('[Export] Error stack:', error?.stack);
-      console.error('[Export] Full error object:', JSON.stringify(error, null, 2));
+    } catch (error: unknown) {
+      console.error('[Export] Export failed:', error);
       setIsExporting(false);
       setExportProgress(0);
-      alert(`Export failed: ${error}`);
+      const message = error instanceof Error ? error.message : String(error);
+      alert(`Export failed: ${message}`);
     }
   };
 

@@ -8,7 +8,6 @@ import { VideoMaterial, VideoFallback } from './VideoMaterial';
 import { BackgroundPlane } from './BackgroundPlane';
 import { VideoShadow } from './VideoShadow';
 
-// Spring physics types
 interface SpringConfig {
   tension: number;
   friction: number;
@@ -20,7 +19,6 @@ interface SpringState {
   velocity: number;
 }
 
-// Spring physics step function
 const springStep = (
   current: number,
   target: number,
@@ -102,14 +100,11 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
     const loadVideo = async () => {
       if (videoFilePath) {
         try {
-          console.log('VideoViewer: Converting file path to asset URL:', videoFilePath);
           const url = convertFileSrc(videoFilePath);
-          console.log('VideoViewer: Asset URL:', url);
           setVideoUrl(url);
           setVideoError(null);
 
           const mouseFilePath = videoFilePath.replace('.mp4', '.mouse.json');
-          console.log('VideoViewer: Loading mouse events from:', mouseFilePath);
           loadMouseEvents(mouseFilePath);
         } catch (err) {
           console.error('VideoViewer: Failed to convert file path:', err);
@@ -120,8 +115,6 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
     loadVideo();
   }, [videoFilePath, loadMouseEvents]);
 
-  // Calculate plane dimensions. Window Focus stays at the captured window's
-  // original aspect; Window Desktop uses the selected editor/export canvas.
   const ASPECT_MAP: Record<string, number> = {
     '16:9': 16/9, '9:16': 9/16, '4:3': 4/3, '1:1': 1, '21:9': 21/9,
   };
@@ -136,21 +129,16 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
       : (displayResolution ? displayResolution.width / displayResolution.height : 16 / 9);
   const viewportAspect = viewport.width / viewport.height;
 
-  // Base canvas dimensions (used for BackgroundPlane in all modes)
-  // Fit within viewport (use min of both axes to prevent overflow)
   let basePlaneWidth: number, basePlaneHeight: number;
   const fitW = viewport.width * previewZoom;
   const fitH = viewport.height * previewZoom;
   if (videoAspect > viewportAspect) {
-    // Video is wider than viewport — constrain by width
     basePlaneWidth = fitW;
     basePlaneHeight = fitW / videoAspect;
   } else {
-    // Video is taller than viewport — constrain by height
     basePlaneHeight = fitH;
     basePlaneWidth = fitH * videoAspect;
   }
-  // Clamp to never exceed viewport in either dimension
   if (basePlaneWidth > fitW) {
     basePlaneHeight *= fitW / basePlaneWidth;
     basePlaneWidth = fitW;
@@ -163,8 +151,6 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
   let planeWidth: number, planeHeight: number;
 
   if (captureMode === 'window') {
-    // Window mode: Focus fills an original-aspect frame. Desktop stages the
-    // original window inside the selected canvas ratio.
     const inset = Math.max(0.01, 1 - 2 * (visualSettings.padding / 100));
     const contentW = basePlaneWidth * inset;
     const contentH = basePlaneHeight * inset;
@@ -181,7 +167,6 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
       }
     }
   } else {
-    // Display mode: padding matches export — padding % is removed from each side
     const paddingFactor = 1 - 2 * (visualSettings.padding / 100);
     planeWidth = basePlaneWidth * Math.max(0.01, paddingFactor);
     planeHeight = basePlaneHeight * Math.max(0.01, paddingFactor);
@@ -189,7 +174,6 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
 
   const { getCursorAtTime } = useEditorStore();
 
-  // Spring state refs
   const zoomSpring = useRef<SpringState>({ value: 1, velocity: 0 });
   const cursorSpringX = useRef<SpringState>({ value: 0.5, velocity: 0 });
   const cursorSpringY = useRef<SpringState>({ value: 0.5, velocity: 0 });
@@ -230,13 +214,11 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
         isZooming = true;
         targetScale = activeBlock.zoom_factor;
 
-        // Resolve per-block spring configs
         const blockInConfig = activeBlock.zoom_in_speed
           ? SPRING_PRESETS[activeBlock.zoom_in_speed] : globalZoomConfig;
         const blockOutConfig = activeBlock.zoom_out_speed
           ? SPRING_PRESETS[activeBlock.zoom_out_speed] : globalZoomConfig;
 
-        // Snap center springs only when entering zoom from unzoomed state
         const blockKey = `${activeBlock.start_time}-${activeBlock.end_time}`;
         if (prevActiveBlockRef.current !== blockKey) {
           prevActiveBlockRef.current = blockKey;
@@ -285,7 +267,6 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
     targetCenterX = Math.max(0.0, Math.min(1.0, targetCenterX));
     targetCenterY = Math.max(0.0, Math.min(1.0, targetCenterY));
 
-    // Follow uses a responsive camera pan so the cursor stays near the focus point.
     const panSpringConfig = isFollowPhase ? followPanConfig : (isZooming ? zoomPanConfig : cursorConfig);
     cursorSpringX.current = springStep(
       cursorSpringX.current.value,
@@ -349,9 +330,6 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
     };
 
     if (captureMode === 'window') {
-      // Window mode: zoom the entire canvas (video + background + shadow) as one unit
-      // so background bars zoom with the video, matching display/screen behavior.
-      // Only groupRef is touched here — display mode path below is completely unchanged.
       if (groupRef.current) {
         groupRef.current.scale.set(animatedScale, animatedScale, 1);
         groupRef.current.position.set(offsetX, offsetY, 0);
@@ -359,8 +337,6 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
       meshRef.current.scale.set(planeWidth, planeHeight, 1);
       meshRef.current.position.set(0, 0, 0);
     } else {
-      // Display mode: unchanged — zoom just the video mesh
-      // Reset group transform in case user switched from a window recording
       if (groupRef.current) {
         groupRef.current.scale.set(1, 1, 1);
         groupRef.current.position.set(0, 0, 0);
@@ -383,7 +359,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
   });
 
   useEffect(() => {
-    (window as any).__TARANTINO_CURRENT_TIME = currentTime;
+    window.__TARANTINO_CURRENT_TIME = currentTime;
   }, [currentTime]);
 
   if (!videoFilePath) {

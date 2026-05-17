@@ -60,35 +60,27 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
 
   const videoElement = texture.image as HTMLVideoElement;
 
-  // Expose video element globally for timeline control
   useEffect(() => {
     if (videoElement) {
-      console.log('VideoMaterial: Exposing video element globally');
-      (window as any).__TARANTINO_VIDEO_ELEMENT = videoElement;
+      window.__TARANTINO_VIDEO_ELEMENT = videoElement;
 
-      // Add global seek function for timeline integration
-      (window as any).__TARANTINO_SEEK_VIDEO = (timeMs: number) => {
+      window.__TARANTINO_SEEK_VIDEO = (timeMs: number) => {
         if (videoElement) {
           videoElement.currentTime = timeMs / 1000;
         }
       };
 
-      // Add global play/pause control (also syncs store)
-      (window as any).__TARANTINO_SET_PLAYING = (playing: boolean) => {
+      window.__TARANTINO_SET_PLAYING = (playing: boolean) => {
         useEditorStore.getState().setIsPlaying(playing);
       };
 
-      // Sync duration with store
       const handleLoadedMetadata = () => {
         const actualDuration = videoElement.duration * 1000;
-        console.log('VideoMaterial: Video loaded, duration:', actualDuration);
         if (Math.abs(actualDuration - duration) > 1000) {
-          console.log('VideoMaterial: Syncing duration to', actualDuration);
           setDuration(actualDuration);
         }
       };
 
-      // Sync current time during playback
       const handleTimeUpdate = () => {
         if (!videoElement.paused && !videoElement.seeking) {
           setCurrentTime(videoElement.currentTime * 1000);
@@ -98,7 +90,6 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
       videoElement.addEventListener('loadedmetadata', handleLoadedMetadata);
       videoElement.addEventListener('timeupdate', handleTimeUpdate);
 
-      // Trigger metadata check if already loaded
       if (videoElement.readyState >= 1) {
         handleLoadedMetadata();
       }
@@ -153,7 +144,6 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
     });
   }, [audioSettings.micGain, audioSettings.systemGain, hasMicrophone]);
 
-  // Handle play/pause state
   useEffect(() => {
     if (videoElement) {
       if (isPlaying) {
@@ -169,7 +159,6 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
     }
   }, [isPlaying, videoElement]);
 
-  // Sync video currentTime with editor store
   const { currentTime } = useEditorStore();
   useEffect(() => {
     if (videoElement && videoElement.paused) {
@@ -198,7 +187,6 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
   return <meshBasicMaterial map={texture} toneMapped={false} side={THREE.DoubleSide} />;
 };
 
-// Loading fallback component
 export const VideoFallback: React.FC = () => (
   <meshBasicMaterial color="#1a1a1a" toneMapped={false} />
 );
