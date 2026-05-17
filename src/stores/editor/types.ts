@@ -368,8 +368,8 @@ export interface EditorActions {
   addClip: (clip: TimelineClip) => void;
   updateClip: (id: string, updates: Partial<TimelineClip>) => void;
   deleteClip: (id: string) => void;
-  cutClip: (clipId: string, time: number) => void;
-  cutClipsAtTime: (time: number, trackId?: string) => void;
+  cutClip: (clipId: string, time: number) => string | null;
+  cutClipsAtTime: (time: number, trackId?: string) => string[];
   getClipsAtTime: (time: number, trackId?: string) => TimelineClip[];
   setClipPlaybackRate: (clipId: string, rate: number) => void;
   moveClip: (clipId: string, newStartTime: number, newTrackId?: string) => void;

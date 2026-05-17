@@ -56,7 +56,7 @@ export function useTimelineDrag({
       if (!timelineRef.current || !dragType) return;
 
       const rect = timelineRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left - trackHeaderWidth;
+      const x = e.clientX - rect.left + timelineRef.current.scrollLeft - trackHeaderWidth;
       const time = Math.max(0, Math.min(duration, x / pixelsPerMs));
 
       switch (dragType) {

@@ -321,7 +321,7 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
           is_double_click: e.is_double_click || false,
           cluster_id: e.cluster_id || null,
         };
-      });
+      }).sort((a, b) => a.base.timestamp - b.base.timestamp);
 
       console.log('[MOUSE] Mouse events loaded:', data.length, 'events');
       const clickCount = data.filter(e => e.base.event_type === 'ButtonPress').length;
@@ -370,33 +370,47 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
     }
 
     const events = state.mouseEvents;
-    let left = 0;
-    let right = events.length - 1;
-
-    while (left < right) {
-      const mid = Math.floor((left + right + 1) / 2);
-      if (events[mid].base.timestamp <= time) {
-        left = mid;
-      } else {
-        right = mid - 1;
-      }
-    }
-
-    const event = events[left];
-    if (!event) return null;
-
     const resolution = state.displayResolution || { width: 1920, height: 1080 };
     const effectiveX = state.recordingArea?.x ?? 0;
     const effectiveY = state.recordingArea?.y ?? 0;
     const effectiveWidth = state.recordingArea?.width ?? resolution.width;
     const effectiveHeight = state.recordingArea?.height ?? resolution.height;
 
-    const normalizedX = (event.base.x - effectiveX) / effectiveWidth;
-    const normalizedY = (event.base.y - effectiveY) / effectiveHeight;
+    const normalize = (event: MouseEventData) => ({
+      x: Math.max(0, Math.min(1, (event.base.x - effectiveX) / effectiveWidth)),
+      y: Math.max(0, Math.min(1, (event.base.y - effectiveY) / effectiveHeight)),
+    });
+
+    let left = 0;
+    let right = events.length;
+
+    while (left < right) {
+      const mid = Math.floor((left + right) / 2);
+      if (events[mid].base.timestamp <= time) {
+        left = mid + 1;
+      } else {
+        right = mid;
+      }
+    }
+
+    const next = events[left];
+    const previous = events[left - 1];
+
+    if (!previous) {
+      return normalize(next);
+    }
+    if (!next) {
+      return normalize(previous);
+    }
+
+    const previousPos = normalize(previous);
+    const nextPos = normalize(next);
+    const span = next.base.timestamp - previous.base.timestamp;
+    const t = span > 0 ? Math.max(0, Math.min(1, (time - previous.base.timestamp) / span)) : 0;
 
     return {
-      x: Math.max(0, Math.min(1, normalizedX)),
-      y: Math.max(0, Math.min(1, normalizedY))
+      x: previousPos.x + (nextPos.x - previousPos.x) * t,
+      y: previousPos.y + (nextPos.y - previousPos.y) * t,
     };
   },
 });

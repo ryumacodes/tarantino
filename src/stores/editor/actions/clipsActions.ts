@@ -70,34 +70,41 @@ export const createClipsActions = (set: SetFn, get: GetFn) => ({
     }
   }),
 
-  cutClip: (clipId: string, time: number) => set((state) => {
-    const clip = state.clips.find(c => c.id === clipId);
-    if (clip && time > clip.startTime && time < clip.startTime + clip.duration) {
-      const newClip: TimelineClip = {
-        ...clip,
-        id: crypto.randomUUID(),
-        name: clip.name + ' (Part 2)',
-        startTime: time,
-        duration: clip.startTime + clip.duration - time,
-        sourceIn: clip.sourceIn + (time - clip.startTime)
-      };
+  cutClip: (clipId: string, time: number) => {
+    let newClipId: string | null = null;
 
-      clip.duration = time - clip.startTime;
-      clip.sourceOut = clip.sourceIn + clip.duration;
+    set((state) => {
+      const clip = state.clips.find(c => c.id === clipId);
+      if (clip && time > clip.startTime && time < clip.startTime + clip.duration) {
+        newClipId = crypto.randomUUID();
+        const newClip: TimelineClip = {
+          ...clip,
+          id: newClipId,
+          name: clip.name + ' (Part 2)',
+          startTime: time,
+          duration: clip.startTime + clip.duration - time,
+          sourceIn: clip.sourceIn + (time - clip.startTime)
+        };
 
-      state.clips.push(newClip);
+        clip.duration = time - clip.startTime;
+        clip.sourceOut = clip.sourceIn + clip.duration;
 
-      const track = state.tracks.find(t => t.id === clip.trackId);
-      if (track) {
-        const trackClip = track.clips.find(c => c.id === clipId);
-        if (trackClip) {
-          Object.assign(trackClip, clip);
+        state.clips.push(newClip);
+
+        const track = state.tracks.find(t => t.id === clip.trackId);
+        if (track) {
+          const trackClip = track.clips.find(c => c.id === clipId);
+          if (trackClip) {
+            Object.assign(trackClip, clip);
+          }
+          track.clips.push(newClip);
+          track.clips.sort((a, b) => a.startTime - b.startTime);
         }
-        track.clips.push(newClip);
-        track.clips.sort((a, b) => a.startTime - b.startTime);
       }
-    }
-  }),
+    });
+
+    return newClipId;
+  },
 
   getClipsAtTime: (time: number, trackId?: string) => {
     const state = get();
@@ -112,9 +119,9 @@ export const createClipsActions = (set: SetFn, get: GetFn) => ({
   cutClipsAtTime: (time: number, trackId?: string) => {
     const clipsAtTime = get().getClipsAtTime(time, trackId);
     console.log('cutClipsAtTime: Found', clipsAtTime.length, 'clips at time', time);
-    clipsAtTime.forEach(clip => {
-      get().cutClip(clip.id, time);
-    });
+    return clipsAtTime
+      .map(clip => get().cutClip(clip.id, time))
+      .filter((clipId): clipId is string => Boolean(clipId));
   },
 
   setClipPlaybackRate: (clipId: string, rate: number) => set((state) => {

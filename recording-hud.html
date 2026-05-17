@@ -35,7 +35,7 @@
             transform: translate(-50%, -50%);
             width: calc(100% - 8px); 
             height: calc(100% - 8px);
-            max-width: 172px;
+            max-width: 224px;
             max-height: 46px;
             display: flex; 
             align-items: center; 
@@ -57,15 +57,40 @@
             letter-spacing: .02em; 
         }
 
-        #stop {
+        .hud-action {
             -webkit-app-region: no-drag;    /* exclude from drag */
             width: 40px; 
             height: 40px; 
             border-radius: 9999px; 
             border: none; 
             cursor: pointer;
-            background: #ff4747;
             position: relative;
+            display: grid;
+            place-items: center;
+            color: white;
+            transition: background 120ms ease, transform 120ms ease, opacity 120ms ease;
+        }
+
+        .hud-action:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+        }
+
+        #restart {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        #restart:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        #restart.clicked {
+            background: #4f8cff !important;
+            transform: scale(0.9);
+        }
+
+        #stop {
+            background: #ff4747;
         }
         
         #stop.clicked {
@@ -73,7 +98,7 @@
             transform: scale(0.9);
         }
         
-        #stop:hover { 
+        #stop:hover:not(:disabled) { 
             background: #ff2a2a; 
         }
 
@@ -82,7 +107,13 @@
 <body style="background:transparent">
     <div id="pill" data-tauri-drag-region>
         <span id="time">00:00:00</span>
-        <button id="stop" aria-label="Stop">
+        <button id="restart" class="hud-action" aria-label="Restart recording" title="Restart recording">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 12a9 9 0 1 0 3-6.7"/>
+                <path d="M3 4v6h6"/>
+            </svg>
+        </button>
+        <button id="stop" class="hud-action" aria-label="Stop" title="Stop recording">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: white;">
                 <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
             </svg>
@@ -102,6 +133,7 @@
 
         const timeElement = document.getElementById('time');
         const stopButton = document.getElementById('stop');
+        const restartButton = document.getElementById('restart');
         const debugElement = document.getElementById('debug');
         
         // Function to show debug info visually
@@ -125,6 +157,7 @@
         
         console.log('Time element:', timeElement);
         console.log('Stop button element:', stopButton);
+        console.log('Restart button element:', restartButton);
         
         if (!stopButton) {
             console.error('Stop button not found!');
@@ -183,6 +216,39 @@
             }
         }
 
+        async function handleRestartRecording(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (!restartButton || restartButton.disabled) return;
+            restartButton.disabled = true;
+            if (stopButton) stopButton.disabled = true;
+            restartButton.classList.add('clicked');
+            showDebug('Restarting...');
+
+            try {
+                if (!window.tauriInvoke) {
+                    throw new Error('Tauri invoke not available');
+                }
+                await window.tauriInvoke('record_restart_new');
+                startTime = Date.now();
+                updateTime();
+                startTimer();
+                showDebug('Restarted');
+            } catch (error) {
+                showDebug('Restart error: ' + (error?.message || error));
+                console.error('Restart failed:', error);
+            } finally {
+                restartButton.classList.remove('clicked');
+                restartButton.disabled = false;
+                if (stopButton) stopButton.disabled = false;
+            }
+        }
+
+        if (restartButton) {
+            restartButton.addEventListener('click', handleRestartRecording);
+        }
+
         // Stop button functionality
         if (stopButton) {
             stopButton.addEventListener('click', async (e) => {
@@ -235,7 +301,7 @@
             
             pill.addEventListener('pointerdown', async (e) => {
                 // Don't drag if clicking the stop button
-                if (e.target.closest('#stop')) return;
+                if (e.target.closest('.hud-action')) return;
                 
                 e.preventDefault();
                 

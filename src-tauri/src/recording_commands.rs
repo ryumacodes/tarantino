@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -126,11 +127,9 @@ pub async fn record_start_new(
     if let Err(e) = state.start_recording(recording_config).await {
         println!("Recording failed during native start: {}", e);
         if state.is_camera_enabled() {
-            let _ = crate::commands::input::stop_webview_webcam_recording(
-                &app,
-                &recording_output_path,
-            )
-            .await;
+            let _ =
+                crate::commands::input::stop_webview_webcam_recording(&app, &recording_output_path)
+                    .await;
         }
         #[cfg(target_os = "macos")]
         if state.is_camera_enabled() {
@@ -335,6 +334,75 @@ pub async fn record_stop_instant_new(
     Ok(temp_path)
 }
 
+/// Discard the current recording and immediately begin a fresh take with the same config.
+#[tauri::command]
+pub async fn record_restart_new(
+    app: AppHandle,
+    state: State<'_, Arc<UnifiedAppState>>,
+) -> Result<(), String> {
+    println!("Restarting recording with new architecture");
+
+    if STOPPING_RECORDING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("Recording is already stopping".to_string());
+    }
+
+    struct StopGuard;
+    impl Drop for StopGuard {
+        fn drop(&mut self) {
+            STOPPING_RECORDING.store(false, Ordering::SeqCst);
+        }
+    }
+    let _stop_guard = StopGuard;
+
+    let mut next_config = state
+        .recording
+        .get_current_config()
+        .ok_or_else(|| "No active recording to restart".to_string())?;
+    let old_output_path = next_config.output_path.clone();
+
+    // Stop the active recorder without opening the editor or processing sidecars.
+    let stopped_path = state
+        .recording
+        .signal_stop_recording()
+        .await
+        .map_err(|e| format!("Failed to stop current recording: {}", e))?;
+    state
+        .stop_mouse_tracking()
+        .await
+        .map_err(|e| format!("Failed to stop mouse tracking: {}", e))?;
+
+    let completed_path = state
+        .recording
+        .wait_for_completion()
+        .await
+        .unwrap_or_else(|_| stopped_path.clone());
+    discard_recording_files(&completed_path);
+    if completed_path != old_output_path {
+        discard_recording_files(&old_output_path);
+    }
+
+    next_config.output_path = fresh_restart_output_path(&old_output_path);
+    let recording_output_path = next_config.output_path.clone();
+
+    state
+        .start_recording(next_config)
+        .await
+        .map_err(|e| format!("Failed to restart recording: {}", e))?;
+
+    start_recording_timer(app.clone(), Arc::clone(&*state), &recording_output_path).await;
+
+    if let Some(hud) = app.get_webview_window("recording-hud") {
+        let _ = hud.show();
+        let _ = hud.set_always_on_top(true);
+    }
+
+    println!("Recording restarted successfully");
+    Ok(())
+}
+
 /// Pause recording
 #[tauri::command]
 pub async fn record_pause_new(state: State<'_, Arc<UnifiedAppState>>) -> Result<(), String> {
@@ -384,6 +452,125 @@ pub async fn update_recording_duration(
 ) -> Result<(), String> {
     state.update_recording_duration(duration).await;
     Ok(())
+}
+
+async fn start_recording_timer(
+    app: AppHandle,
+    state: Arc<UnifiedAppState>,
+    recording_output_path: &str,
+) {
+    let started_at_ms = chrono::Utc::now().timestamp_millis();
+
+    if let Err(e) =
+        crate::commands::tray::update_main_tray_timer_cmd(app.clone(), "00:00:00".to_string()).await
+    {
+        println!("Warning: failed to set initial tray timer: {}", e);
+    }
+
+    let app_clone = app.clone();
+    let state_clone = Arc::clone(&state);
+    let timer_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
+
+    let timer_cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let timer_cancel_flag_clone = Arc::clone(&timer_cancel_flag);
+
+    let timer_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+
+        loop {
+            if timer_cancel_flag_clone.load(std::sync::atomic::Ordering::Acquire) {
+                break;
+            }
+
+            match tokio::time::timeout(tokio::time::Duration::from_millis(500), interval.tick())
+                .await
+            {
+                Ok(_) => {
+                    if timer_cancel_flag_clone.load(std::sync::atomic::Ordering::Acquire) {
+                        break;
+                    }
+
+                    let elapsed = chrono::Utc::now().timestamp_millis() - started_at_ms;
+                    let seconds = elapsed / 1000;
+                    let hours = seconds / 3600;
+                    let minutes = (seconds % 3600) / 60;
+                    let secs = seconds % 60;
+                    let time_str = format!("{:02}:{:02}:{:02}", hours, minutes, secs);
+
+                    state_clone.ui.set_tray_recording(Some(time_str.clone()));
+
+                    if let Err(e) = crate::commands::tray::update_main_tray_timer_cmd(
+                        app_clone.clone(),
+                        time_str,
+                    )
+                    .await
+                    {
+                        println!(
+                            "=== TRAY_TIMER[{}]: Failed to update tray: {} ===",
+                            timer_id, e
+                        );
+                        break;
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+    });
+
+    state.set_tray_timer_handle_with_flag(timer_handle, timer_cancel_flag);
+
+    let payload = serde_json::json!({
+        "started_at_ms": started_at_ms,
+        "output_path": recording_output_path,
+    });
+    if let Err(e) = app.emit("recording:started", payload) {
+        println!("Warning: failed to emit recording:started: {}", e);
+    }
+}
+
+fn fresh_restart_output_path(previous_output_path: &str) -> String {
+    let previous = Path::new(previous_output_path);
+    let parent = previous.parent().unwrap_or_else(|| Path::new("/tmp"));
+    let extension = previous
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("mp4");
+    let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S-%3f");
+    parent
+        .join(format!("restart_{}.{}", timestamp, extension))
+        .to_string_lossy()
+        .to_string()
+}
+
+fn discard_recording_files(output_path: &str) {
+    let path = PathBuf::from(output_path);
+    let mut candidates = vec![path.clone()];
+
+    if let Some(parent) = path.parent() {
+        if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
+            let base = parent.join(stem);
+            candidates.extend([
+                base.with_extension("auto_zoom.json"),
+                base.with_extension("mouse.json"),
+                base.with_extension("webcam.webm"),
+                base.with_extension("webcam.mp4"),
+                base.with_extension("mic.wav"),
+                base.with_extension("system.wav"),
+            ]);
+        }
+    }
+
+    for candidate in candidates {
+        if candidate.exists() {
+            if let Err(error) = std::fs::remove_file(&candidate) {
+                println!(
+                    "Warning: failed to discard recording file {}: {}",
+                    candidate.display(),
+                    error
+                );
+            }
+        }
+    }
 }
 
 fn resolve_recording_target(

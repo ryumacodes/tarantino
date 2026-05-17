@@ -244,17 +244,34 @@ pub fn simulate_zoom_trajectory(
     trajectory
 }
 
-/// Find the last known cursor position at a given time (for cursor-following during zoom).
+/// Find the interpolated cursor position at a given time (for cursor-following during zoom).
 fn find_cursor_at_time(events: &[CursorEvent], time_ms: u64) -> Option<(f64, f64)> {
     if events.is_empty() {
         return None;
     }
 
-    let idx = events
-        .partition_point(|event| event.timestamp_ms <= time_ms)
-        .saturating_sub(1);
-    let event = &events[idx];
-    Some((event.x, event.y))
+    let next_idx = events.partition_point(|event| event.timestamp_ms <= time_ms);
+    if next_idx == 0 {
+        let event = &events[0];
+        return Some((event.x, event.y));
+    }
+    if next_idx >= events.len() {
+        let event = &events[events.len() - 1];
+        return Some((event.x, event.y));
+    }
+
+    let previous = &events[next_idx - 1];
+    let next = &events[next_idx];
+    let span = next.timestamp_ms.saturating_sub(previous.timestamp_ms);
+    if span == 0 {
+        return Some((previous.x, previous.y));
+    }
+
+    let t = (time_ms.saturating_sub(previous.timestamp_ms) as f64 / span as f64).clamp(0.0, 1.0);
+    Some((
+        previous.x + (next.x - previous.x) * t,
+        previous.y + (next.y - previous.y) * t,
+    ))
 }
 
 /// Apply zoom/pan transform to a raw RGBA frame buffer using bilinear interpolation.

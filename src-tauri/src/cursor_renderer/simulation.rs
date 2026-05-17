@@ -9,7 +9,7 @@ pub fn parse_cursor_events(
     effective_width: f64,
     effective_height: f64,
 ) -> Vec<CursorEvent> {
-    events
+    let mut parsed = events
         .iter()
         .filter_map(|event| {
             let base = event.get("base").unwrap_or(event);
@@ -43,7 +43,10 @@ pub fn parse_cursor_events(
                 is_click,
             })
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    parsed.sort_by_key(|event| event.timestamp_ms);
+    parsed
 }
 
 /// Trail point data for export (matches preview trail rendering)
@@ -376,20 +379,25 @@ fn find_target_at_time(events: &[CursorEvent], time_ms: u64) -> (f64, f64) {
     if events.is_empty() {
         return (0.5, 0.5);
     }
-    let mut closest_idx = 0;
-    let mut closest_diff = u64::MAX;
-    for (i, event) in events.iter().enumerate() {
-        let diff = if event.timestamp_ms > time_ms {
-            event.timestamp_ms - time_ms
-        } else {
-            time_ms - event.timestamp_ms
-        };
-        if diff < closest_diff {
-            closest_diff = diff;
-            closest_idx = i;
-        }
+
+    let next_idx = events.partition_point(|event| event.timestamp_ms <= time_ms);
+    if next_idx == 0 {
+        return (events[0].x, events[0].y);
     }
-    (events[closest_idx].x, events[closest_idx].y)
+    if next_idx >= events.len() {
+        let event = &events[events.len() - 1];
+        return (event.x, event.y);
+    }
+
+    let previous = &events[next_idx - 1];
+    let next = &events[next_idx];
+    let span = next.timestamp_ms.saturating_sub(previous.timestamp_ms);
+    if span == 0 {
+        return (previous.x, previous.y);
+    }
+
+    let t = (time_ms.saturating_sub(previous.timestamp_ms) as f64 / span as f64).clamp(0.0, 1.0);
+    (lerp(previous.x, next.x, t), lerp(previous.y, next.y, t))
 }
 
 /// Pre-render the cursor pointer shape as a small image for GPU texture upload.

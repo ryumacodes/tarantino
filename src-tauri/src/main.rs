@@ -64,6 +64,18 @@ fn setup_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
                         }
                     });
                 }
+                "restart_recording" => {
+                    println!("=== RESTART RECORDING CLICKED ===");
+                    let app_clone = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let state = app_clone.state::<Arc<UnifiedAppState>>();
+                        if let Err(e) =
+                            recording_commands::record_restart_new(app_clone.clone(), state).await
+                        {
+                            println!("Restart recording failed: {}", e);
+                        }
+                    });
+                }
                 "quit" => {
                     println!("Quit clicked from tray");
                     let handle = app_handle.clone();
@@ -135,6 +147,7 @@ async fn main() {
             recording_commands::record_pause_new,
             recording_commands::record_resume_new,
             recording_commands::record_stop_instant_new,
+            recording_commands::record_restart_new,
             recording_commands::get_recording_status,
             recording_commands::update_recording_duration,
             // Native capture API

@@ -42,6 +42,7 @@ pub fn create_recording_tray_menu_with_time(
     let menu = MenuBuilder::new(app)
         .item(&status_item)
         .separator()
+        .item(&MenuItemBuilder::with_id("restart_recording", "Restart Recording").build(app)?)
         .item(&MenuItemBuilder::with_id("stop_recording", "Stop Recording").build(app)?)
         .separator()
         .item(&MenuItemBuilder::with_id("quit", "Quit Tarantino").build(app)?)

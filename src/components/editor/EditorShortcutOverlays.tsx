@@ -34,6 +34,10 @@ export const EDITOR_SHORTCUTS: ShortcutItem[] = [
   { label: 'Restart recording', keys: '⌘ ⌥ ⌃ ⇧ R' },
   { label: 'Export video', keys: '⌘ E', action: 'export' },
   { label: 'Play or pause preview', keys: 'Space', action: 'play-pause' },
+  { label: 'Selection tool', keys: 'V' },
+  { label: 'Scissors tool', keys: 'C' },
+  { label: 'Trim tool', keys: 'T' },
+  { label: 'Delete selected clip or zoom', keys: 'Delete / Backspace' },
   { label: 'Close project', keys: 'Esc', action: 'close' },
 ];
 

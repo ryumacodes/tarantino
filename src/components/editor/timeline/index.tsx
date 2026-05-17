@@ -117,17 +117,21 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
   const getTimeFromClientX = useCallback((clientX: number) => {
     if (!timelineRef.current) return currentTime;
     const rect = timelineRef.current.getBoundingClientRect();
-    const x = clientX - rect.left - trackHeaderWidth;
+    const x = clientX - rect.left + timelineRef.current.scrollLeft - trackHeaderWidth;
     return Math.max(0, Math.min(duration, x / pixelsPerMs));
   }, [currentTime, duration, pixelsPerMs]);
 
   const splitAtTime = useCallback((time: number) => {
     if (isExporting) return;
-    store.cutClipsAtTime(time);
+    const newClipIds = store.cutClipsAtTime(time);
     store.splitZoomBlocksAtTime(time);
+    if (newClipIds.length > 0) {
+      store.selectClips(newClipIds);
+      setCurrentTool('select');
+    }
     setCurrentTime(time);
     seekVideo(time);
-  }, [isExporting, seekVideo, setCurrentTime, store]);
+  }, [isExporting, seekVideo, setCurrentTime, setCurrentTool, store]);
 
   const setVideoPlaying = useCallback((playing: boolean) => {
     const playFunction = window.__TARANTINO_SET_PLAYING;
@@ -183,7 +187,6 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
         case 'c':
           if (!isExporting) {
             setCurrentTool('scissors');
-            splitAtTime(currentTime);
           }
           e.preventDefault();
           break;

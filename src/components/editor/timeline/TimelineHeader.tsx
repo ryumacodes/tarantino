@@ -78,7 +78,7 @@ const TimelineHeader: React.FC<TimelineHeaderProps> = ({
               setCurrentTool('scissors');
               onSplitAtPlayhead();
             }}
-            title={isExporting ? "Disabled during export" : "Split at Playhead (C)"}
+            title={isExporting ? "Disabled during export" : "Split at Playhead"}
             disabled={isExporting}
           >
             <Scissors size={16} />

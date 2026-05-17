@@ -108,8 +108,8 @@ const ClipsTab: React.FC<TabProps> = ({ isExporting = false }) => {
           <h3>Tips</h3>
         </div>
         <div className="tips-content">
-          <p>• Use scissors tool (C key) to cut clips and zoom blocks at the playhead</p>
-          <p>• Select a clip or zoom block, then press Delete to remove it</p>
+          <p>• Press C for scissors, then click the timeline to split clips and zoom blocks</p>
+          <p>• Select a clip or zoom block, then press Delete or Backspace to remove it</p>
           <p>• Speed up boring sections with 2x-4x</p>
           <p>• Slow down important actions with 0.5x</p>
         </div>
