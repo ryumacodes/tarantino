@@ -41,29 +41,6 @@ impl UnifiedAppState {
         println!("Saved app settings to: {}", settings_path.display());
         Ok(())
     }
-
-    /// Get the current recording's sidecar path
-    /// The sidecar folder contains metadata files like .mouse.json, .auto_zoom.json, webcam.webm, etc.
-    pub fn get_current_sidecar_path(&self) -> Option<String> {
-        let config = self.recording.get_current_config()?;
-        let output_path = std::path::Path::new(&config.output_path);
-
-        // Sidecar folder is the output file's stem + ".sidecar"
-        // e.g., /tmp/recording.mp4 -> /tmp/recording.sidecar/
-        let parent = output_path.parent()?;
-        let stem = output_path.file_stem()?.to_str()?;
-        let sidecar_path = parent.join(format!("{}.sidecar", stem));
-
-        // Create the sidecar folder if it doesn't exist
-        if !sidecar_path.exists() {
-            if let Err(e) = std::fs::create_dir_all(&sidecar_path) {
-                println!("Failed to create sidecar folder: {}", e);
-                return None;
-            }
-        }
-
-        sidecar_path.to_str().map(String::from)
-    }
 }
 
 /// Save zoom analysis and mouse events to sidecar files
@@ -71,6 +48,7 @@ pub fn save_zoom_sidecar(
     video_path: &str,
     analysis: &crate::auto_zoom::ZoomAnalysis,
     mouse_events: &[crate::event_capture::EnhancedMouseEvent],
+    key_events: &[crate::mouse_tracking::KeyEvent],
     display_info: (
         u32,
         u32,
@@ -108,6 +86,7 @@ pub fn save_zoom_sidecar(
             "height": area.height
         })),
         "mouse_events": mouse_events,
+        "key_events": key_events,
     });
     let mouse_json = serde_json::to_string_pretty(&mouse_sidecar)?;
     std::fs::write(&mouse_path, &mouse_json)?;

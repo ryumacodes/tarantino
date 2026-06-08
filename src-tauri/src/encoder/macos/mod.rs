@@ -13,7 +13,7 @@ use std::ptr;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
-use super::{EncoderConfig, VideoCodec};
+use super::EncoderConfig;
 use ffi::*;
 
 /// Encoded frame output from VideoToolbox
@@ -36,12 +36,9 @@ pub struct EncodedFrame {
 }
 
 /// VideoToolbox encoder wrapper
-#[allow(dead_code)]
 pub struct VideoToolboxEncoder {
     /// Native encoder instance pointer
     encoder_ptr: *mut c_void,
-    /// Configuration
-    config: EncoderConfig,
     /// Channel for receiving encoded frames
     encoded_frame_rx: Arc<Mutex<mpsc::UnboundedReceiver<EncodedFrame>>>,
     /// Channel for sending encoded frames (held to keep channel alive)
@@ -69,11 +66,7 @@ impl VideoToolboxEncoder {
         let rx = Arc::new(Mutex::new(rx));
 
         // Convert profile to C string
-        let profile_str = match config.codec {
-            VideoCodec::H264 => "main", // Default to main profile
-            VideoCodec::H265 => "main", // HEVC main profile
-            _ => "baseline",
-        };
+        let profile_str = "main";
         let profile_cstring = CString::new(profile_str)?;
 
         // Calculate bitrate based on resolution and quality
@@ -114,7 +107,6 @@ impl VideoToolboxEncoder {
 
         Ok(Self {
             encoder_ptr,
-            config,
             encoded_frame_rx: rx,
             _encoded_frame_tx: tx,
             _profile_cstring: profile_cstring,
@@ -249,28 +241,6 @@ impl VideoToolboxEncoder {
         self.encoded_frame_rx.lock().unwrap().try_recv().ok()
     }
 
-    /// Get the next encoded frame (async, blocking)
-    pub async fn receive_frame(&self) -> Option<EncodedFrame> {
-        // Try to get frame without blocking
-        let result = {
-            let mut rx_guard = self.encoded_frame_rx.lock().unwrap();
-            rx_guard.try_recv().ok()
-        }; // Guard dropped here
-
-        if result.is_some() {
-            return result;
-        }
-
-        // If no frame available, sleep briefly and retry
-        tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
-
-        // Try one more time after sleep
-        {
-            let mut rx_guard = self.encoded_frame_rx.lock().unwrap();
-            rx_guard.try_recv().ok()
-        } // Guard dropped here
-    }
-
     /// Callback from VideoToolbox when a frame is encoded
     extern "C" fn frame_callback(context: *mut c_void, frame: VTEncodedFrame) {
         if context.is_null() {
@@ -324,12 +294,6 @@ impl VideoToolboxEncoder {
         // Send to channel (ignore errors if receiver is dropped)
         let _ = tx.lock().unwrap().send(encoded_frame);
     }
-
-    /// Get encoder configuration
-    #[allow(dead_code)]
-    pub fn config(&self) -> &EncoderConfig {
-        &self.config
-    }
 }
 
 impl Drop for VideoToolboxEncoder {
@@ -365,8 +329,6 @@ mod tests {
             height: 720,
             fps: 30,
             bitrate: 0,
-            codec: VideoCodec::H264,
-            container: super::super::Container::Mp4,
             hardware_accel: true,
         };
 
@@ -378,8 +340,6 @@ mod tests {
             height: 1080,
             fps: 60,
             bitrate: 0,
-            codec: VideoCodec::H264,
-            container: super::super::Container::Mp4,
             hardware_accel: true,
         };
 

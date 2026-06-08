@@ -148,16 +148,19 @@ pub fn simulate_zoom_trajectory(
                 .map(|center| center.time)
                 .min()
                 .unwrap_or(block.start_time_ms);
-            let mut anchor_center_x = block.center_x;
-            let mut anchor_center_y = block.center_y;
-            for center in block.centers.iter() {
-                if time_ms >= center.time as f64 {
-                    anchor_center_x = center.x;
-                    anchor_center_y = center.y;
-                }
-            }
+            let (anchor_center_x, anchor_center_y) = resolve_center_at_time(
+                &block.centers,
+                time_ms,
+                block.center_x,
+                block.center_y,
+                block.kind.as_deref() == Some("typing"),
+            );
 
-            if time_ms >= first_center_time as f64 {
+            if time_ms >= first_center_time as f64 && block.kind.as_deref() == Some("typing") {
+                is_follow_phase = true;
+                target_center_x = anchor_center_x;
+                target_center_y = anchor_center_y;
+            } else if time_ms >= first_center_time as f64 {
                 if let Some((cursor_x, cursor_y)) = cursor_position {
                     is_follow_phase = true;
                     target_center_x = cursor_x;
@@ -244,6 +247,46 @@ pub fn simulate_zoom_trajectory(
     trajectory
 }
 
+fn resolve_center_at_time(
+    centers: &[crate::video_processing::types::ZoomCenter],
+    time_ms: f64,
+    fallback_x: f64,
+    fallback_y: f64,
+    interpolate: bool,
+) -> (f64, f64) {
+    if centers.is_empty() {
+        return (fallback_x, fallback_y);
+    }
+
+    let mut sorted_centers = centers.to_vec();
+    sorted_centers.sort_by_key(|center| center.time);
+
+    let first = &sorted_centers[0];
+    if time_ms <= first.time as f64 {
+        return (first.x, first.y);
+    }
+
+    for pair in sorted_centers.windows(2) {
+        let previous = &pair[0];
+        let next = &pair[1];
+        if time_ms <= next.time as f64 {
+            if !interpolate || next.time <= previous.time {
+                return (previous.x, previous.y);
+            }
+
+            let progress = ((time_ms - previous.time as f64) / (next.time - previous.time) as f64)
+                .clamp(0.0, 1.0);
+            return (
+                previous.x + (next.x - previous.x) * progress,
+                previous.y + (next.y - previous.y) * progress,
+            );
+        }
+    }
+
+    let last = &sorted_centers[sorted_centers.len() - 1];
+    (last.x, last.y)
+}
+
 /// Find the interpolated cursor position at a given time (for cursor-following during zoom).
 fn find_cursor_at_time(events: &[CursorEvent], time_ms: u64) -> Option<(f64, f64)> {
     if events.is_empty() {
@@ -280,85 +323,6 @@ fn find_cursor_at_time(events: &[CursorEvent], time_ms: u64) -> Option<(f64, f64
 /// full frame dimensions. Uses a reusable temp buffer to avoid per-frame allocation.
 ///
 /// No-op if scale <= 1.001 (no visible zoom).
-pub fn apply_zoom_to_frame(
-    frame_buffer: &mut [u8],
-    temp_buffer: &mut Vec<u8>,
-    width: u32,
-    height: u32,
-    zoom_state: &ZoomFrameState,
-) {
-    if zoom_state.scale <= 1.001 {
-        return; // No zoom, skip
-    }
-
-    let w = width as f64;
-    let h = height as f64;
-    let scale = zoom_state.scale;
-    let cx = zoom_state.center_x;
-    let cy = zoom_state.center_y;
-
-    // Visible region in source pixels
-    let vis_w = w / scale;
-    let vis_h = h / scale;
-
-    // Top-left of visible region, clamped to frame bounds
-    let src_x = (cx * w - vis_w / 2.0).clamp(0.0, w - vis_w);
-    let src_y = (cy * h - vis_h / 2.0).clamp(0.0, h - vis_h);
-
-    let frame_size = (width * height * 4) as usize;
-    temp_buffer.resize(frame_size, 0);
-
-    let w_i32 = width as i32;
-    let h_i32 = height as i32;
-
-    // Bilinear interpolation: map each output pixel to source position
-    for out_y in 0..height {
-        for out_x in 0..width {
-            // Map output pixel → source coordinate
-            let fx = src_x + (out_x as f64 / w) * vis_w;
-            let fy = src_y + (out_y as f64 / h) * vis_h;
-
-            let x0 = fx.floor() as i32;
-            let y0 = fy.floor() as i32;
-            let x1 = x0 + 1;
-            let y1 = y0 + 1;
-            let dx = (fx - x0 as f64) as f32;
-            let dy = (fy - y0 as f64) as f32;
-            let inv_dx = 1.0 - dx;
-            let inv_dy = 1.0 - dy;
-
-            // Clamp to frame bounds
-            let x0c = x0.clamp(0, w_i32 - 1) as usize;
-            let y0c = y0.clamp(0, h_i32 - 1) as usize;
-            let x1c = x1.clamp(0, w_i32 - 1) as usize;
-            let y1c = y1.clamp(0, h_i32 - 1) as usize;
-
-            let stride = width as usize * 4;
-            let i00 = y0c * stride + x0c * 4;
-            let i10 = y0c * stride + x1c * 4;
-            let i01 = y1c * stride + x0c * 4;
-            let i11 = y1c * stride + x1c * 4;
-
-            let out_idx = (out_y as usize * stride) + (out_x as usize * 4);
-
-            // Bilinear blend for each RGBA channel
-            for c in 0..4usize {
-                let p00 = frame_buffer[i00 + c] as f32;
-                let p10 = frame_buffer[i10 + c] as f32;
-                let p01 = frame_buffer[i01 + c] as f32;
-                let p11 = frame_buffer[i11 + c] as f32;
-
-                let val =
-                    p00 * inv_dx * inv_dy + p10 * dx * inv_dy + p01 * inv_dx * dy + p11 * dx * dy;
-
-                temp_buffer[out_idx + c] = val.clamp(0.0, 255.0) as u8;
-            }
-        }
-    }
-
-    frame_buffer.copy_from_slice(temp_buffer);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,24 +390,5 @@ mod tests {
             "scale should approach 2.0, got {}",
             mid.scale
         );
-    }
-
-    #[test]
-    fn test_apply_zoom_noop_at_scale_1() {
-        let mut frame = vec![128u8; 4 * 4 * 4]; // 4x4 RGBA
-        let original = frame.clone();
-        let mut temp = Vec::new();
-        apply_zoom_to_frame(
-            &mut frame,
-            &mut temp,
-            4,
-            4,
-            &ZoomFrameState {
-                scale: 1.0,
-                center_x: 0.5,
-                center_y: 0.5,
-            },
-        );
-        assert_eq!(frame, original);
     }
 }

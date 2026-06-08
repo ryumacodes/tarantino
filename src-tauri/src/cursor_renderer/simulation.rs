@@ -1,5 +1,6 @@
 use super::*;
 use crate::video_processing::zoom_trajectory::ZoomFrameState;
+use crate::video_processing::CursorSettings;
 
 pub fn parse_cursor_events(
     events: &[serde_json::Value],
@@ -398,54 +399,4 @@ fn find_target_at_time(events: &[CursorEvent], time_ms: u64) -> (f64, f64) {
 
     let t = (time_ms.saturating_sub(previous.timestamp_ms) as f64 / span as f64).clamp(0.0, 1.0);
     (lerp(previous.x, next.x, t), lerp(previous.y, next.y, t))
-}
-
-/// Pre-render the cursor pointer shape as a small image for GPU texture upload.
-/// Note: SDF rendering in gpu_compositor.rs replaces this for export. Kept for potential other uses.
-#[allow(dead_code)]
-pub fn render_cursor_shape(config: &CursorSettings) -> RgbaImage {
-    let scale = config.size.unwrap_or(1.0) as f32;
-    let w = (14.0 * scale).ceil() as u32 + 2;
-    let h = (20.0 * scale).ceil() as u32 + 2;
-    let mut img = RgbaImage::from_pixel(w, h, Rgba([0, 0, 0, 0]));
-
-    let (r, g, b) = parse_hex_rgb(config.color.as_deref().unwrap_or("#ffffff"));
-
-    // Pointer cursor polygon (tip at 1,1 to avoid edge clipping)
-    let x = 1i32;
-    let y = 1i32;
-    let points = [
-        Point::new(x, y),
-        Point::new(x, y + (16.0 * scale) as i32),
-        Point::new(x + (4.0 * scale) as i32, y + (12.0 * scale) as i32),
-        Point::new(x + (7.0 * scale) as i32, y + (18.0 * scale) as i32),
-        Point::new(x + (9.5 * scale) as i32, y + (17.0 * scale) as i32),
-        Point::new(x + (6.5 * scale) as i32, y + (11.0 * scale) as i32),
-        Point::new(x + (12.0 * scale) as i32, y + (11.0 * scale) as i32),
-    ];
-
-    // Filled pointer
-    draw_polygon_mut(&mut img, &points, Rgba([r, g, b, 255]));
-    // Black outline
-    for i in 0..points.len() {
-        let p1 = points[i];
-        let p2 = points[(i + 1) % points.len()];
-        draw_antialiased_line_segment_mut(
-            &mut img,
-            (p1.x, p1.y),
-            (p2.x, p2.y),
-            Rgba([0, 0, 0, 200]),
-            |bg, fg, t| {
-                let blend = |b: u8, f: u8| ((1.0 - t) * b as f32 + t * f as f32) as u8;
-                Rgba([
-                    blend(bg[0], fg[0]),
-                    blend(bg[1], fg[1]),
-                    blend(bg[2], fg[2]),
-                    blend(bg[3], fg[3]),
-                ])
-            },
-        );
-    }
-
-    img
 }

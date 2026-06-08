@@ -18,7 +18,6 @@ pub struct DisplayInfo {
 
 /// Rust-owned window info (with owned strings instead of pointers)
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct WindowInfo {
     pub window_id: u64,
     pub title: String,

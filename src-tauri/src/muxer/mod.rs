@@ -18,14 +18,12 @@ use std::path::Path;
 use crate::encoder::macos::EncodedFrame;
 
 /// MP4 muxer for writing H.264 video directly to MP4 container
-#[allow(dead_code)]
 pub struct Mp4Muxer {
     writer: Option<Mp4Writer<BufWriter<File>>>,
     track_id: Option<u32>,
     frame_count: u32,
     width: u32,
     height: u32,
-    fps: u32,
     timescale: u32,
     sps: Option<Vec<u8>>,
     pps: Option<Vec<u8>>,
@@ -75,7 +73,6 @@ impl Mp4Muxer {
             frame_count: 0,
             width,
             height,
-            fps,
             timescale,
             sps: None,
             pps: None,
@@ -414,11 +411,5 @@ impl Mp4Muxer {
         }
 
         Ok(())
-    }
-
-    /// Get the number of frames written
-    #[allow(dead_code)]
-    pub fn frame_count(&self) -> u32 {
-        self.frame_count
     }
 }

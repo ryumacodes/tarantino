@@ -24,24 +24,6 @@ impl DXGIBackend {
 
 #[async_trait::async_trait]
 impl NativeCaptureBackend for DXGIBackend {
-    fn backend_name(&self) -> &'static str {
-        "DXGI Desktop Duplication"
-    }
-
-    fn capabilities(&self) -> BackendCapabilities {
-        BackendCapabilities {
-            display_capture: true,
-            window_capture: false, // DXGI primarily for displays
-            region_capture: true,
-            cursor_capture: true,
-            hdr_support: true,
-            system_audio: false, // Handled separately via WASAPI
-            app_audio: false,
-            hardware_acceleration: true,
-            pixel_formats: vec!["BGRA".to_string(), "NV12".to_string()],
-        }
-    }
-
     async fn enumerate_sources(&self) -> Result<Vec<CaptureSourceInfo>> {
         // TODO: Enumerate displays via DXGI
         anyhow::bail!("Windows DXGI backend not yet implemented")
@@ -60,7 +42,7 @@ impl NativeCaptureBackend for DXGIBackend {
         self.check_permissions().await
     }
 
-    async fn start_capture(&mut self, _config: CaptureConfig) -> Result<CaptureSessionHandle> {
+    async fn start_capture(&mut self, _config: CaptureConfig) -> Result<()> {
         // TODO: Implement DXGI capture
         anyhow::bail!("Windows DXGI backend not yet implemented")
     }
@@ -76,9 +58,5 @@ impl NativeCaptureBackend for DXGIBackend {
             .unwrap()
             .as_ref()
             .map(|s| s.subscribe())
-    }
-
-    fn is_active(&self) -> bool {
-        *self.is_active.lock().unwrap()
     }
 }

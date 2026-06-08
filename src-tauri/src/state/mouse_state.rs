@@ -222,6 +222,7 @@ impl UnifiedAppState {
             video_path,
             &analysis,
             &session.mouse_events,
+            &normalized_key_events,
             (width, height, scale_factor, recording_area),
             capture_mode,
             screen_dims,

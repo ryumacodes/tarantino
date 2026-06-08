@@ -8,9 +8,6 @@
 //! - hud: Recording HUD overlay
 //! - mouse: Mouse tracking
 //! - zoom: Auto-zoom data management
-//! - cursor: Cursor intelligence engine
-//! - export_pipeline: Export pipeline commands
-//! - preview: Video preview playback
 //! - display_preview: Display selection preview overlay
 //! - misc: Logging, capture bar, exit
 //! - tray: System tray management
@@ -18,16 +15,13 @@
 //! - processing: Recording processing and editor helpers
 
 pub mod capture;
-pub mod cursor;
 pub mod device;
 pub mod display_preview;
-pub mod export_pipeline;
 pub mod hud;
 pub mod input;
 pub mod lifecycle;
 pub mod misc;
 pub mod mouse;
-pub mod preview;
 pub mod processing;
 pub mod recording_control;
 pub mod tray;

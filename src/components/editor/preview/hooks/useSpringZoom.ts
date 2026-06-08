@@ -16,6 +16,50 @@ interface SpringState {
   velocity: number;
 }
 
+interface ZoomCenter {
+  x: number;
+  y: number;
+  time: number;
+}
+
+const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+const resolveCenterAtTime = (
+  centers: ZoomCenter[],
+  currentTime: number,
+  fallbackX: number,
+  fallbackY: number,
+  interpolate: boolean
+): { x: number; y: number } => {
+  if (centers.length === 0) {
+    return { x: fallbackX, y: fallbackY };
+  }
+
+  const sortedCenters = [...centers].sort((a, b) => a.time - b.time);
+  const first = sortedCenters[0];
+  if (currentTime <= first.time) {
+    return { x: first.x, y: first.y };
+  }
+
+  for (let i = 1; i < sortedCenters.length; i += 1) {
+    const previous = sortedCenters[i - 1];
+    const next = sortedCenters[i];
+    if (currentTime <= next.time) {
+      if (!interpolate || next.time <= previous.time) {
+        return { x: previous.x, y: previous.y };
+      }
+      const progress = clamp01((currentTime - previous.time) / (next.time - previous.time));
+      return {
+        x: previous.x + (next.x - previous.x) * progress,
+        y: previous.y + (next.y - previous.y) * progress,
+      };
+    }
+  }
+
+  const last = sortedCenters[sortedCenters.length - 1];
+  return { x: last.x, y: last.y };
+};
+
 // Spring physics step function (Screen Studio style)
 // Uses Hooke's law with damping: F = -kx - cv
 const springStep = (
@@ -129,18 +173,15 @@ export function useSpringZoom({
         // Determine the current target center from the block's centers array.
         // Pan to each center as its timestamp arrives (merged clicks re-center).
         const centers = activeBlock.centers ?? [];
-        let activeCenterX = activeBlock.center_x;
-        let activeCenterY = activeBlock.center_y;
-
-        if (centers.length > 0) {
-          // Find the most recent center whose time has passed
-          for (const c of centers) {
-            if (currentTime >= c.time) {
-              activeCenterX = c.x;
-              activeCenterY = c.y;
-            }
-          }
-        }
+        const activeCenter = resolveCenterAtTime(
+          centers,
+          currentTime,
+          activeBlock.center_x,
+          activeBlock.center_y,
+          activeBlock.kind === 'typing'
+        );
+        const activeCenterX = activeCenter.x;
+        const activeCenterY = activeCenter.y;
 
         // Also blend with cursor position during the follow phase
         const cursorPos = getCursorAtTime(currentTime);

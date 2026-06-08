@@ -15,7 +15,7 @@ use shader::COMPOSITE_SHADER;
 
 /// Per-frame zoom state (re-exported from zoom_trajectory)
 use super::zoom_trajectory::ZoomFrameState;
-pub use config::{build_gpu_config, build_gpu_config_with_webcam};
+pub use config::build_gpu_config_with_webcam;
 
 /// All visual effect settings needed to configure the GPU pipeline
 #[derive(Debug, Clone)]
@@ -239,9 +239,7 @@ pub struct GpuCompositor {
     // Textures
     source_texture: wgpu::Texture,
     output_texture: wgpu::Texture,
-    // Staging buffers for CPU↔GPU transfer
-    #[allow(dead_code)]
-    upload_buffer: wgpu::Buffer,
+    // Staging buffer for GPU readback
     download_buffer: wgpu::Buffer,
     // Uniform buffer
     uniform_buffer: wgpu::Buffer,

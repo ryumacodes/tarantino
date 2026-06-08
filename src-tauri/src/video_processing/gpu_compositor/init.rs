@@ -77,14 +77,7 @@ impl GpuCompositor {
             view_formats: &[],
         });
 
-        // Staging buffers
-        let upload_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Upload Staging"),
-            size: frame_size,
-            usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::MAP_WRITE,
-            mapped_at_creation: false,
-        });
-
+        // Staging buffer
         let download_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Download Staging"),
             size: frame_size,
@@ -407,7 +400,6 @@ impl GpuCompositor {
             bind_group_layout,
             source_texture,
             output_texture,
-            upload_buffer,
             download_buffer,
             uniform_buffer,
             trail_buffer,

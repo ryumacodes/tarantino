@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::process::Child;
 use uuid::Uuid;
 
@@ -84,11 +84,7 @@ pub enum VideoOperation {
 /// Represents an active FFmpeg operation
 #[derive(Debug)]
 pub struct ActiveOperation {
-    pub id: Uuid,
-    pub operation: FFmpegOperation,
     pub child: Child,
-    pub started_at: Instant,
-    pub timeout: Duration,
 }
 
 /// Represents a queued operation waiting to be executed
@@ -97,15 +93,12 @@ pub struct QueuedOperation {
     pub id: Uuid,
     pub operation: FFmpegOperation,
     pub priority: OperationPriority,
-    pub queued_at: Instant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OperationPriority {
     Low = 0,
     Normal = 1,
-    High = 2,
-    Critical = 3, // For recording operations
 }
 
 /// Result of an FFmpeg operation
@@ -114,7 +107,6 @@ pub enum OperationResult {
     Success(Vec<u8>), // stdout data
     Timeout,
     Error(String),
-    Cancelled,
 }
 
 /// Statistics about the FFmpeg manager

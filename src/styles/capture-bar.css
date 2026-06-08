@@ -207,6 +207,31 @@
   transform: rotate(90deg);
 }
 
+.capture-bar__restart {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.capture-bar__restart:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.capture-bar__restart:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .capture-bar__record {
   display: flex;
   align-items: center;

@@ -72,6 +72,48 @@ const smoothstep = (value: number): number => {
   return t * t * (3 - 2 * t);
 };
 
+interface ZoomCenter {
+  x: number;
+  y: number;
+  time: number;
+}
+
+const resolveCenterAtTime = (
+  centers: ZoomCenter[],
+  currentTime: number,
+  fallbackX: number,
+  fallbackY: number,
+  interpolate: boolean
+): { x: number; y: number } => {
+  if (centers.length === 0) {
+    return { x: fallbackX, y: fallbackY };
+  }
+
+  const sortedCenters = [...centers].sort((a, b) => a.time - b.time);
+  const first = sortedCenters[0];
+  if (currentTime <= first.time) {
+    return { x: first.x, y: first.y };
+  }
+
+  for (let i = 1; i < sortedCenters.length; i += 1) {
+    const previous = sortedCenters[i - 1];
+    const next = sortedCenters[i];
+    if (currentTime <= next.time) {
+      if (!interpolate || next.time <= previous.time) {
+        return { x: previous.x, y: previous.y };
+      }
+      const progress = clamp01((currentTime - previous.time) / (next.time - previous.time));
+      return {
+        x: previous.x + (next.x - previous.x) * progress,
+        y: previous.y + (next.y - previous.y) * progress,
+      };
+    }
+  }
+
+  const last = sortedCenters[sortedCenters.length - 1];
+  return { x: last.x, y: last.y };
+};
+
 const getWindowZoomAnchor = (value: number, scale: number): number => {
   const edgeAnchor = Math.max(
     WINDOW_EDGE_DETAIL_MARGIN,
@@ -236,16 +278,21 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
           ? Math.min(...centers.map(center => center.time))
           : activeBlock.start_time;
 
-        let anchorCenterX = activeBlock.center_x;
-        let anchorCenterY = activeBlock.center_y;
-        for (const center of centers) {
-          if (currentTime >= center.time) {
-            anchorCenterX = center.x;
-            anchorCenterY = center.y;
-          }
-        }
+        const anchorCenter = resolveCenterAtTime(
+          centers,
+          currentTime,
+          activeBlock.center_x,
+          activeBlock.center_y,
+          activeBlock.kind === 'typing'
+        );
+        const anchorCenterX = anchorCenter.x;
+        const anchorCenterY = anchorCenter.y;
 
-        if (currentTime >= firstCenterTime && cursorPos) {
+        if (currentTime >= firstCenterTime && activeBlock.kind === 'typing') {
+          isFollowPhase = true;
+          targetCenterX = anchorCenterX;
+          targetCenterY = anchorCenterY;
+        } else if (currentTime >= firstCenterTime && cursorPos) {
           isFollowPhase = true;
           targetCenterX = cursorPos.x;
           targetCenterY = cursorPos.y;

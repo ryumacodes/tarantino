@@ -6,8 +6,6 @@
 //! - Automatic hardware acceleration fallback
 //! - Statistics tracking
 
-#![allow(dead_code)]
-
 pub mod operations;
 pub mod types;
 
@@ -23,7 +21,7 @@ pub use operations::{
 };
 pub use types::{
     ActiveOperation, FFmpegOperation, ManagerStats, OperationPriority, OperationResult,
-    QueuedOperation, VideoOperation, DEFAULT_OPERATION_TIMEOUT, MAX_CONCURRENT_OPERATIONS,
+    QueuedOperation, DEFAULT_OPERATION_TIMEOUT, MAX_CONCURRENT_OPERATIONS,
 };
 
 /// Centralized FFmpeg process manager
@@ -55,14 +53,6 @@ impl FFmpegManager {
             stats: Arc::new(RwLock::new(ManagerStats::default())),
             shutdown: Arc::new(shutdown_tx),
         }
-    }
-
-    /// Create a new FFmpeg manager with custom settings
-    pub fn with_config(max_concurrent: usize, default_timeout: Duration) -> Self {
-        let mut manager = Self::new();
-        manager.max_concurrent = max_concurrent;
-        manager.default_timeout = default_timeout;
-        manager
     }
 
     /// Execute an FFmpeg operation
@@ -329,7 +319,6 @@ impl FFmpegManager {
             id: operation_id,
             operation,
             priority,
-            queued_at: Instant::now(),
         };
 
         // Insert into queue maintaining priority order
@@ -360,15 +349,6 @@ impl FFmpegManager {
         Ok(OperationResult::Success(vec![]))
     }
 
-    /// Kill a specific operation
-    async fn kill_operation(&self, operation_id: Uuid) {
-        let mut active = self.active_operations.write().await;
-        if let Some(mut operation) = active.remove(&operation_id) {
-            let _ = operation.child.kill();
-            println!("FFmpegManager: Killed operation {}", operation_id);
-        }
-    }
-
     /// Clean up completed operation and update statistics
     async fn cleanup_operation(
         &self,
@@ -392,7 +372,7 @@ impl FFmpegManager {
             OperationResult::Timeout => {
                 stats.total_timeouts += 1;
             }
-            OperationResult::Error(_) | OperationResult::Cancelled => {
+            OperationResult::Error(_) => {
                 stats.total_failed += 1;
             }
         }
@@ -427,37 +407,6 @@ impl FFmpegManager {
             // Box the recursive call to avoid infinite recursion
             let _ = Box::pin(self.execute_immediately(operation_id, operation)).await;
         }
-    }
-
-    /// Get current manager statistics
-    pub async fn get_stats(&self) -> ManagerStats {
-        self.stats.read().await.clone()
-    }
-
-    /// Shutdown the manager and kill all active operations
-    pub async fn shutdown(&self) {
-        println!("FFmpegManager: Shutting down...");
-
-        // Send shutdown signal
-        let _ = self.shutdown.send(());
-
-        // Kill all active operations
-        let operation_ids: Vec<Uuid> = {
-            let active = self.active_operations.read().await;
-            active.keys().cloned().collect()
-        };
-
-        for operation_id in operation_ids {
-            self.kill_operation(operation_id).await;
-        }
-
-        // Clear the queue
-        {
-            let mut queue = self.operation_queue.lock().await;
-            queue.clear();
-        }
-
-        println!("FFmpegManager: Shutdown complete");
     }
 }
 
@@ -502,16 +451,8 @@ mod tests {
     #[tokio::test]
     async fn test_manager_creation() {
         let manager = FFmpegManager::new();
-        let stats = manager.get_stats().await;
+        let stats = manager.stats.read().await;
         assert_eq!(stats.active_operations, 0);
         assert_eq!(stats.queued_operations, 0);
-    }
-
-    #[tokio::test]
-    async fn test_operation_queuing() {
-        let manager = FFmpegManager::with_config(1, Duration::from_secs(1));
-
-        // Test that the manager can be created with custom config
-        assert_eq!(manager.max_concurrent, 1);
     }
 }

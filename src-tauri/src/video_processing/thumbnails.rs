@@ -116,10 +116,6 @@ pub async fn extract_thumbnails(
                     println!("Warning: Thumbnail {} generation failed: {}", i, err);
                     None
                 }
-                Ok(OperationResult::Cancelled) => {
-                    println!("Warning: Thumbnail {} generation was cancelled", i);
-                    None
-                }
                 Err(e) => {
                     println!("Warning: Failed to queue thumbnail {} generation: {}", i, e);
                     None

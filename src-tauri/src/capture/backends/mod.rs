@@ -42,7 +42,6 @@ pub struct CapturedFrame {
 
 /// Captured audio data from any backend
 /// Note: Audio capture is implemented but not yet integrated
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct CapturedAudio {
     /// Raw audio sample data (typically PCM)
@@ -52,7 +51,7 @@ pub struct CapturedAudio {
     /// Number of channels
     pub channels: u32,
     /// Timestamp in microseconds since epoch
-    pub timestamp_us: u64,
+    pub _timestamp_us: u64,
 }
 
 /// Information about a capture source (display or window)
@@ -86,29 +85,6 @@ pub enum CaptureSourceType {
     Window,
 }
 
-/// Backend capabilities - what features are supported
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackendCapabilities {
-    /// Can capture display/screen
-    pub display_capture: bool,
-    /// Can capture individual windows
-    pub window_capture: bool,
-    /// Can capture specific regions
-    pub region_capture: bool,
-    /// Can include cursor in capture
-    pub cursor_capture: bool,
-    /// Supports HDR capture
-    pub hdr_support: bool,
-    /// Can capture system audio
-    pub system_audio: bool,
-    /// Can capture per-application audio
-    pub app_audio: bool,
-    /// Hardware acceleration available
-    pub hardware_acceleration: bool,
-    /// Supported pixel formats
-    pub pixel_formats: Vec<String>,
-}
-
 /// Configuration for starting a capture session
 #[derive(Clone, Debug)]
 pub struct CaptureConfig {
@@ -124,9 +100,6 @@ pub struct CaptureConfig {
     pub include_audio: bool,
     /// Specific region to capture (None = full source)
     pub region: Option<CaptureRegion>,
-    /// Optional output path; if provided, backend should write encoded video here
-    #[allow(dead_code)] // Reserved for future use - direct-to-file capture mode
-    pub output_path: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -138,16 +111,8 @@ pub struct CaptureRegion {
 }
 
 /// Unified trait for native capture backends
-/// Note: Some trait methods are unused but kept for cross-platform architecture
-#[allow(dead_code)]
 #[async_trait::async_trait]
 pub trait NativeCaptureBackend: Send + Sync {
-    /// Get backend name for debugging/logging
-    fn backend_name(&self) -> &'static str;
-
-    /// Get backend capabilities
-    fn capabilities(&self) -> BackendCapabilities;
-
     /// Enumerate available capture sources (displays + windows)
     async fn enumerate_sources(&self) -> Result<Vec<CaptureSourceInfo>>;
 
@@ -158,7 +123,7 @@ pub trait NativeCaptureBackend: Send + Sync {
     async fn request_permissions(&self) -> Result<PermissionStatus>;
 
     /// Start capture session with given configuration
-    async fn start_capture(&mut self, config: CaptureConfig) -> Result<CaptureSessionHandle>;
+    async fn start_capture(&mut self, config: CaptureConfig) -> Result<()>;
 
     /// Stop active capture session
     async fn stop_capture(&mut self) -> Result<()>;
@@ -168,9 +133,6 @@ pub trait NativeCaptureBackend: Send + Sync {
 
     /// Get audio stream (broadcast channel receiver)
     fn audio_receiver(&self) -> Option<broadcast::Receiver<CapturedAudio>>;
-
-    /// Check if capture is currently active
-    fn is_active(&self) -> bool;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -178,15 +140,6 @@ pub struct PermissionStatus {
     pub screen_recording: bool,
     pub microphone: bool,
     pub camera: bool,
-}
-
-/// Handle to an active capture session
-#[derive(Clone, Debug)]
-pub struct CaptureSessionHandle {
-    #[allow(dead_code)] // Reserved for future use - session management features
-    pub session_id: String,
-    #[allow(dead_code)] // Reserved for future use - session management features
-    pub source_info: CaptureSourceInfo,
 }
 
 /// Factory for creating the appropriate native backend for the current platform

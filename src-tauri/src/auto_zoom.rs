@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::event_capture::{CaptureSession, EnhancedMouseEvent};
 use crate::mouse_tracking::KeyEvent;
 use anyhow::Result;
@@ -217,7 +215,6 @@ impl ZoomProcessor {
         // Timing constants
         let zoom_in_duration = 1000u64; // 1 second to zoom in before click
         let hold_duration = 3000u64; // 3 seconds hold at peak after click
-        let zoom_out_duration = 1000u64; // 1 second to zoom out
         let session_duration = session.end_time.unwrap_or(session.start_time) - session.start_time;
 
         for (i, event) in click_events.iter().enumerate() {
@@ -232,11 +229,7 @@ impl ZoomProcessor {
             // Check if this click falls within (or near) the previous block's active range.
             // If so, merge it into that block instead of creating a new one.
             let merged = if let Some(prev_block) = zoom_blocks.last_mut() {
-                // The previous block is "active" up to its end_time minus the zoom-out tail.
-                // If the click lands before the block would have started zooming out,
-                // merge it in and extend the block.
-                let prev_active_end = prev_block.end_time.saturating_sub(zoom_out_duration);
-                if event.base.timestamp <= prev_active_end + 500 {
+                if event.base.timestamp <= prev_block.end_time + 500 {
                     // Merge: add a re-center point and extend the block
                     prev_block.centers.push(ZoomCenter {
                         x: norm_x,
@@ -244,8 +237,7 @@ impl ZoomProcessor {
                         time: event.base.timestamp,
                     });
                     // Extend end_time from this click
-                    let new_end = (event.base.timestamp + hold_duration + zoom_out_duration)
-                        .min(session_duration);
+                    let new_end = (event.base.timestamp + hold_duration).min(session_duration);
                     prev_block.end_time = new_end;
                     true
                 } else {
@@ -257,8 +249,7 @@ impl ZoomProcessor {
 
             if !merged {
                 let start_time = event.base.timestamp.saturating_sub(zoom_in_duration);
-                let end_time = (event.base.timestamp + hold_duration + zoom_out_duration)
-                    .min(session_duration);
+                let end_time = (event.base.timestamp + hold_duration).min(session_duration);
 
                 if end_time <= start_time + zoom_in_duration + 500 {
                     continue;
@@ -422,6 +413,8 @@ mod tests {
         assert_eq!(sessions.len(), 2, "Should detect 2 typing sessions");
         assert_eq!(sessions[0].key_count, 5);
         assert_eq!(sessions[1].key_count, 4);
+        assert_eq!(sessions[0].centers.len(), 5);
+        assert_eq!(sessions[1].centers.len(), 4);
     }
 
     #[test]
@@ -467,6 +460,189 @@ mod tests {
             "Should create 1 typing zoom block"
         );
         assert!(analysis.zoom_blocks[0].id.starts_with("typing_zoom_"));
+        assert_eq!(analysis.zoom_blocks[0].kind, "typing");
+        assert_eq!(analysis.zoom_blocks[0].zoom_factor, 2.0);
+        assert_eq!(analysis.zoom_blocks[0].centers.len(), 10);
+    }
+
+    #[test]
+    fn test_static_typing_centers_synthesize_pan() {
+        let config = ZoomConfig::default();
+        let processor = ZoomProcessor::new(config);
+        let session = create_test_session(vec![], 30000);
+
+        let key_events: Vec<KeyEvent> = (0..50)
+            .map(|i| KeyEvent {
+                timestamp: 2000 + i * 100,
+                is_modifier: false,
+                is_typing: true,
+                key_motion: crate::mouse_tracking::KeyMotion::Character,
+                cursor_x: Some(300.0),
+                cursor_y: Some(800.0),
+                caret_x: None,
+                caret_y: None,
+            })
+            .collect();
+
+        let analysis = processor.analyze_session(&session, &key_events).unwrap();
+        let centers = &analysis.zoom_blocks[0].centers;
+        assert_eq!(centers.len(), 50);
+        assert!((centers[0].x - 0.3).abs() < 0.001);
+        assert!(
+            centers.last().unwrap().x > centers[0].x + 0.25,
+            "Static typing centers should pan horizontally during long typing"
+        );
+        assert!((centers.last().unwrap().y - centers[0].y).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_static_typing_centers_wrap_on_newline() {
+        let config = ZoomConfig::default();
+        let processor = ZoomProcessor::new(config);
+        let session = create_test_session(vec![], 30000);
+
+        let key_events: Vec<KeyEvent> = (0..12)
+            .map(|i| KeyEvent {
+                timestamp: 2000 + i * 100,
+                is_modifier: false,
+                is_typing: true,
+                key_motion: if i == 6 {
+                    crate::mouse_tracking::KeyMotion::Newline
+                } else {
+                    crate::mouse_tracking::KeyMotion::Character
+                },
+                cursor_x: Some(300.0),
+                cursor_y: Some(500.0),
+                caret_x: None,
+                caret_y: None,
+            })
+            .collect();
+
+        let analysis = processor.analyze_session(&session, &key_events).unwrap();
+        let centers = &analysis.zoom_blocks[0].centers;
+        assert_eq!(centers.len(), 12);
+        assert!(
+            centers[6].x < centers[5].x,
+            "Newline should move the synthetic typing center back toward line start"
+        );
+        assert!(
+            centers[6].y > centers[5].y,
+            "Newline should move the synthetic typing center down"
+        );
+    }
+
+    #[test]
+    fn test_typing_click_between_keys_starts_new_context() {
+        let key_events = vec![
+            create_test_key_event(1000, true),
+            create_test_key_event(1200, true),
+            create_test_key_event(2000, true),
+            create_test_key_event(2200, true),
+        ];
+        let mouse_events = vec![create_test_mouse_event(1500, 800.0, 300.0)];
+        let metadata = crate::event_capture::SessionMetadata {
+            display_id: "test".to_string(),
+            display_resolution: (1000, 1000),
+            scale_factor: 1.0,
+            capture_region: None,
+            has_microphone: false,
+            has_system_audio: false,
+            recording_fps: 60,
+            recording_quality: 1.0,
+        };
+
+        let sessions = detect_typing_sessions(
+            &key_events,
+            &mouse_events,
+            &metadata,
+            &TypingZoomConfig::default(),
+        );
+
+        assert_eq!(sessions.len(), 2);
+        assert!((sessions[0].cursor_x - 0.5).abs() < 0.001);
+        assert!((sessions[1].cursor_x - 0.8).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_typing_inference_ignores_mouse_movement_after_start() {
+        let config = ZoomConfig::default();
+        let processor = ZoomProcessor::new(config);
+        let session = create_test_session(vec![], 30000);
+
+        let key_events: Vec<KeyEvent> = (0..50)
+            .map(|i| KeyEvent {
+                timestamp: 2000 + i * 100,
+                is_modifier: false,
+                is_typing: true,
+                key_motion: crate::mouse_tracking::KeyMotion::Character,
+                cursor_x: Some(if i == 0 { 300.0 } else { 950.0 }),
+                cursor_y: Some(if i == 0 { 800.0 } else { 50.0 }),
+                caret_x: None,
+                caret_y: None,
+            })
+            .collect();
+
+        let analysis = processor.analyze_session(&session, &key_events).unwrap();
+        let centers = &analysis.zoom_blocks[0].centers;
+        assert_eq!(centers.len(), 50);
+        assert!((centers[0].x - 0.3).abs() < 0.001);
+        assert!(
+            centers.last().unwrap().x < 0.9,
+            "Inferred typing end should not jump to mouse position during typing"
+        );
+        assert!((centers.last().unwrap().y - 0.8).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_moving_caret_centers_are_preserved() {
+        let config = ZoomConfig::default();
+        let processor = ZoomProcessor::new(config);
+        let session = create_test_session(vec![], 30000);
+
+        let key_events: Vec<KeyEvent> = (0..10)
+            .map(|i| KeyEvent {
+                timestamp: 2000 + i * 100,
+                is_modifier: false,
+                is_typing: true,
+                key_motion: crate::mouse_tracking::KeyMotion::Character,
+                cursor_x: Some(300.0),
+                cursor_y: Some(800.0),
+                caret_x: Some(100.0 + (i as f64 * 20.0)),
+                caret_y: Some(500.0),
+            })
+            .collect();
+
+        let analysis = processor.analyze_session(&session, &key_events).unwrap();
+        let centers = &analysis.zoom_blocks[0].centers;
+        assert!((centers[0].x - 0.1).abs() < 0.001);
+        assert!((centers.last().unwrap().x - 0.28).abs() < 0.001);
+        assert!((centers.last().unwrap().y - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_typing_centers_prefer_caret_over_cursor() {
+        let config = ZoomConfig::default();
+        let processor = ZoomProcessor::new(config);
+        let session = create_test_session(vec![], 10000);
+
+        let key_events = vec![KeyEvent {
+            timestamp: 1000,
+            is_modifier: false,
+            is_typing: true,
+            key_motion: crate::mouse_tracking::KeyMotion::Character,
+            cursor_x: Some(100.0),
+            cursor_y: Some(100.0),
+            caret_x: Some(800.0),
+            caret_y: Some(600.0),
+        }];
+
+        let analysis = processor.analyze_session(&session, &key_events).unwrap();
+        let block = &analysis.zoom_blocks[0];
+        assert_eq!(block.kind, "typing");
+        assert!((block.center_x - 0.8).abs() < 0.001);
+        assert!((block.center_y - 0.6).abs() < 0.001);
+        assert!((block.centers[0].x - 0.8).abs() < 0.001);
+        assert!((block.centers[0].y - 0.6).abs() < 0.001);
     }
 
     #[test]
@@ -477,22 +653,31 @@ mod tests {
                 timestamp: 1000,
                 is_modifier: true,
                 is_typing: false,
+                key_motion: crate::mouse_tracking::KeyMotion::Character,
                 cursor_x: None,
                 cursor_y: None,
+                caret_x: None,
+                caret_y: None,
             }, // Cmd
             KeyEvent {
                 timestamp: 1100,
                 is_modifier: false,
                 is_typing: false,
+                key_motion: crate::mouse_tracking::KeyMotion::Character,
                 cursor_x: None,
                 cursor_y: None,
+                caret_x: None,
+                caret_y: None,
             }, // Cmd+C (modified)
             KeyEvent {
                 timestamp: 1200,
                 is_modifier: true,
                 is_typing: false,
+                key_motion: crate::mouse_tracking::KeyMotion::Character,
                 cursor_x: None,
                 cursor_y: None,
+                caret_x: None,
+                caret_y: None,
             }, // Cmd release
         ];
 
@@ -537,8 +722,11 @@ mod tests {
             timestamp,
             is_modifier: false,
             is_typing,
+            key_motion: crate::mouse_tracking::KeyMotion::Character,
             cursor_x: None,
             cursor_y: None,
+            caret_x: None,
+            caret_y: None,
         }
     }
 

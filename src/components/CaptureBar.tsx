@@ -6,7 +6,7 @@ import DisplayPicker from './DisplayPicker';
 import CaptureSettings, { CaptureConfig } from './CaptureSettings';
 import CaptureShortcutOverlays from './CaptureShortcutOverlays';
 import PermissionStatus from './PermissionStatus';
-import { X, Monitor, Square, Camera, Mic, Volume2, Settings, ChevronDown } from 'lucide-react';
+import { X, Monitor, Square, Camera, Mic, Volume2, Settings, ChevronDown, RotateCcw } from 'lucide-react';
 import { useRecordingStore } from '../stores/recording';
 import { cn } from '../utils/cn';
 import { useCaptureShortcuts } from '../hooks/useCaptureShortcuts';
@@ -427,9 +427,18 @@ const CaptureBar: React.FC = () => {
       await startRecordingNow();
       return;
     }
-    await invoke<string>('record_stop');
-    setRecordingState('idle');
-    await startRecordingNow();
+    if (stopInFlightRef.current || startInFlightRef.current) return;
+    stopInFlightRef.current = true;
+    try {
+      await invoke('record_restart_new');
+      setRecordingState('recording');
+      await Window.getCurrent().hide().catch(() => {});
+    } catch (error) {
+      console.error('Failed to restart recording:', error);
+      setRecordingState('recording');
+    } finally {
+      stopInFlightRef.current = false;
+    }
   };
 
   const handleRecord = async () => {
@@ -465,6 +474,17 @@ const CaptureBar: React.FC = () => {
       >
         <div className="record-dot" />
       </div>
+
+      {isRecording && (
+        <button
+          className="capture-bar__restart"
+          disabled={stopInFlightRef.current || startInFlightRef.current}
+          onClick={restartRecordingNow}
+          title="Restart Recording"
+        >
+          <RotateCcw size={16} />
+        </button>
+      )}
 
       <div className="capture-bar__modes">
         <button

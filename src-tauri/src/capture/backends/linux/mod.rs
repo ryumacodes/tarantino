@@ -24,24 +24,6 @@ impl PipeWireBackend {
 
 #[async_trait::async_trait]
 impl NativeCaptureBackend for PipeWireBackend {
-    fn backend_name(&self) -> &'static str {
-        "PipeWire"
-    }
-
-    fn capabilities(&self) -> BackendCapabilities {
-        BackendCapabilities {
-            display_capture: true,
-            window_capture: true,
-            region_capture: true,
-            cursor_capture: true,
-            hdr_support: false,
-            system_audio: true,
-            app_audio: true,
-            hardware_acceleration: false, // Depends on system
-            pixel_formats: vec!["BGRA".to_string(), "RGB".to_string()],
-        }
-    }
-
     async fn enumerate_sources(&self) -> Result<Vec<CaptureSourceInfo>> {
         // TODO: Enumerate sources via PipeWire
         anyhow::bail!("Linux PipeWire backend not yet implemented")
@@ -60,7 +42,7 @@ impl NativeCaptureBackend for PipeWireBackend {
         self.check_permissions().await
     }
 
-    async fn start_capture(&mut self, _config: CaptureConfig) -> Result<CaptureSessionHandle> {
+    async fn start_capture(&mut self, _config: CaptureConfig) -> Result<()> {
         // TODO: Implement PipeWire capture
         anyhow::bail!("Linux PipeWire backend not yet implemented")
     }
@@ -76,9 +58,5 @@ impl NativeCaptureBackend for PipeWireBackend {
             .unwrap()
             .as_ref()
             .map(|s| s.subscribe())
-    }
-
-    fn is_active(&self) -> bool {
-        *self.is_active.lock().unwrap()
     }
 }

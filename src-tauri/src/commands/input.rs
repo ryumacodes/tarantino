@@ -184,8 +184,6 @@ pub async fn input_set_camera(
 pub fn webcam_log(level: String, message: String) {
     println!("[WebcamWebView][{}] {}", level, message);
 }
-
-#[allow(dead_code)]
 async fn input_set_camera_native(
     enabled: bool,
     _device_id: Option<String>,
@@ -361,8 +359,10 @@ pub async fn webcam_set_autododge(
 
 #[derive(Deserialize)]
 pub struct WebcamPosition {
-    pub x: f32,
-    pub y: f32,
+    #[serde(rename = "x")]
+    pub _x: f32,
+    #[serde(rename = "y")]
+    pub _y: f32,
 }
 
 #[tauri::command]

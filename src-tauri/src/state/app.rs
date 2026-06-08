@@ -169,8 +169,6 @@ pub struct SystemAudioConfig {
 pub struct AppStateContainer {
     inner: Arc<RwLock<AppState>>,
 }
-
-#[allow(dead_code)]
 impl AppStateContainer {
     /// Create new app state container with defaults
     pub fn new() -> Self {
@@ -187,12 +185,6 @@ impl AppStateContainer {
     /// Get write access to app state
     pub fn write(&self) -> parking_lot::RwLockWriteGuard<'_, AppState> {
         self.inner.write()
-    }
-
-    /// Update app settings
-    pub fn update_settings(&self, settings: AppSettings) {
-        let mut state = self.write();
-        state.settings = settings;
     }
 
     /// Update displays list and auto-select primary if none selected
@@ -231,30 +223,6 @@ impl AppStateContainer {
                 state.selected_window_id = None;
             }
         }
-    }
-
-    /// Update audio devices
-    pub fn update_audio_devices(&self, devices: AudioDevices) {
-        let mut state = self.write();
-        state.audio_devices = devices;
-    }
-
-    /// Update webcam configuration
-    pub fn update_webcam_config(&self, config: WebcamConfig) {
-        let mut state = self.write();
-        state.webcam_config = config;
-    }
-
-    /// Update microphone configuration
-    pub fn update_microphone_config(&self, config: MicrophoneConfig) {
-        let mut state = self.write();
-        state.microphone_config = config;
-    }
-
-    /// Update system audio configuration
-    pub fn update_system_audio_config(&self, config: SystemAudioConfig) {
-        let mut state = self.write();
-        state.system_audio_config = config;
     }
 
     /// Save state to file
@@ -409,22 +377,5 @@ mod tests {
             state.webcam_config.enabled,
             deserialized.webcam_config.enabled
         );
-    }
-
-    #[test]
-    fn test_settings_update() {
-        let container = AppStateContainer::new();
-
-        let new_settings = AppSettings {
-            default_quality: "Low".to_string(),
-            auto_open_editor: false,
-            ..Default::default()
-        };
-
-        container.update_settings(new_settings);
-
-        let state = container.read();
-        assert_eq!(state.settings.default_quality, "Low");
-        assert!(!state.settings.auto_open_editor);
     }
 }

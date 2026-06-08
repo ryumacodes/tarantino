@@ -1,7 +1,3 @@
-// Allow dead code in this module - it's a complete state management API
-// where not all methods are currently used but provide consistent interface
-#![allow(dead_code)]
-
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -140,60 +136,12 @@ impl UIStateManager {
         }
     }
 
-    /// Set window state
-    pub fn set_window_state(&self, window_id: String, state: WindowState) {
-        let mut windows = self.window_states.write();
-        windows.insert(window_id, state);
-    }
-
-    /// Get window state
-    pub fn get_window_state(&self, window_id: &str) -> Option<WindowState> {
-        let windows = self.window_states.read();
-        windows.get(window_id).cloned()
-    }
-
-    /// Show window
-    pub fn show_window(&self, window_id: &str) {
-        let mut windows = self.window_states.write();
-        if let Some(state) = windows.get_mut(window_id) {
-            state.visible = true;
-            state.minimized = false;
-        } else {
-            windows.insert(
-                window_id.to_string(),
-                WindowState {
-                    id: window_id.to_string(),
-                    visible: true,
-                    position: None,
-                    size: None,
-                    minimized: false,
-                    focused: true,
-                    loading: false,
-                },
-            );
-        }
-    }
-
-    /// Hide window
-    pub fn hide_window(&self, window_id: &str) {
-        let mut windows = self.window_states.write();
-        if let Some(state) = windows.get_mut(window_id) {
-            state.visible = false;
-        }
-    }
-
     /// Set window loading state
     pub fn set_window_loading(&self, window_id: &str, loading: bool) {
         let mut windows = self.window_states.write();
         if let Some(state) = windows.get_mut(window_id) {
             state.loading = loading;
         }
-    }
-
-    /// Update tray state
-    pub fn update_tray_state(&self, tray_state: TrayState) {
-        let mut state = self.tray_state.write();
-        *state = tray_state;
     }
 
     /// Set tray to idle mode
@@ -248,58 +196,6 @@ impl UIStateManager {
     pub fn get_interface_mode(&self) -> InterfaceMode {
         let mode = self.interface_mode.read();
         mode.clone()
-    }
-
-    /// Show dialog
-    pub fn show_dialog(&self, dialog_id: String, dialog_type: DialogType, data: serde_json::Value) {
-        let mut dialogs = self.dialog_states.write();
-        dialogs.insert(
-            dialog_id.clone(),
-            DialogState {
-                id: dialog_id,
-                visible: true,
-                dialog_type,
-                data,
-            },
-        );
-    }
-
-    /// Hide dialog
-    pub fn hide_dialog(&self, dialog_id: &str) {
-        let mut dialogs = self.dialog_states.write();
-        if let Some(dialog) = dialogs.get_mut(dialog_id) {
-            dialog.visible = false;
-        }
-    }
-
-    /// Get dialog state
-    pub fn get_dialog_state(&self, dialog_id: &str) -> Option<DialogState> {
-        let dialogs = self.dialog_states.read();
-        dialogs.get(dialog_id).cloned()
-    }
-
-    /// Set loading state for an operation
-    pub fn set_loading_state(&self, operation: String, state: LoadingState) {
-        let mut loading = self.loading_states.write();
-        loading.insert(operation, state);
-    }
-
-    /// Clear loading state
-    pub fn clear_loading_state(&self, operation: &str) {
-        let mut loading = self.loading_states.write();
-        loading.remove(operation);
-    }
-
-    /// Get loading state
-    pub fn get_loading_state(&self, operation: &str) -> Option<LoadingState> {
-        let loading = self.loading_states.read();
-        loading.get(operation).cloned()
-    }
-
-    /// Get all window states
-    pub fn get_all_window_states(&self) -> HashMap<String, WindowState> {
-        let windows = self.window_states.read();
-        windows.clone()
     }
 
     /// Clear all UI state (for reset/cleanup)
@@ -371,6 +267,12 @@ impl UIStateManager {
             TrayMenuItem {
                 id: "pause_recording".to_string(),
                 label: "Pause Recording".to_string(),
+                enabled: true,
+                visible: true,
+            },
+            TrayMenuItem {
+                id: "restart_recording".to_string(),
+                label: "Restart Recording".to_string(),
                 enabled: true,
                 visible: true,
             },
@@ -483,27 +385,6 @@ mod tests {
     }
 
     #[test]
-    fn test_window_state_management() {
-        let manager = UIStateManager::new();
-
-        // Show window
-        manager.show_window("editor");
-        let state = manager.get_window_state("editor").unwrap();
-        assert!(state.visible);
-        assert!(!state.minimized);
-
-        // Hide window
-        manager.hide_window("editor");
-        let state = manager.get_window_state("editor").unwrap();
-        assert!(!state.visible);
-
-        // Set loading
-        manager.set_window_loading("editor", true);
-        let state = manager.get_window_state("editor").unwrap();
-        assert!(state.loading);
-    }
-
-    #[test]
     fn test_tray_state_transitions() {
         let manager = UIStateManager::new();
 
@@ -526,51 +407,6 @@ mod tests {
         manager.set_tray_error("Recording failed");
         let state = manager.get_tray_state();
         assert!(matches!(state.mode, TrayMode::Error(_)));
-    }
-
-    #[test]
-    fn test_dialog_management() {
-        let manager = UIStateManager::new();
-
-        // Show dialog
-        manager.show_dialog(
-            "settings".to_string(),
-            DialogType::Settings,
-            serde_json::json!({"tab": "general"}),
-        );
-
-        let dialog = manager.get_dialog_state("settings").unwrap();
-        assert!(dialog.visible);
-        assert!(matches!(dialog.dialog_type, DialogType::Settings));
-
-        // Hide dialog
-        manager.hide_dialog("settings");
-        let dialog = manager.get_dialog_state("settings").unwrap();
-        assert!(!dialog.visible);
-    }
-
-    #[test]
-    fn test_loading_state_management() {
-        let manager = UIStateManager::new();
-
-        // Set loading state
-        let loading_state = LoadingState {
-            operation: "encoding".to_string(),
-            progress: 50.0,
-            message: "Encoding video...".to_string(),
-            cancellable: true,
-        };
-
-        manager.set_loading_state("export".to_string(), loading_state);
-
-        let state = manager.get_loading_state("export").unwrap();
-        assert_eq!(state.progress, 50.0);
-        assert!(state.cancellable);
-
-        // Clear loading state
-        manager.clear_loading_state("export");
-        let state = manager.get_loading_state("export");
-        assert!(state.is_none());
     }
 
     #[test]

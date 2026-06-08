@@ -33,8 +33,6 @@ pub struct ScreenCaptureKitBackend {
     audio_sender: Arc<Mutex<Option<broadcast::Sender<CapturedAudio>>>>,
     /// Whether capture is currently active
     is_active: Arc<Mutex<bool>>,
-    /// Current session handle
-    session_handle: Arc<Mutex<Option<CaptureSessionHandle>>>,
 }
 
 unsafe impl Send for ScreenCaptureKitBackend {}
@@ -53,7 +51,6 @@ impl ScreenCaptureKitBackend {
             frame_sender: Arc::new(Mutex::new(None)),
             audio_sender: Arc::new(Mutex::new(None)),
             is_active: Arc::new(Mutex::new(false)),
-            session_handle: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -121,28 +118,6 @@ impl ScreenCaptureKitBackend {
 
 #[async_trait::async_trait]
 impl NativeCaptureBackend for ScreenCaptureKitBackend {
-    fn backend_name(&self) -> &'static str {
-        "ScreenCaptureKit"
-    }
-
-    fn capabilities(&self) -> BackendCapabilities {
-        BackendCapabilities {
-            display_capture: true,
-            window_capture: true,
-            region_capture: true,
-            cursor_capture: true,
-            hdr_support: true, // SCK supports HDR on capable displays
-            system_audio: Self::system_audio_supported(),
-            app_audio: Self::system_audio_supported(), // Same version requirement
-            hardware_acceleration: true,
-            pixel_formats: vec![
-                "BGRA".to_string(),
-                "NV12".to_string(),
-                "420v".to_string(), // YUV420
-            ],
-        }
-    }
-
     async fn enumerate_sources(&self) -> Result<Vec<CaptureSourceInfo>> {
         let _guard = SCK_SHAREABLE_LOCK.lock().unwrap();
         let displays = sck_wrapper::get_shareable_displays()?;
@@ -188,7 +163,7 @@ impl NativeCaptureBackend for ScreenCaptureKitBackend {
         })
     }
 
-    async fn start_capture(&mut self, config: CaptureConfig) -> Result<CaptureSessionHandle> {
+    async fn start_capture(&mut self, config: CaptureConfig) -> Result<()> {
         // Check permissions first
         let perms = self.check_permissions().await?;
         if !perms.screen_recording {
@@ -296,7 +271,7 @@ impl NativeCaptureBackend for ScreenCaptureKitBackend {
                     data: Bytes::copy_from_slice(data_slice),
                     sample_rate: audio.sample_rate,
                     channels: audio.channels,
-                    timestamp_us: audio.timestamp_us,
+                    _timestamp_us: audio.timestamp_us,
                 };
 
                 // Send audio to broadcast channel (ignore if no receivers)
@@ -328,15 +303,8 @@ impl NativeCaptureBackend for ScreenCaptureKitBackend {
         *self.capture_instance.lock().unwrap() = Some(capture_ptr);
         *self.is_active.lock().unwrap() = true;
 
-        let session_id = uuid::Uuid::new_v4().to_string();
-        let handle = CaptureSessionHandle {
-            session_id: session_id.clone(),
-            source_info,
-        };
-
-        *self.session_handle.lock().unwrap() = Some(handle.clone());
-
-        Ok(handle)
+        let _ = source_info;
+        Ok(())
     }
 
     async fn stop_capture(&mut self) -> Result<()> {
@@ -348,7 +316,6 @@ impl NativeCaptureBackend for ScreenCaptureKitBackend {
         *self.is_active.lock().unwrap() = false;
         *self.frame_sender.lock().unwrap() = None;
         *self.audio_sender.lock().unwrap() = None;
-        *self.session_handle.lock().unwrap() = None;
 
         Ok(())
     }
@@ -367,30 +334,6 @@ impl NativeCaptureBackend for ScreenCaptureKitBackend {
             .unwrap()
             .as_ref()
             .map(|s| s.subscribe())
-    }
-
-    fn is_active(&self) -> bool {
-        *self.is_active.lock().unwrap()
-    }
-}
-
-impl ScreenCaptureKitBackend {
-    /// Check if system audio capture is supported (macOS 13+)
-    #[allow(dead_code)]
-    fn system_audio_supported() -> bool {
-        use std::process::Command;
-
-        if let Ok(output) = Command::new("sw_vers").arg("-productVersion").output() {
-            if let Ok(version) = String::from_utf8(output.stdout) {
-                if let Some(major) = version.trim().split('.').next() {
-                    if let Ok(major_num) = major.parse::<u32>() {
-                        return major_num >= 13;
-                    }
-                }
-            }
-        }
-
-        false
     }
 }
 

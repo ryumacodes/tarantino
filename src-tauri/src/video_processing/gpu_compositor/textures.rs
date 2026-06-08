@@ -161,7 +161,6 @@ impl GpuCompositor {
     }
 
     /// Upload a webcam frame for the current video frame.
-    #[allow(dead_code)]
     pub fn upload_webcam_frame(&self, data: &[u8], width: u32, height: u32) {
         if let Some(ref tex) = self.webcam_texture {
             self.queue.write_texture(

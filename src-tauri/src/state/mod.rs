@@ -204,12 +204,7 @@ impl UnifiedAppState {
             .recording
             .get_recording_info()
             .await
-            .unwrap_or_else(|_| RecordingInfo {
-                state: crate::recording::RecordingState::Idle,
-                config: None,
-                started_at: None,
-                duration: None,
-            });
+            .unwrap_or_else(|_| RecordingInfo { config: None });
 
         AppStatus {
             interface_mode: self.ui.get_interface_mode(),
@@ -303,16 +298,6 @@ impl UnifiedAppState {
         }
         println!("Camera input: enabled={}", enabled);
         Ok(())
-    }
-
-    pub fn webcam_shape(&self) -> String {
-        let app = self.app.read();
-        match app.webcam_config.shape {
-            crate::state::app::WebcamShape::Rounded => "roundrect",
-            crate::state::app::WebcamShape::Square => "roundrect",
-            crate::state::app::WebcamShape::Circle => "circle",
-        }
-        .to_string()
     }
 
     pub fn set_webcam_shape(&self, shape: String) {
@@ -429,7 +414,6 @@ impl UnifiedAppState {
     }
 
     /// Handle application shutdown
-    #[allow(dead_code)]
     pub async fn shutdown(&self) -> Result<()> {
         println!("Shutting down unified app state...");
 
@@ -468,25 +452,6 @@ impl UnifiedAppState {
         self.ui
             .set_interface_mode(InterfaceMode::Error(error.to_string()));
         self.ui.set_tray_error(error);
-    }
-
-    /// Clear error state
-    #[allow(dead_code)]
-    pub fn clear_error(&self) {
-        self.ui.set_interface_mode(InterfaceMode::Ready);
-        self.ui.set_tray_idle();
-    }
-
-    /// Open editor window
-    #[allow(dead_code)]
-    pub fn open_editor(&self, media_path: &str) {
-        self.ui.set_interface_mode(InterfaceMode::Editor);
-        self.ui.show_window("editor");
-
-        // Set editor as loading while it processes the media
-        self.ui.set_window_loading("editor", true);
-
-        println!("Editor opened for media: {}", media_path);
     }
 
     /// Notify editor ready
@@ -565,38 +530,5 @@ mod tests {
         let status = state.get_app_status().await;
         assert!(!status.is_recording);
         assert!(matches!(status.interface_mode, InterfaceMode::Setup));
-    }
-
-    #[tokio::test]
-    async fn test_error_handling() {
-        let state = UnifiedAppState::new().unwrap();
-
-        // Show error
-        state.show_error("Test error");
-        let interface_mode = state.ui.get_interface_mode();
-        assert!(matches!(interface_mode, InterfaceMode::Error(_)));
-
-        // Clear error
-        state.clear_error();
-        let interface_mode = state.ui.get_interface_mode();
-        assert!(matches!(interface_mode, InterfaceMode::Ready));
-    }
-
-    #[tokio::test]
-    async fn test_editor_operations() {
-        let state = UnifiedAppState::new().unwrap();
-
-        // Open editor
-        state.open_editor("/tmp/test.mp4");
-
-        let window_state = state.ui.get_window_state("editor").unwrap();
-        assert!(window_state.visible);
-        assert!(window_state.loading);
-
-        // Notify ready
-        state.notify_editor_ready();
-
-        let window_state = state.ui.get_window_state("editor").unwrap();
-        assert!(!window_state.loading);
     }
 }

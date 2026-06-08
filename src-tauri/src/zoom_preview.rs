@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::mouse_tracking::{MouseButton, MouseEvent, MouseEventType};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

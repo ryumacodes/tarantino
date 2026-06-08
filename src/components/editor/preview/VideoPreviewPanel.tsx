@@ -204,7 +204,6 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
           {hasWebcam && videoFilePath && (
             <WebcamPreviewOverlay
               videoFilePath={videoFilePath}
-              corner={visualSettings.webcamCorner}
               x={visualSettings.webcamX ?? 0.895}
               y={visualSettings.webcamY ?? 0.895}
               size={visualSettings.webcamSize}

@@ -11,36 +11,7 @@ pub struct EncoderConfig {
     pub height: u32,
     pub fps: u32,
     pub bitrate: u32,
-    pub codec: VideoCodec,
-    #[allow(dead_code)] // Reserved for future use - multiple container format support
-    pub container: Container,
     pub hardware_accel: bool,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
-pub enum VideoCodec {
-    H264,
-    H265,
-    ProRes,
-    Av1,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
-pub enum AudioCodec {
-    Aac,
-    Opus,
-    Pcm,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
-pub enum Container {
-    Mp4,
-    Mov,
-    Mkv,
-    Webm,
 }
 
 /// Platform-agnostic encoder wrapper
@@ -134,13 +105,6 @@ impl Encoder {
         }
     }
 
-    /// Encode audio samples
-    #[allow(dead_code)] // Reserved for future use - audio encoding feature
-    pub fn encode_audio(&mut self, _audio_data: &[f32], _timestamp: u64) -> Result<()> {
-        // TODO: Implement audio encoding
-        Ok(())
-    }
-
     /// Flush pending frames and finalize encoding
     pub fn finish(&mut self) -> Result<()> {
         match self {
@@ -165,43 +129,6 @@ impl Encoder {
             #[cfg(target_os = "macos")]
             Self::VideoToolbox(encoder) => encoder.try_receive_frame(),
             _ => None,
-        }
-    }
-
-    /// Receive an encoded frame (async, blocking)
-    #[allow(dead_code)] // Reserved for future use - streaming/realtime encoding mode
-    pub async fn receive_frame(&self) -> Option<macos::EncodedFrame> {
-        match self {
-            #[cfg(target_os = "macos")]
-            Self::VideoToolbox(encoder) => encoder.receive_frame().await,
-            _ => None,
-        }
-    }
-
-    /// Check if hardware encoding is supported on this platform
-    #[allow(dead_code)] // Reserved for future use - capability detection API
-    pub fn supports_hardware_encoding() -> bool {
-        #[cfg(target_os = "macos")]
-        {
-            // VideoToolbox is always available on macOS
-            true
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            // TODO: Check for NVENC, QuickSync, or AMF
-            false
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            // TODO: Check for VAAPI, NVENC
-            false
-        }
-
-        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-        {
-            false
         }
     }
 }

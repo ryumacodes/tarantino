@@ -21,7 +21,7 @@ use crate::capture::backends::{
 pub struct RecordingAPI {
     current_state: RecordingState,
     temp_path: Option<PathBuf>,
-    #[allow(dead_code)]
+    #[cfg(not(target_os = "macos"))]
     child: Option<tokio::process::Child>,
     #[cfg(target_os = "macos")]
     capture_backend: Option<Box<dyn NativeCaptureBackend>>,
@@ -38,6 +38,7 @@ impl RecordingAPI {
         Ok(Self {
             current_state: RecordingState::Idle,
             temp_path: None,
+            #[cfg(not(target_os = "macos"))]
             child: None,
             #[cfg(target_os = "macos")]
             capture_backend: None,
@@ -53,7 +54,7 @@ impl RecordingAPI {
     pub async fn start_recording(&mut self, config: RecordingConfig) -> Result<()> {
         if matches!(
             self.current_state,
-            RecordingState::Recording | RecordingState::Paused | RecordingState::Stopping { .. }
+            RecordingState::Recording | RecordingState::Paused | RecordingState::Stopping
         ) {
             anyhow::bail!("Recording is already active");
         }
@@ -98,7 +99,6 @@ impl RecordingAPI {
                 include_cursor: config.include_cursor,
                 include_audio: config.include_system_audio,
                 region: None,
-                output_path: Some(out_path.to_string_lossy().to_string()),
             };
 
             // Start capture
@@ -235,14 +235,7 @@ impl RecordingAPI {
             }
         }
 
-        self.current_state = RecordingState::Stopping {
-            temp_path: self
-                .temp_path
-                .clone()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string(),
-        };
+        self.current_state = RecordingState::Stopping;
         Ok(self
             .temp_path
             .clone()
@@ -263,17 +256,13 @@ impl RecordingAPI {
                     Ok(Err(err)) => {
                         let error = format!("Recording failed: {}", err);
                         eprintln!("{}", error);
-                        self.current_state = RecordingState::Error {
-                            message: error.clone(),
-                        };
+                        self.current_state = RecordingState::Error;
                         return Err(anyhow::anyhow!(error));
                     }
                     Err(e) => {
                         let error = format!("Recording task panicked: {}", e);
                         eprintln!("{}", error);
-                        self.current_state = RecordingState::Error {
-                            message: error.clone(),
-                        };
+                        self.current_state = RecordingState::Error;
                         return Err(anyhow::anyhow!(error));
                     }
                 }
@@ -302,17 +291,13 @@ impl RecordingAPI {
                 Ok(status) if !status.success() => {
                     let error = format!("FFmpeg exited with non-zero status: {:?}", status);
                     eprintln!("{}", error);
-                    self.current_state = RecordingState::Error {
-                        message: error.clone(),
-                    };
+                    self.current_state = RecordingState::Error;
                     return Err(anyhow::anyhow!(error));
                 }
                 Err(e) => {
                     let error = format!("Failed to wait for FFmpeg: {}", e);
                     eprintln!("{}", error);
-                    self.current_state = RecordingState::Error {
-                        message: error.clone(),
-                    };
+                    self.current_state = RecordingState::Error;
                     return Err(anyhow::anyhow!(error));
                 }
                 _ => {}
@@ -330,15 +315,11 @@ impl RecordingAPI {
         if !std::path::Path::new(&path).exists() {
             let error = format!("Recording file does not exist: {}", path);
             eprintln!("{}", error);
-            self.current_state = RecordingState::Error {
-                message: error.clone(),
-            };
+            self.current_state = RecordingState::Error;
             return Err(anyhow::anyhow!(error));
         }
 
-        self.current_state = RecordingState::Completed {
-            final_path: path.clone(),
-        };
+        self.current_state = RecordingState::Completed;
         println!("Recording finalized successfully: {}", path);
         Ok(path)
     }
@@ -365,16 +346,7 @@ pub enum RecordingState {
     Idle,
     Recording,
     Paused,
-    Stopping {
-        #[allow(dead_code)]
-        temp_path: String,
-    },
-    Completed {
-        #[allow(dead_code)]
-        final_path: String,
-    },
-    Error {
-        #[allow(dead_code)]
-        message: String,
-    },
+    Stopping,
+    Completed,
+    Error,
 }

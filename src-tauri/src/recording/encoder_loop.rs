@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[cfg(target_os = "macos")]
-use crate::encoder::{Container, Encoder, EncoderConfig, VideoCodec};
+use crate::encoder::{Encoder, EncoderConfig};
 #[cfg(target_os = "macos")]
 use crate::muxer::Mp4Muxer;
 #[cfg(target_os = "macos")]
@@ -379,8 +379,6 @@ pub fn spawn_video_task(
                     height: frame.height,
                     fps,
                     bitrate: 0,
-                    codec: VideoCodec::H264,
-                    container: Container::Mp4,
                     hardware_accel: true,
                 };
                 let mut enc = match Encoder::new(cfg, &output_path) {

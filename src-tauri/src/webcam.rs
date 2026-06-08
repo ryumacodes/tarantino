@@ -226,7 +226,7 @@ pub fn spawn_webcam_task(
     stop_signal: Arc<AtomicBool>,
 ) -> tokio::task::JoinHandle<Result<String, String>> {
     tokio::task::spawn_blocking(move || {
-        use crate::encoder::{Container, Encoder, EncoderConfig, VideoCodec};
+        use crate::encoder::{Encoder, EncoderConfig};
         use crate::muxer::Mp4Muxer;
 
         let mut encoder: Option<Encoder> = None;
@@ -262,8 +262,6 @@ pub fn spawn_webcam_task(
                     height: frame.height,
                     fps,
                     bitrate: 2_000_000,
-                    codec: VideoCodec::H264,
-                    container: Container::Mp4,
                     hardware_accel: true,
                 };
                 let mut enc =

@@ -407,10 +407,15 @@ pub async fn record_restart_new(
     next_config.output_path = fresh_restart_output_path(&old_output_path);
     let recording_output_path = next_config.output_path.clone();
 
-    state
-        .start_recording(next_config)
-        .await
-        .map_err(|e| format!("Failed to restart recording: {}", e))?;
+    if let Err(e) = hide_ui_elements(&app).await {
+        restore_ui_elements(&app).await;
+        return Err(e);
+    }
+
+    if let Err(e) = state.start_recording(next_config).await {
+        restore_ui_elements(&app).await;
+        return Err(format!("Failed to restart recording: {}", e));
+    }
 
     start_recording_timer(app.clone(), Arc::clone(&*state), &recording_output_path).await;
 

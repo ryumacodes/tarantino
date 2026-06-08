@@ -123,16 +123,6 @@ pub struct ZoomBlock {
     pub centers: Vec<ZoomCenter>,
 }
 
-/// Cursor frame data for export rendering (per-frame cursor position)
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct CursorFrame {
-    pub frame: u64,
-    pub x: f64, // Normalized 0-1
-    pub y: f64, // Normalized 0-1
-    pub is_click: bool,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportSettings {
     // Output path (optional - will generate default if null)

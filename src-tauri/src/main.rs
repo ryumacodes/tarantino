@@ -2,20 +2,16 @@
 
 mod auto_zoom;
 mod capture;
-mod capture_commands;
 mod commands;
-mod cursor_engine;
 mod cursor_renderer;
 mod encoder;
 mod event_capture;
-mod export;
 mod ffmpeg;
 mod ffmpeg_manager;
 mod mouse_tracking;
 mod muxer;
 mod permissions;
 mod post_processing;
-mod preview;
 mod recording;
 mod recording_commands;
 mod sidecar;
@@ -150,14 +146,6 @@ async fn main() {
             recording_commands::record_restart_new,
             recording_commands::get_recording_status,
             recording_commands::update_recording_duration,
-            // Native capture API
-            capture_commands::record_start_native,
-            capture_commands::record_toggle_mic,
-            capture_commands::record_toggle_system_audio,
-            capture_commands::record_toggle_camera,
-            capture_commands::record_add_break,
-            capture_commands::record_stop_native,
-            capture_commands::record_get_state,
             // Permission management
             permissions::check_permissions,
             permissions::request_accessibility_permission,
@@ -171,15 +159,6 @@ async fn main() {
             // Preview zoom indicators
             zoom_preview::get_preview_zoom_indicators,
             zoom_preview::has_mouse_data_for_preview,
-            // Editor commands
-            capture_commands::project_open,
-            capture_commands::editor_play,
-            capture_commands::editor_pause,
-            capture_commands::editor_seek,
-            capture_commands::editor_add_zoom,
-            capture_commands::editor_update_zoom,
-            capture_commands::editor_delete_zoom,
-            capture_commands::export_run,
             // Device enumeration (from commands module)
             commands::device::get_displays,
             commands::device::get_displays_with_thumbnails,
@@ -212,25 +191,6 @@ async fn main() {
             // Auto-zoom
             commands::zoom::load_auto_zoom_data,
             commands::zoom::save_auto_zoom_data,
-            // Cursor engine
-            commands::cursor::cursor_process_event,
-            commands::cursor::cursor_get_state,
-            commands::cursor::cursor_reset_engine,
-            commands::cursor::cursor_update_config,
-            commands::cursor::cursor_get_metrics,
-            // Export pipeline
-            commands::export_pipeline::export_start_pipeline,
-            commands::export_pipeline::export_get_progress,
-            commands::export_pipeline::export_cancel,
-            commands::export_pipeline::export_create_config,
-            // Preview
-            commands::preview::preview_load_project,
-            commands::preview::preview_play,
-            commands::preview::preview_pause,
-            commands::preview::preview_seek,
-            commands::preview::preview_set_speed,
-            commands::preview::preview_get_frame,
-            commands::preview::preview_update_options,
             // Misc
             commands::misc::log_to_terminal,
             commands::misc::reset_tray_to_idle,

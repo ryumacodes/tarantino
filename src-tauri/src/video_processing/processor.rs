@@ -1,24 +1,17 @@
 //! Video processing and editing capabilities with caching and memory optimizations
 
-#![allow(dead_code)]
-
 use crate::ffmpeg_manager::{
     get_ffmpeg_manager, FFmpegOperation, OperationPriority, OperationResult,
 };
 use anyhow::{anyhow, Result};
-use image::RgbaImage;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 // Re-export types from the types module
-pub use super::types::{CursorSettings, ExportSettings, ProcessingProgress, VideoInfo};
-
-// Re-export VideoOperation from ffmpeg_manager to avoid duplication
-pub use crate::ffmpeg_manager::VideoOperation;
+pub use super::types::{ExportSettings, ProcessingProgress, VideoInfo};
 
 // Import submodules
-use super::cursor_compositing;
 use super::export;
 use super::thumbnails;
 
@@ -41,23 +34,6 @@ impl VideoProcessor {
             metadata_cache: Arc::new(RwLock::new(HashMap::new())),
             thumbnail_cache: Arc::new(RwLock::new(HashMap::new())),
         })
-    }
-
-    /// Clear all caches to free memory
-    pub fn clear_caches(&self) {
-        if let Ok(mut cache) = self.metadata_cache.write() {
-            cache.clear();
-        }
-        if let Ok(mut cache) = self.thumbnail_cache.write() {
-            cache.clear();
-        }
-    }
-
-    /// Get cache statistics for debugging
-    pub fn get_cache_stats(&self) -> (usize, usize) {
-        let metadata_count = self.metadata_cache.read().map(|c| c.len()).unwrap_or(0);
-        let thumbnail_count = self.thumbnail_cache.read().map(|c| c.len()).unwrap_or(0);
-        (metadata_count, thumbnail_count)
     }
 
     /// Get information about a video file using FFprobe with caching
@@ -92,7 +68,6 @@ impl VideoProcessor {
             OperationResult::Success(data) => data,
             OperationResult::Timeout => return Err(anyhow!("FFprobe operation timed out")),
             OperationResult::Error(err) => return Err(anyhow!("FFprobe failed: {}", err)),
-            OperationResult::Cancelled => return Err(anyhow!("FFprobe operation was cancelled")),
         };
 
         let probe_result: serde_json::Value = serde_json::from_slice(&output_data)
@@ -228,149 +203,6 @@ impl VideoProcessor {
             progress_callback,
         )
         .await
-    }
-
-    /// Generate mouse overlay track from recorded mouse events
-    pub async fn create_mouse_overlay(
-        &self,
-        mouse_events: &[crate::mouse_tracking::MouseEvent],
-        video_width: u32,
-        video_height: u32,
-        duration_ms: u64,
-    ) -> Result<PathBuf> {
-        let overlay_path = self.temp_dir.join("mouse_overlay.mov");
-
-        // Suppress unused parameter warnings for now
-        let _ = (mouse_events, video_width, video_height, duration_ms);
-
-        // Create a transparent video with mouse cursor movements
-        // This is a complex operation that would require:
-        // 1. Creating a video with transparent background
-        // 2. Drawing mouse cursor at each frame based on mouse events
-        // 3. Interpolating between mouse positions for smooth movement
-        // 4. Adding click animations and scroll effects
-
-        // TODO: Create a transparent video with mouse cursor movements
-        // For now, create a placeholder overlay file
-        std::fs::write(&overlay_path, b"placeholder overlay data")?;
-
-        Ok(overlay_path)
-    }
-
-    /// Combine video with mouse overlay
-    pub async fn composite_with_mouse_overlay(
-        &self,
-        base_video: impl AsRef<Path>,
-        overlay_video: impl AsRef<Path>,
-        output_path: impl AsRef<Path>,
-    ) -> Result<()> {
-        let base_path = base_video.as_ref();
-        let _overlay_path = overlay_video.as_ref();
-        let output_path = output_path.as_ref();
-
-        // TODO: Use overlay filter to combine the videos
-        // For now, just copy the base video
-        std::fs::copy(base_path, output_path)?;
-
-        Ok(())
-    }
-
-    /// Generate cursor frames in memory (no disk I/O)
-    /// Returns Vec<RgbaImage> for direct compositing in Rust
-    pub fn generate_cursor_frames(
-        &self,
-        mouse_events_path: &Path,
-        cursor_settings: &CursorSettings,
-        width: u32,
-        height: u32,
-        fps: f64,
-        duration_ms: u64,
-        zoom_trajectory: &Option<Vec<super::zoom_trajectory::ZoomFrameState>>,
-    ) -> Result<Vec<RgbaImage>> {
-        cursor_compositing::generate_cursor_frames(
-            mouse_events_path,
-            cursor_settings,
-            width,
-            height,
-            fps,
-            duration_ms,
-            zoom_trajectory,
-        )
-    }
-
-    /// Export video with cursor composited in Rust (bypasses FFmpeg overlay stall)
-    pub fn export_with_cursor_compositing(
-        &self,
-        input_path: &Path,
-        output_path: &Path,
-        cursor_frames: &[RgbaImage],
-        width: u32,
-        height: u32,
-        decoder_fps: u32,
-        output_fps: u32,
-        duration_ms: u64,
-        audio_path: Option<&Path>,
-        codec_args: &[String],
-        pre_filters: Option<&str>,
-        zoom_trajectory: &Option<Vec<super::zoom_trajectory::ZoomFrameState>>,
-        progress_callback: Option<&Box<dyn Fn(ProcessingProgress) + Send + Sync>>,
-    ) -> Result<()> {
-        cursor_compositing::export_with_cursor_compositing(
-            input_path,
-            output_path,
-            cursor_frames,
-            width,
-            height,
-            decoder_fps,
-            output_fps,
-            duration_ms,
-            audio_path,
-            codec_args,
-            pre_filters,
-            zoom_trajectory,
-            progress_callback,
-        )
-    }
-
-    /// Clean up temporary files and clear caches
-    pub fn cleanup(&self) -> Result<()> {
-        self.clear_caches();
-
-        if self.temp_dir.exists() {
-            std::fs::remove_dir_all(&self.temp_dir)?;
-        }
-        Ok(())
-    }
-
-    /// Optimized video processing with memory-conscious operations
-    pub async fn process_video_optimized(
-        &self,
-        input_path: impl AsRef<Path>,
-        operations: Vec<VideoOperation>,
-    ) -> Result<PathBuf> {
-        let input_path = input_path.as_ref();
-
-        // Use FFmpeg manager for video processing
-        let output_path = self.temp_dir.join("processed_video.mp4");
-
-        let manager = get_ffmpeg_manager();
-        let process_operation = FFmpegOperation::Process {
-            input: input_path.to_path_buf(),
-            output: output_path.clone(),
-            operations,
-        };
-
-        let result = manager
-            .execute_operation(process_operation, OperationPriority::Normal)
-            .await
-            .map_err(|e| anyhow!("Failed to execute video processing: {}", e))?;
-
-        match result {
-            OperationResult::Success(_) => Ok(output_path),
-            OperationResult::Timeout => Err(anyhow!("Video processing operation timed out")),
-            OperationResult::Error(err) => Err(anyhow!("Video processing failed: {}", err)),
-            OperationResult::Cancelled => Err(anyhow!("Video processing operation was cancelled")),
-        }
     }
 }
 

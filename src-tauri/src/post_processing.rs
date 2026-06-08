@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::auto_zoom::{ZoomAnalysis, ZoomBlock};
 use crate::mouse_tracking::{MouseEvent, MouseEventType};
 use anyhow::Result;

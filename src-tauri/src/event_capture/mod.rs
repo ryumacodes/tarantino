@@ -1,5 +1,4 @@
 use crate::mouse_tracking::MouseEvent;
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -90,8 +89,6 @@ fn default_fps() -> u32 {
 fn default_quality() -> f32 {
     1.0
 }
-
-#[allow(dead_code)]
 impl CaptureSession {
     pub fn new() -> Self {
         use uuid::Uuid;
@@ -118,34 +115,5 @@ impl CaptureSession {
                 recording_quality: 1.0,
             },
         }
-    }
-
-    pub fn start(&mut self) -> Result<()> {
-        // Initialize event capture modules
-        println!(
-            "Starting enhanced event capture session: {}",
-            self.session_id
-        );
-        Ok(())
-    }
-
-    pub fn stop(&mut self) {
-        self.end_time = Some(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
-        );
-        println!(
-            "Stopped enhanced event capture session: {}",
-            self.session_id
-        );
-    }
-
-    pub fn save(&self, path: &str) -> Result<()> {
-        let json = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, json)?;
-        println!("Saved event capture session to: {}", path);
-        Ok(())
     }
 }

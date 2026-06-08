@@ -2,7 +2,7 @@ use crate::mouse_tracking::MouseEvent;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 // Sidecar v1.1 schema matching the spec
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -212,24 +212,6 @@ impl Sidecar {
         let json = serde_json::to_string_pretty(self)?;
         fs::write(path, json)?;
         Ok(())
-    }
-
-    /// Load sidecar from disk
-    #[allow(dead_code)]
-    pub fn load(path: impl AsRef<Path>) -> Result<Self> {
-        let json = fs::read_to_string(path)?;
-        let sidecar = serde_json::from_str(&json)?;
-        Ok(sidecar)
-    }
-
-    /// Generate sidecar path from media path
-    #[allow(dead_code)]
-    pub fn sidecar_path_for_media(media_path: impl AsRef<Path>) -> PathBuf {
-        let path = media_path.as_ref();
-        let stem = path.file_stem().unwrap_or_default();
-        let parent = path.parent().unwrap_or_else(|| Path::new("."));
-
-        parent.join(format!("{}.sidecar.json", stem.to_string_lossy()))
     }
 }
 
