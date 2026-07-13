@@ -65,9 +65,6 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
 
   // Zoom Block Actions
   loadZoomData: async (filePath: string) => {
-    console.log('[ZOOM] Loading zoom data for:', filePath);
-    const expectedPath = filePath.replace('.mp4', '') + '.auto_zoom.json';
-    console.log('[ZOOM] Expected auto_zoom.json path:', expectedPath);
     set((state) => { state.zoomLoading = true; });
 
     try {
@@ -75,36 +72,15 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
         videoPath: filePath
       });
 
-      console.log('[ZOOM] Raw response from load_auto_zoom_data:', analysis);
-
-      if (!analysis) {
-        console.warn('[ZOOM] No zoom analysis data returned - file may not exist');
-      } else {
-        console.log('[ZOOM] Zoom analysis loaded:');
-        console.log('  - total_clicks:', analysis.total_clicks);
-        console.log('  - zoom_blocks count:', analysis.zoom_blocks?.length ?? 0);
-        console.log('  - session_duration:', analysis.session_duration);
-        if (analysis.zoom_blocks) {
-          analysis.zoom_blocks.forEach((block, i) => {
-            console.log(`  - Block ${i}: ${block.start_time}ms-${block.end_time}ms, ${block.zoom_factor}x at (${block.center_x.toFixed(2)}, ${block.center_y.toFixed(2)})`);
-          });
-        }
-      }
-
       set((state) => {
         if (analysis && analysis.zoom_blocks) {
           const videoDuration = state.duration;
-          const originalCount = analysis.zoom_blocks.length;
           analysis.zoom_blocks = analysis.zoom_blocks
             .map(block => ({
               ...block,
               end_time: Math.min(block.end_time, videoDuration),
             }))
             .filter(block => block.end_time > block.start_time + 500);
-          const filteredCount = analysis.zoom_blocks.length;
-          if (originalCount !== filteredCount) {
-            console.log(`[ZOOM] Filtered ${originalCount - filteredCount} blocks (too short after duration clamp)`);
-          }
           analysis.session_duration = videoDuration;
         }
         state.zoomAnalysis = analysis;
@@ -137,7 +113,6 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
       state.zoomAnalysis.zoom_blocks[blockIndex].is_manual = true;
     }
 
-    console.log(`Updated zoom block ${blockId}:`, clampedUpdates);
     state.history.push({ ...state });
     state.historyIndex++;
   }),
@@ -153,7 +128,6 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
       state.selectedBlockId = null;
     }
 
-    console.log(`Deleted zoom block ${blockId}`);
     state.history.push({ ...state });
     state.historyIndex++;
   }),
@@ -179,7 +153,6 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
     };
 
     state.zoomAnalysis.zoom_blocks.push(clampedBlock);
-    console.log(`Added zoom block ${clampedBlock.id}`);
     state.history.push({ ...state });
     state.historyIndex++;
   }),
@@ -227,7 +200,6 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
         videoPath: state.videoFilePath,
         analysis: state.zoomAnalysis
       });
-      console.log('Zoom data saved successfully');
     } catch (error) {
       console.error('Failed to save zoom data:', error);
       throw error;
@@ -240,7 +212,6 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
 
   // Preview Zoom Actions
   loadPreviewZoomData: async (filePath: string) => {
-    console.log('Loading preview zoom data for:', filePath);
     set((state) => { state.previewZoomLoading = true; });
 
     try {
@@ -248,7 +219,6 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
         videoPath: filePath
       });
 
-      console.log('Preview zoom data loaded:', analysis);
       set((state) => {
         state.previewZoomAnalysis = analysis;
         state.previewZoomLoading = false;
@@ -264,15 +234,11 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
 
   // Mouse Event Actions
   loadMouseEvents: async (sidecarPath: string) => {
-    console.log('[MOUSE] Loading mouse events from:', sidecarPath);
     set((state) => { state.mouseEventsLoading = true; });
 
     try {
-      console.log('[MOUSE] Invoking read_sidecar_file...');
       const sidecarContent = await invoke<string>('read_sidecar_file', { path: sidecarPath });
-      console.log('[MOUSE] Sidecar file content length:', sidecarContent?.length ?? 0);
       const rawData = JSON.parse(sidecarContent);
-      console.log('[MOUSE] Parsed sidecar data type:', Array.isArray(rawData) ? 'array' : typeof rawData);
 
       let rawEvents: any[];
       let displayWidth = 1920;
@@ -295,7 +261,6 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
         captureMode = rawData.capture_mode || null;
         screenWidth = rawData.screen_width ?? null;
         screenHeight = rawData.screen_height ?? null;
-        console.log('Display dimensions from sidecar:', displayWidth, 'x', displayHeight, 'mode:', captureMode, 'screen:', screenWidth, 'x', screenHeight);
       } else {
         throw new Error('Invalid sidecar format');
       }
@@ -323,13 +288,6 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
         };
       }).sort((a, b) => a.base.timestamp - b.base.timestamp);
 
-      console.log('[MOUSE] Mouse events loaded:', data.length, 'events');
-      const clickCount = data.filter(e => e.base.event_type === 'ButtonPress').length;
-      console.log('[MOUSE] Click events (ButtonPress):', clickCount);
-      console.log('[MOUSE] Display resolution:', displayWidth, 'x', displayHeight, 'scale:', scaleFactor);
-      if (recordingArea) {
-        console.log('[MOUSE] Recording area:', recordingArea);
-      }
       set((state) => {
         state.mouseEvents = data;
         state.mouseEventsLoading = false;
@@ -355,7 +313,6 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
       });
     } catch (error) {
       console.error('[MOUSE] Failed to load mouse events:', error);
-      console.error('[MOUSE] This may indicate the .mouse.json file does not exist');
       set((state) => {
         state.mouseEvents = null;
         state.mouseEventsLoading = false;

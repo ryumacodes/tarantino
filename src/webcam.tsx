@@ -131,7 +131,6 @@ const WebcamApp: React.FC = () => {
   const startRecording = useCallback(() => {
     const stream = streamRef.current;
     if (!stream || isRecording) {
-      console.log('[Webcam] Cannot start recording — no stream or already recording');
       return;
     }
     try {
@@ -144,7 +143,6 @@ const WebcamApp: React.FC = () => {
       };
       recorder.onstop = async () => {
         const blob = new Blob(chunksRef.current, { type: 'video/webm' });
-        console.log('[Webcam] Recording stopped, blob size:', blob.size);
         if (blob.size > 0) {
           try {
             const buf = await blob.arrayBuffer();
@@ -157,7 +155,6 @@ const WebcamApp: React.FC = () => {
               shape,
               outputPath: outputPathRef.current,
             });
-            console.log('[Webcam] Recording saved to sidecar');
           } catch (err) {
             console.error('[Webcam] Failed to save recording:', err);
           }
@@ -169,7 +166,6 @@ const WebcamApp: React.FC = () => {
       recorder.start(1000);
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
-      console.log('[Webcam] MediaRecorder started');
     } catch (err) {
       console.error('[Webcam] Failed to start recording:', err);
     }
@@ -222,13 +218,11 @@ const WebcamApp: React.FC = () => {
           // Older start events only carried timer data; keep the last output path.
         }
       }
-      console.log('[Webcam] Recording started event — starting capture (window already hidden by backend)');
       startRecording();
     }).then((fn) => unlisteners.push(fn));
 
     // Backend sends this BEFORE closing the window, giving us time to save
     listen('webcam:stop', () => {
-      console.log('[Webcam] Stop event — stopping capture and saving');
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         // Stop the recorder — the onstop handler will save and close the window
         mediaRecorderRef.current.stop();
@@ -236,7 +230,6 @@ const WebcamApp: React.FC = () => {
         setIsRecording(false);
       } else {
         // No recording was active — just close the window
-        console.log('[Webcam] No active recording, closing window');
         stopCameraStream();
         Window.getCurrent().close().catch(() => {});
       }

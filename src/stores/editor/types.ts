@@ -103,7 +103,7 @@ export interface ExportSettings {
   format: ExportFormat;
 }
 
-// Visual Settings (Screen Studio style)
+// Visual Settings
 export type BackgroundType = 'solid' | 'gradient' | 'wallpaper';
 export type GradientDirection = 'to-right' | 'to-bottom' | 'to-bottom-right' | 'radial';
 export type AspectRatio = '16:9' | '9:16' | '4:3' | '1:1' | '21:9' | 'auto';
@@ -173,11 +173,11 @@ export interface VisualSettings {
   shakesThreshold: number; // Pixel threshold for shake detection
   optimizeCursorChanges: boolean; // Minimize rapid cursor type changes
 
-  // Animation (Spring Physics - Screen Studio style)
+  // Animation
   zoomSpeedPreset: 'slow' | 'mellow' | 'quick' | 'rapid';
   cursorSpeedPreset: 'slow' | 'mellow' | 'quick' | 'rapid'; // Separate from zoom
 
-  // Motion Blur (3 independent channels, Screen Studio style)
+  // Motion Blur
   motionBlurEnabled: boolean;
   motionBlurPanIntensity: number; // 0-100, blur during camera pans
   motionBlurZoomIntensity: number; // 0-100, blur during zoom in/out
@@ -317,7 +317,7 @@ export interface EditorState {
   snappingEnabled: boolean;
   snappingTargets: SnappingTarget[];
   viewState: TimelineViewState;
-  // Visual Settings (Screen Studio style)
+  // Visual Settings
   visualSettings: VisualSettings;
   // Export Settings
   exportSettings: ExportSettings;

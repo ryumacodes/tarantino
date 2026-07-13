@@ -118,7 +118,6 @@ export const createClipsActions = (set: SetFn, get: GetFn) => ({
 
   cutClipsAtTime: (time: number, trackId?: string) => {
     const clipsAtTime = get().getClipsAtTime(time, trackId);
-    console.log('cutClipsAtTime: Found', clipsAtTime.length, 'clips at time', time);
     return clipsAtTime
       .map(clip => get().cutClip(clip.id, time))
       .filter((clipId): clipId is string => Boolean(clipId));
@@ -128,7 +127,6 @@ export const createClipsActions = (set: SetFn, get: GetFn) => ({
     const clip = state.clips.find(c => c.id === clipId);
     if (clip) {
       const sourceDuration = clip.sourceOut - clip.sourceIn;
-      const oldRate = clip.playbackRate;
       const newRate = Math.max(0.25, Math.min(4, rate));
       clip.playbackRate = newRate;
       clip.duration = sourceDuration / newRate;
@@ -141,8 +139,6 @@ export const createClipsActions = (set: SetFn, get: GetFn) => ({
           trackClip.duration = clip.duration;
         }
       }
-
-      console.log(`Clip ${clipId}: playback rate ${oldRate}x -> ${newRate}x`);
     }
   }),
 

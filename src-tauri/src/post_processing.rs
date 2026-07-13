@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
 
-/// Post-processing configuration for Screen Studio-style effects
+/// Post-processing configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PostProcessingConfig {
     pub enable_zoom_effects: bool,
@@ -35,7 +35,7 @@ impl Default for PostProcessingConfig {
     }
 }
 
-/// Post-processing pipeline for applying Screen Studio effects
+/// Post-processing pipeline for editor effects.
 pub struct PostProcessor {
     config: PostProcessingConfig,
 }
@@ -52,7 +52,7 @@ impl PostProcessor {
         output_path: &Path,
         zoom_analysis: Option<&ZoomAnalysis>,
     ) -> Result<()> {
-        println!("Starting post-processing pipeline (Screen Studio style)");
+        println!("Starting post-processing pipeline");
         println!("Input: {}", input_path.display());
         println!("Output: {}", output_path.display());
 
@@ -126,7 +126,7 @@ impl PostProcessor {
         Ok((width, height))
     }
 
-    /// Apply zoom effects using FFmpeg filters (Screen Studio approach)
+    /// Apply zoom effects using FFmpeg filters.
     async fn apply_zoom_effects(
         &self,
         input_path: &Path,
@@ -181,7 +181,7 @@ impl PostProcessor {
         Ok(())
     }
 
-    /// Build FFmpeg filter chain for zoom blocks (Screen Studio style)
+    /// Build FFmpeg filter chain for zoom blocks.
     fn build_zoom_filter(
         &self,
         zoom_blocks: &[ZoomBlock],
@@ -264,9 +264,9 @@ impl PostProcessor {
         Ok(filter)
     }
 
-    /// Apply cursor overlay using Screen Studio approach
+    /// Apply cursor overlay.
     async fn apply_cursor_overlay(&self, input_path: &Path, output_path: &Path) -> Result<()> {
-        println!("Applying Screen Studio-style cursor overlay");
+        println!("Applying cursor overlay");
 
         // Load mouse tracking data from sidecar
         let sidecar_path = input_path.with_extension("mp4.sidecar.json");

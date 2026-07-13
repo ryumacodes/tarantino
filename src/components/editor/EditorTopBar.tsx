@@ -107,12 +107,10 @@ const EditorTopBar: React.FC<EditorTopBarProps> = ({
 
   return (
     <div className="editor-top-bar" data-tauri-drag-region>
-      {/* Left — space for native traffic lights */}
       <div className="top-bar-left" data-tauri-drag-region>
         <div className="traffic-light-spacer" />
       </div>
 
-      {/* Center — Project title */}
       <div className="top-bar-center" data-tauri-drag-region>
         <div className="project-info">
           {isEditingTitle ? (
@@ -152,7 +150,6 @@ const EditorTopBar: React.FC<EditorTopBarProps> = ({
         </div>
       </div>
 
-      {/* Right — Preset + Settings + Export */}
       <div className="top-bar-right">
         <div className="presets-container">
           <button

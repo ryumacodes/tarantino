@@ -133,7 +133,6 @@ const TimelineHeader: React.FC<TimelineHeaderProps> = ({
           </button>
         </div>
 
-        {/* Zoom Controls */}
         <div className="tool-group">
           <button
             className="tool-btn"

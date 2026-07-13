@@ -107,10 +107,8 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         return get().historyIndex < get().history.length - 1;
       },
 
-      // Core initialization
       initializeEditor: (filePath, duration, hasWebcam = false, hasMicrophone = false, hasSystemAudio = false, videoWidth = null, videoHeight = null) => {
         set((state) => {
-          console.log('Editor store: Initializing with filePath:', filePath, 'duration:', duration, 'videoSize:', videoWidth, 'x', videoHeight);
           state.videoFilePath = filePath;
           state.videoWidth = videoWidth;
           state.videoHeight = videoHeight;

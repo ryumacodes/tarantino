@@ -50,7 +50,7 @@ pub enum AudioSourceType {
     AppAudio { app_bundle_id: String },
 }
 
-/// Combined event data structure for comprehensive recording metadata
+/// Event data captured alongside a recording.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureSession {
     pub session_id: String,

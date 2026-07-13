@@ -7,11 +7,11 @@ mod typing_zoom;
 pub use typing_zoom::validate_zoom_blocks;
 use typing_zoom::{create_typing_zoom_blocks, detect_typing_sessions, TypingZoomConfig};
 
-/// Simple zoom configuration following Screen Studio's approach
+/// Click-based zoom configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZoomConfig {
     pub enabled: bool,
-    pub zoom_factor: f32,       // Default: 2.0x (Screen Studio typical)
+    pub zoom_factor: f32,
     pub zoom_duration: u64,     // Default: 5000ms (5s: 1s in, 3s hold, 1s out)
     pub min_click_spacing: u64, // Minimum time between click zooms (500ms)
 }
@@ -35,7 +35,7 @@ pub struct ZoomCenter {
     pub time: u64, // When to start panning to this center (ms)
 }
 
-/// Simple click-based zoom block (like Screen Studio's purple blocks)
+/// Click-based zoom block.
 /// Consecutive clicks merge into one block with multiple centers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZoomBlock {
@@ -62,7 +62,7 @@ fn default_kind() -> String {
     "click".into()
 }
 
-/// Zoom analysis result following Screen Studio pattern
+/// Zoom analysis result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZoomAnalysis {
     pub zoom_blocks: Vec<ZoomBlock>,
@@ -73,7 +73,7 @@ pub struct ZoomAnalysis {
 
 /// A detected typing session (consecutive keystrokes with small gaps)
 #[derive(Debug, Clone)]
-/// Simple zoom processor following Screen Studio's approach
+/// Click-based zoom processor.
 pub struct ZoomProcessor {
     config: ZoomConfig,
 }
@@ -136,7 +136,7 @@ impl ZoomProcessor {
             println!("   ... and {} more clicks", click_events.len() - 5);
         }
 
-        // Create zoom blocks for clicks (Screen Studio style)
+        // Create zoom blocks for clicks.
         let mut zoom_blocks = self.create_zoom_blocks(&click_events, session)?;
         println!(
             "✅ [ZOOM] Created {} zoom blocks from {} clicks",
@@ -201,7 +201,7 @@ impl ZoomProcessor {
             .collect()
     }
 
-    /// Create zoom blocks for clicks (Screen Studio approach).
+    /// Create zoom blocks for clicks.
     /// Consecutive clicks that fall within an active zoom are MERGED into one
     /// continuous block with multiple re-center points — no zoom-out between them.
     fn create_zoom_blocks(

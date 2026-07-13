@@ -34,7 +34,7 @@
   --accent-warning: var(--dracula-orange);
   --accent-error: var(--dracula-red);
   
-  /* Timeline Colors (Screen Studio inspired) */
+  /* Timeline colors */
   --timeline-bg: var(--dracula-bg-darker);
   --timeline-track: rgba(145, 129, 117, 0.1);
   --timeline-track-active: var(--dracula-orange);

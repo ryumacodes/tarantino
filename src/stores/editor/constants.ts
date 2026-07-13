@@ -77,7 +77,7 @@ export const DEVICE_FRAMES = {
   },
 } as const;
 
-// Predefined wallpapers (Screen Studio style)
+// Predefined wallpapers
 export const WALLPAPERS = {
   'gradient-purple': { type: 'gradient', colors: ['#667eea', '#764ba2'] },
   'gradient-blue': { type: 'gradient', colors: ['#2193b0', '#6dd5ed'] },
@@ -97,7 +97,7 @@ export const getWallpaperBackground = (wallpaper: Wallpaper): string =>
     ? `linear-gradient(135deg, ${wallpaper.colors.join(', ')})`
     : wallpaper.color;
 
-// Spring physics presets (Screen Studio style: Slow, Mellow, Quick, Rapid)
+// Spring physics presets
 // Critically-damped or slightly over-damped to prevent bounce/overshoot
 // Critical damping: friction = 2 * sqrt(tension * mass)
 export const SPRING_PRESETS = {
@@ -171,7 +171,7 @@ export const DEFAULT_VISUAL_SETTINGS: VisualSettings = {
   cursorSpeedPreset: 'mellow',
   motionBlurEnabled: true,
   motionBlurPanIntensity: 20, // Subtle blur during camera pans
-  motionBlurZoomIntensity: 0, // Clean zooms by default (Screen Studio style)
+  motionBlurZoomIntensity: 0,
   motionBlurCursorIntensity: 0, // No cursor blur by default
   aspectRatio: 'auto',
   deviceFrame: 'none',

@@ -1,6 +1,6 @@
 // Properties Panel Types
 
-export type TabType = 'zoom' | 'clips' | 'background' | 'cursor' | 'motion' | 'audio' | 'export';
+export type TabType = 'zoom' | 'clips' | 'background' | 'cursor' | 'motion' | 'audio';
 
 export interface PropertiesPanelProps {
   onShowMouseOverlay?: (show: boolean) => void;

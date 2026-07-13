@@ -6,7 +6,6 @@ type GetFn = () => EditorState & EditorActions;
 
 export const createPlaybackActions = (set: SetFn, get: GetFn) => ({
   setIsPlaying: (isPlaying: boolean) => set((state) => {
-    console.log(`Editor Store: setIsPlaying -> ${isPlaying}`);
     state.isPlaying = isPlaying;
   }),
 
@@ -15,7 +14,6 @@ export const createPlaybackActions = (set: SetFn, get: GetFn) => ({
   }),
 
   setDuration: (duration: number) => set((state) => {
-    console.log(`Editor Store: setDuration -> ${duration}`);
     state.duration = duration;
     if (state.trimEnd === state.duration || state.trimEnd === 0) {
       state.trimEnd = duration;
@@ -23,7 +21,6 @@ export const createPlaybackActions = (set: SetFn, get: GetFn) => ({
   }),
 
   setProjectTitle: (title: string) => set((state) => {
-    console.log(`Editor Store: setProjectTitle -> ${title}`);
     state.projectTitle = title;
   }),
 

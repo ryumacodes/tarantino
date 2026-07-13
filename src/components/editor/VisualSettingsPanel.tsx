@@ -117,11 +117,9 @@ const VisualSettingsPanel: React.FC = () => {
         </button>
       </div>
 
-      {/* Background Section */}
       <div className="settings-section">
         <h4><Palette size={14} /> Background</h4>
 
-        {/* Background Type */}
         <div className="button-group">
           {backgroundTypes.map(({ type, label, icon }) => (
             <button
@@ -135,7 +133,6 @@ const VisualSettingsPanel: React.FC = () => {
           ))}
         </div>
 
-        {/* Solid Color */}
         {visualSettings.backgroundType === 'solid' && (
           <ColorPicker
             label="Color"
@@ -144,7 +141,6 @@ const VisualSettingsPanel: React.FC = () => {
           />
         )}
 
-        {/* Gradient Controls */}
         {visualSettings.backgroundType === 'gradient' && (
           <>
             <div className="gradient-direction">
@@ -180,7 +176,6 @@ const VisualSettingsPanel: React.FC = () => {
           </>
         )}
 
-        {/* Wallpaper Presets */}
         {visualSettings.backgroundType === 'wallpaper' && (
           <div className="wallpaper-grid">
             {Object.entries(WALLPAPERS).map(([id, wallpaper]) => (
@@ -198,7 +193,6 @@ const VisualSettingsPanel: React.FC = () => {
         )}
       </div>
 
-      {/* Frame Section */}
       <div className="settings-section">
         <h4><Maximize size={14} /> Frame</h4>
 
@@ -230,7 +224,6 @@ const VisualSettingsPanel: React.FC = () => {
         />
       </div>
 
-      {/* Shadow Section */}
       <div className="settings-section">
         <h4><Moon size={14} /> Shadow</h4>
 
@@ -284,7 +277,6 @@ const VisualSettingsPanel: React.FC = () => {
         )}
       </div>
 
-      {/* Cursor Section */}
       <div className="settings-section">
         <h4><MousePointer size={14} /> Cursor</h4>
 
@@ -387,7 +379,6 @@ const VisualSettingsPanel: React.FC = () => {
         )}
       </div>
 
-      {/* Animation Section */}
       <div className="settings-section">
         <h4><Zap size={14} /> Animation</h4>
 
@@ -457,7 +448,6 @@ const VisualSettingsPanel: React.FC = () => {
         )}
       </div>
 
-      {/* Aspect Ratio Section */}
       <div className="settings-section">
         <h4><Monitor size={14} /> Output Format</h4>
 
@@ -490,7 +480,6 @@ const VisualSettingsPanel: React.FC = () => {
         )}
       </div>
 
-      {/* Device Frame Section */}
       <div className="settings-section">
         <h4><Smartphone size={14} /> Device Frame</h4>
 

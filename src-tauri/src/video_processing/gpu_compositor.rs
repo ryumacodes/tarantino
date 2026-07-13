@@ -2,7 +2,7 @@
 //!
 //! Replaces all CPU-based per-pixel operations (zoom, cursor blend, rounded corners,
 //! shadow, webcam mask, motion blur, background compositing) with GPU compute shaders.
-//! Matches CapCut-style GPU rendering for near-instant per-frame compositing.
+//! Keeps per-frame compositing work on the GPU.
 
 use anyhow::{anyhow, Result};
 use image::RgbaImage;

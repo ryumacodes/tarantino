@@ -48,7 +48,6 @@ const AudioWaveform: React.FC<AudioWaveformProps> = ({
           sampleRate: samplesPerSecond,
           channels: 1,
         });
-        console.log(`Loaded ${peaks.length} waveform peaks for ${type} audio`);
       } catch (error) {
         console.error('Failed to load waveform:', error);
         setWaveformData({ peaks: [], sampleRate: samplesPerSecond, channels: 1 });

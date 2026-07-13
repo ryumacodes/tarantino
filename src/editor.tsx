@@ -12,9 +12,6 @@ import './styles/editor-legacy.css';
 import './styles/dracula-theme.css';
 import './styles/shortcuts.css';
 
-console.log('%c[EDITOR] Module loaded!', 'background: blue; color: white; font-size: 20px;');
-
-// Add error boundary for debugging
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error?: Error }> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
@@ -60,7 +57,6 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   }
 }
 
-// Set up event listeners for background processing updates
 let setupProcessingEventListeners: () => void;
 type WebcamShape = 'circle' | 'roundrect';
 
@@ -88,35 +84,14 @@ function EditorShell() {
   const [isLoading, setIsLoading] = useState(true);
   const [processingStatus, setProcessingStatus] = useState<string>('Loading...');
 
-  // Helper for dual logging to console and terminal
-  const log = (message: string, level: 'info' | 'warn' | 'error' = 'info') => {
-    // Log to browser console
-    if (level === 'error') console.error(message);
-    else if (level === 'warn') console.warn(message);
-    else console.log(message);
-
-    // Log to backend terminal
-    import('@tauri-apps/api/core').then(({ invoke }) => {
-      invoke('log_to_terminal', { message, level }).catch(() => { });
-    });
-  };
-
-  // Use store directly without try-catch wrapping
   const { initializeEditor, updateVisualSettings } = useEditorStore();
 
-  // Set up event listeners for background processing updates
   setupProcessingEventListeners = () => {
-    console.log('Setting up processing event listeners');
-
-    // Listen for processing status updates
     listen('processing-status', (event: any) => {
-      console.log('Processing status update:', event.payload);
       setProcessingStatus(event.payload);
     });
 
-    // Listen for recording ready event
     listen('recording-ready', async (event: any) => {
-      log(`Recording ready event received: ${JSON.stringify(event.payload)}`);
       const payload = event.payload;
       const finalPath = typeof payload === 'string' ? payload : payload.path;
       const hasMic = typeof payload === 'object' ? !!payload.has_mic : false;
@@ -128,7 +103,6 @@ function EditorShell() {
       const webcamTransformFromPayload = typeof payload === 'object'
         ? readWebcamTransform(payload)
         : null;
-      // Also check URL params (set when editor opened)
       const urlParams = new URLSearchParams(window.location.search);
       const urlHasWebcam = urlParams.get('webcam') === 'true';
       const webcamShapeFromUrl = normalizeWebcamShape(urlParams.get('webcam_shape'));
@@ -139,12 +113,10 @@ function EditorShell() {
         ? webcamTransformFromPayload
         : webcamTransformFromUrl;
 
-      // Update state to trigger React re-render and proper video initialization
       setMediaPath(finalPath);
       setProcessingStatus('Ready!');
-      setIsLoading(true); // Reset loading state to trigger re-initialization
+      setIsLoading(true);
 
-      // Initialize the editor with the final path
       initializeEditorWithPath(finalPath, hasMic, hasSystemAudio, webcamEnabled, webcamShape, webcamTransform);
     });
   };
@@ -158,32 +130,24 @@ function EditorShell() {
     webcamTransform = { webcamX: 0.895, webcamY: 0.895, webcamSize: 0.15 }
   ) => {
     try {
-      console.log('Initializing editor with final path:', path, 'hasWebcam:', hasWebcam);
-
-      // Get actual video duration and metadata
       const videoInfo = await invoke<any>('get_video_metadata', { filePath: path });
-      log(`Video metadata loaded: ${JSON.stringify(videoInfo)}`);
 
-      // Parse duration from different possible formats
-      let duration = 10000; // Fallback to 10 seconds
+      let duration = 10000;
       if (videoInfo.duration_ms) {
         duration = videoInfo.duration_ms;
       } else if (videoInfo.duration) {
-        duration = videoInfo.duration * 1000; // Convert seconds to milliseconds
+        duration = videoInfo.duration * 1000;
       }
 
-      console.log('Initializing editor with duration:', duration, 'video size:', videoInfo.width, 'x', videoInfo.height);
       await initializeEditor(path, duration, hasWebcam, hasMic, hasSystemAudio, videoInfo.width ?? null, videoInfo.height ?? null);
       if (hasWebcam) {
         updateVisualSettings({ webcamShape, ...webcamTransform });
       }
 
       setIsLoading(false);
-      log('Editor initialization complete');
     } catch (err) {
-      log(`Error initializing editor with final path: ${err}`, 'error');
+      console.error('Error initializing editor with final path:', err);
 
-      // Provide more specific error messages based on the error type
       let errorMessage = 'Unknown error occurred';
       const errorStr = String(err);
 
@@ -204,10 +168,6 @@ function EditorShell() {
 
   const loadEditor = async () => {
     try {
-      console.log('Editor component mounted');
-      console.log('Current URL:', window.location.href);
-      console.log('Search params:', window.location.search);
-
       const params = new URLSearchParams(window.location.search);
       const media = params.get('media');
       const sidecar = params.get('sidecar');
@@ -219,16 +179,11 @@ function EditorShell() {
       const loading = params.get('loading') === 'true';
       const tempPath = params.get('temp_path');
 
-      console.log('Editor loaded with params:', { media, sidecar, hasWebcam, hasMic, hasSystemAudio, webcamShape, loading, tempPath });
-
-      // Handle loading mode (instant editor opening)
       if (loading && tempPath) {
-        console.log('Editor opened in loading mode with temp path:', tempPath);
         setMediaPath(decodeURIComponent(tempPath));
         setProcessingStatus('Processing recording...');
         setIsLoading(true);
 
-        // Set up event listeners for background processing updates
         setupProcessingEventListeners();
         return;
       }
@@ -238,45 +193,23 @@ function EditorShell() {
       }
 
       const decodedPath = decodeURIComponent(media);
-      console.log('Media path decoded:', decodedPath);
       setMediaPath(decodedPath);
 
-      // Get actual video duration and metadata
-      console.log('Loading video metadata for:', decodedPath);
       const videoInfo = await invoke<any>('get_video_metadata', { filePath: decodedPath });
-      console.log('Video metadata loaded:', videoInfo);
 
-      // Parse duration from different possible formats
-      let duration = 10000; // Fallback to 10 seconds
+      let duration = 10000;
       if (videoInfo.duration_ms) {
         duration = videoInfo.duration_ms;
       } else if (videoInfo.duration) {
-        // If duration is in seconds, convert to milliseconds
         duration = videoInfo.duration * 1000;
       } else if (videoInfo.format && videoInfo.format.duration) {
-        // FFprobe format duration in seconds
         duration = parseFloat(videoInfo.format.duration) * 1000;
       }
 
-      console.log('Parsed video duration:', duration, 'ms', 'video size:', videoInfo.width, 'x', videoInfo.height);
-
-      // Initialize the editor store with the video file and media flags
-      console.log('Initializing editor with path:', decodedPath, 'duration:', duration);
       initializeEditor(decodedPath, duration, hasWebcam, hasMic, hasSystemAudio, videoInfo.width ?? null, videoInfo.height ?? null);
       if (hasWebcam) {
         updateVisualSettings({ webcamShape, ...webcamTransform });
       }
-
-      // Verify initialization worked
-      setTimeout(() => {
-        const currentStore = useEditorStore.getState();
-        console.log('Editor initialization verification:', {
-          videoFilePath: currentStore.videoFilePath,
-          duration: currentStore.duration,
-          hasWebcam: currentStore.hasWebcam,
-          hasMicrophone: currentStore.hasMicrophone
-        });
-      }, 100);
 
       setIsLoading(false);
     } catch (err) {
@@ -291,18 +224,13 @@ function EditorShell() {
   }, [initializeEditor, updateVisualSettings]);
 
   const handleClose = async () => {
-    console.log('Editor closing');
-
-    // Show the capture bar when closing the editor
     try {
       const { invoke } = await import('@tauri-apps/api/core');
       await invoke('show_capture_bar');
-      console.log('Capture bar shown on editor close');
     } catch (error) {
       console.error('Failed to show capture bar on close:', error);
     }
 
-    // Navigate back or close the window
     if (window.history.length > 1) {
       window.history.back();
     } else {
@@ -385,18 +313,14 @@ function EditorShell() {
   );
 }
 
-console.log('Starting editor app...');
-
 const root = document.getElementById('root');
 if (root) {
-  console.log('Root element found, mounting React app...');
   try {
     createRoot(root).render(
       <ErrorBoundary>
         <EditorShell />
       </ErrorBoundary>
     );
-    console.log('React app mounted successfully');
   } catch (err) {
     console.error('Failed to mount React app:', err);
     root.innerHTML = `

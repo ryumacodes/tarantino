@@ -43,7 +43,7 @@ pub struct VisualSettings {
     pub shadow_offset_x: Option<f64>,
     pub shadow_offset_y: Option<f64>,
     pub aspect_ratio: Option<String>,
-    // Motion blur settings (3 channels, Screen Studio style)
+    // Motion blur settings
     pub motion_blur_enabled: Option<bool>,
     pub motion_blur_pan_intensity: Option<f64>, // 0.0-1.0, blur during camera pans
     pub motion_blur_zoom_intensity: Option<f64>, // 0.0-1.0, blur during zoom in/out

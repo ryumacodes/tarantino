@@ -1,6 +1,18 @@
 import React, { useRef } from 'react';
 import { Image, Layers, Monitor, Palette } from 'lucide-react';
-import { useEditorStore, ASPECT_RATIOS, WALLPAPERS, getWallpaperBackground, type AspectRatio, type BackgroundType, type GradientDirection } from '../../../stores/editor';
+import {
+  useEditorStore,
+  ASPECT_RATIOS,
+  RESOLUTION_DIMENSIONS,
+  WALLPAPERS,
+  getWallpaperBackground,
+  type AspectRatio,
+  type BackgroundType,
+  type ExportFormat,
+  type ExportFrameRate,
+  type ExportResolution,
+  type GradientDirection,
+} from '../../../stores/editor';
 import type { TabProps } from './types';
 
 const backgroundTypes: { type: BackgroundType; label: string; icon: React.ReactNode }[] = [
@@ -15,6 +27,15 @@ const gradientDirections: { dir: GradientDirection; label: string }[] = [
   { dir: 'to-bottom-right', label: '↘' },
   { dir: 'radial', label: '◉' },
 ];
+
+const aspectRatioEntries = (Object.entries(ASPECT_RATIOS) as [
+  AspectRatio,
+  typeof ASPECT_RATIOS[keyof typeof ASPECT_RATIOS],
+][]).sort(([ratioA], [ratioB]) => {
+  if (ratioA === 'auto') return -1;
+  if (ratioB === 'auto') return 1;
+  return 0;
+});
 
 const SUPPORTED_WALLPAPER_IMAGE_TYPES = new Set([
   'image/png',
@@ -47,11 +68,18 @@ const readWallpaperImage = (file: File) => new Promise<string>((resolve, reject)
 });
 
 const BackgroundTab: React.FC<TabProps> = ({ isExporting = false }) => {
-  const { visualSettings, updateVisualSettings, applyWallpaper, applyCustomWallpaper, captureMode } = useEditorStore();
+  const {
+    visualSettings,
+    updateVisualSettings,
+    exportSettings,
+    updateExportSettings,
+    applyWallpaper,
+    applyCustomWallpaper,
+    captureMode,
+  } = useEditorStore();
   const imageInputRef = useRef<HTMLInputElement>(null);
   const isWindowFocus = captureMode === 'window' && visualSettings.windowLayoutMode === 'focus';
   const showAspectRatio = captureMode !== 'window' || visualSettings.windowLayoutMode === 'desktop';
-
   return (
     <div className="tab-content">
       <div className="section">
@@ -118,10 +146,10 @@ const BackgroundTab: React.FC<TabProps> = ({ isExporting = false }) => {
       <div className="section">
         <div className="section-header">
           <h3>Aspect Ratio</h3>
-          <p>Choose the editor and export canvas</p>
+          <p>Set canvas shape</p>
         </div>
         <div className="aspect-ratio-grid">
-          {(Object.entries(ASPECT_RATIOS) as [AspectRatio, typeof ASPECT_RATIOS[keyof typeof ASPECT_RATIOS]][]).map(([ratio, info]) => (
+          {aspectRatioEntries.map(([ratio, info]) => (
             <button
               key={ratio}
               className={`aspect-ratio-btn ${visualSettings.aspectRatio === ratio ? 'active' : ''}`}
@@ -129,7 +157,7 @@ const BackgroundTab: React.FC<TabProps> = ({ isExporting = false }) => {
               disabled={isExporting}
             >
               <div className="aspect-preview" style={{ aspectRatio: ratio === 'auto' ? '16/9' : `${info.width}/${info.height}` }}>
-                <span className="aspect-value">{ratio === 'auto' ? 'Auto' : ratio}</span>
+                <span className="aspect-value">{ratio === 'auto' ? 'Original' : ratio}</span>
               </div>
               <span className="aspect-label">{info.label}</span>
             </button>
@@ -138,7 +166,136 @@ const BackgroundTab: React.FC<TabProps> = ({ isExporting = false }) => {
       </div>
       )}
 
-      {/* Solid Color */}
+      <div className="section">
+        <div className="section-header">
+          <h3>Export Settings</h3>
+        </div>
+
+        <div className="control-group">
+          <label>Resolution</label>
+          <select
+            className="editor-input"
+            value={exportSettings.resolution}
+            onChange={(e) => updateExportSettings({ resolution: e.target.value as ExportResolution })}
+            disabled={isExporting}
+          >
+            <option value="1080p">1080p (1920x1080)</option>
+            <option value="4k">4K (3840x2160)</option>
+            <option value="1440p">1440p (2560x1440)</option>
+            <option value="720p">720p (1280x720)</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+
+        {exportSettings.resolution === 'custom' && (
+          <div className="control-group custom-resolution">
+            <div className="custom-res-inputs">
+              <input
+                type="number"
+                className="editor-input editor-input--small"
+                placeholder="Width"
+                value={exportSettings.customWidth || ''}
+                onChange={(e) => updateExportSettings({ customWidth: parseInt(e.target.value) || undefined })}
+                disabled={isExporting}
+              />
+              <span className="res-separator">×</span>
+              <input
+                type="number"
+                className="editor-input editor-input--small"
+                placeholder="Height"
+                value={exportSettings.customHeight || ''}
+                onChange={(e) => updateExportSettings({ customHeight: parseInt(e.target.value) || undefined })}
+                disabled={isExporting}
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="control-group">
+          <label>Frame Rate</label>
+          <select
+            className="editor-input"
+            value={exportSettings.frameRate}
+            onChange={(e) => updateExportSettings({ frameRate: parseInt(e.target.value) as ExportFrameRate })}
+            disabled={isExporting}
+          >
+            <option value={60}>60 FPS</option>
+            <option value={30}>30 FPS</option>
+            <option value={24}>24 FPS (Cinematic)</option>
+          </select>
+        </div>
+
+        <div className="control-group">
+          <label>Quality</label>
+          <div className="quality-presets">
+            <button
+              className={`quality-preset ${exportSettings.quality === 'high' ? 'active' : ''}`}
+              onClick={() => updateExportSettings({ quality: 'high' })}
+              disabled={isExporting}
+            >
+              <span>High</span>
+              <small>Best quality</small>
+            </button>
+            <button
+              className={`quality-preset ${exportSettings.quality === 'medium' ? 'active' : ''}`}
+              onClick={() => updateExportSettings({ quality: 'medium' })}
+              disabled={isExporting}
+            >
+              <span>Medium</span>
+              <small>Balanced</small>
+            </button>
+            <button
+              className={`quality-preset ${exportSettings.quality === 'low' ? 'active' : ''}`}
+              onClick={() => updateExportSettings({ quality: 'low' })}
+              disabled={isExporting}
+            >
+              <span>Low</span>
+              <small>Smaller file</small>
+            </button>
+          </div>
+        </div>
+
+        <div className="control-group">
+          <label>Format</label>
+          <select
+            className="editor-input"
+            value={exportSettings.format}
+            onChange={(e) => updateExportSettings({ format: e.target.value as ExportFormat })}
+            disabled={isExporting}
+          >
+            <option value="mp4">MP4 (H.264)</option>
+            <option value="mov">MOV (ProRes)</option>
+            <option value="webm">WebM (VP9)</option>
+            <option value="gif">GIF (Animated)</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="section">
+        <div className="section-header">
+          <h3>Export Summary</h3>
+        </div>
+        <div className="export-summary">
+          <div className="summary-row">
+            <span className="summary-label">Output</span>
+            <span className="summary-value">
+              {exportSettings.resolution === 'custom'
+                ? `${exportSettings.customWidth || '?'}×${exportSettings.customHeight || '?'}`
+                : `${RESOLUTION_DIMENSIONS[exportSettings.resolution as keyof typeof RESOLUTION_DIMENSIONS]?.width}×${RESOLUTION_DIMENSIONS[exportSettings.resolution as keyof typeof RESOLUTION_DIMENSIONS]?.height}`
+              } @ {exportSettings.frameRate}fps
+            </span>
+          </div>
+          <div className="summary-row">
+            <span className="summary-label">Format</span>
+            <span className="summary-value">{exportSettings.format.toUpperCase()}</span>
+          </div>
+          <div className="summary-row">
+            <span className="summary-label">Quality</span>
+            <span className="summary-value">{exportSettings.quality.charAt(0).toUpperCase() + exportSettings.quality.slice(1)}</span>
+          </div>
+        </div>
+      </div>
+
       {visualSettings.backgroundType === 'solid' && (
         <div className="section">
           <div className="section-header">
@@ -160,7 +317,6 @@ const BackgroundTab: React.FC<TabProps> = ({ isExporting = false }) => {
         </div>
       )}
 
-      {/* Gradient */}
       {visualSettings.backgroundType === 'gradient' && (
         <div className="section">
           <div className="section-header">
@@ -205,7 +361,6 @@ const BackgroundTab: React.FC<TabProps> = ({ isExporting = false }) => {
         </div>
       )}
 
-      {/* Wallpaper Presets */}
       {visualSettings.backgroundType === 'wallpaper' && (
         <div className="section">
           <div className="section-header">

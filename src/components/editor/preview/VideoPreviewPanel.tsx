@@ -1,13 +1,12 @@
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
 import { EffectComposer } from '@react-three/postprocessing';
 import { useEditorStore } from '../../../stores/editor';
 import { VideoViewer } from './VideoViewer';
 import { MotionBlurEffect } from './MotionBlurEffect';
 import { CursorEffect } from './CursorEffect';
 import { WebcamPreviewOverlay } from './WebcamPreviewOverlay';
-import { ZoomControls, ViewControls, PlaybackControls } from './PreviewControls';
+import { ViewControls, PlaybackControls } from './PreviewControls';
 import './preview.css';
 
 interface VideoTransform {
@@ -37,7 +36,6 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
 
   const [isMuted, setIsMuted] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [zoom, setZoom] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const velocityRef = useRef({ scale: 0, x: 0, y: 0 });
@@ -82,24 +80,6 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
     }
   };
 
-  const handleZoomIn = () => {
-    setZoom(prev => Math.min(prev * 1.2, 4));
-  };
-
-  const handleZoomOut = () => {
-    setZoom(prev => Math.max(prev / 1.2, 0.5));
-  };
-
-  const handleZoomReset = () => {
-    setZoom(1);
-  };
-
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom(prev => Math.min(Math.max(prev * delta, 0.5), 4));
-  };
-
   useEffect(() => {
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
@@ -139,10 +119,8 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
       const { width: cw, height: ch } = entries[0].contentRect;
       if (cw <= 0 || ch <= 0) return;
       if (cw / ch > videoAspectNum) {
-        // Container wider than target — constrain by height
         setFrameStyle({ width: Math.floor(ch * videoAspectNum), height: ch });
       } else {
-        // Container taller — constrain by width
         setFrameStyle({ width: cw, height: Math.floor(cw / videoAspectNum) });
       }
     });
@@ -152,8 +130,7 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
 
   return (
     <div className="video-preview-panel" ref={containerRef}>
-      {/* Video Canvas */}
-      <div className="video-canvas-container" ref={canvasContainerRef} onWheel={handleWheel}>
+      <div className="video-canvas-container" ref={canvasContainerRef}>
         <div className="video-canvas-frame" style={frameStyle}>
           <Canvas
             camera={{ position: [0, 0, 5], fov: 50 }}
@@ -172,11 +149,8 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
               isPlaying={isPlaying}
               velocityRef={velocityRef}
               videoTransformRef={videoTransformRef}
-              previewZoom={zoom}
             />
-            <OrbitControls enablePan={zoom > 1} enableZoom={false} enableRotate={false} />
 
-            {/* Post-processing effects: motion blur + cursor */}
             {(visualSettings.motionBlurEnabled || (showMouseOverlay && sidecarPath)) && (
               <EffectComposer>
                 {visualSettings.motionBlurEnabled ? (
@@ -200,7 +174,6 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
             )}
           </Canvas>
 
-          {/* Webcam PIP overlay */}
           {hasWebcam && videoFilePath && (
             <WebcamPreviewOverlay
               videoFilePath={videoFilePath}
@@ -212,14 +185,7 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
           )}
         </div>
 
-        {/* Video Overlay Controls */}
         <div className="video-overlay-controls">
-          <ZoomControls
-            zoom={zoom}
-            onZoomIn={handleZoomIn}
-            onZoomOut={handleZoomOut}
-            onZoomReset={handleZoomReset}
-          />
           <ViewControls
             isFullscreen={isFullscreen}
             onFullscreen={handleFullscreen}
@@ -227,7 +193,6 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
         </div>
       </div>
 
-      {/* Playback Controls */}
       <PlaybackControls
         isPlaying={isPlaying}
         isMuted={isMuted}

@@ -7,50 +7,8 @@ import {
   Volume2,
   VolumeX,
   Maximize2,
-  ZoomIn,
-  ZoomOut,
-  RotateCcw,
   Monitor
 } from 'lucide-react';
-
-interface ZoomControlsProps {
-  zoom: number;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  onZoomReset: () => void;
-}
-
-export const ZoomControls: React.FC<ZoomControlsProps> = ({
-  zoom,
-  onZoomIn,
-  onZoomOut,
-  onZoomReset
-}) => (
-  <div className="zoom-controls">
-    <button
-      className="editor-btn editor-btn--ghost editor-btn--small"
-      onClick={onZoomOut}
-      title="Zoom Out"
-    >
-      <ZoomOut size={14} />
-    </button>
-    <span className="zoom-level">{Math.round(zoom * 100)}%</span>
-    <button
-      className="editor-btn editor-btn--ghost editor-btn--small"
-      onClick={onZoomIn}
-      title="Zoom In"
-    >
-      <ZoomIn size={14} />
-    </button>
-    <button
-      className="editor-btn editor-btn--ghost editor-btn--small"
-      onClick={onZoomReset}
-      title="Reset Zoom"
-    >
-      <RotateCcw size={14} />
-    </button>
-  </div>
-);
 
 interface ViewControlsProps {
   isFullscreen: boolean;

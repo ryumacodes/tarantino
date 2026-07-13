@@ -97,7 +97,6 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
         </div>
       ) : (
         <>
-          {/* Selected Block Settings (inline) */}
           {selectedBlock ? (
             <div className="section">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -121,7 +120,6 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                 )}
               </div>
 
-              {/* Zoom Factor Slider */}
               <div className="control-group">
                 <label>Zoom Factor</label>
                 <div className="slider-control">
@@ -147,7 +145,6 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                 </div>
               </div>
 
-              {/* Block Type Badge */}
               {selectedBlock.kind && (
                 <div className="control-group">
                   <label>Block Type</label>
@@ -158,7 +155,6 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                 </div>
               )}
 
-              {/* Per-Block Zoom-In Speed */}
               <div className="control-group">
                 <label>Zoom-In Speed</label>
                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
@@ -183,7 +179,6 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                 </small>
               </div>
 
-              {/* Per-Block Zoom-Out Speed */}
               <div className="control-group">
                 <label>Zoom-Out Speed</label>
                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
@@ -208,7 +203,6 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                 </small>
               </div>
 
-              {/* Visual Viewport Position Picker */}
               <div className="control-group">
                 <label>Zoom Position</label>
                 <div
@@ -231,7 +225,6 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                     opacity: isExporting ? 0.5 : 1
                   }}
                 >
-                  {/* Grid lines for reference */}
                   <div style={{
                     position: 'absolute',
                     inset: 0,
@@ -240,7 +233,6 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                     opacity: 0.3
                   }} />
 
-                  {/* Original click position marker */}
                   <div
                     style={{
                       position: 'absolute',
@@ -257,7 +249,6 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                     title="Original click position"
                   />
 
-                  {/* Zoom window indicator */}
                   <div
                     style={{
                       position: 'absolute',
@@ -274,7 +265,6 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                     }}
                   />
 
-                  {/* Center crosshair */}
                   <div
                     style={{
                       position: 'absolute',
@@ -295,7 +285,6 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                 </small>
               </div>
 
-              {/* Delete Action */}
               <div className="block-actions" style={{ marginTop: '16px' }}>
                 <button
                   className="editor-btn editor-btn--danger"
@@ -324,7 +313,6 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
         </>
       )}
 
-      {/* Manual Zoom Keyframes */}
       {zoomKeyframes.length > 0 && (
         <div className="section">
           <div className="section-header">

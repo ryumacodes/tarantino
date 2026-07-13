@@ -83,7 +83,6 @@ const WebcamOverlay: React.FC<WebcamOverlayProps> = ({ onRecordingDataReady }) =
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
-        console.log('Camera stream initialized');
       } catch (error) {
         console.error('Failed to initialize camera:', error);
         setCameraError('Camera access denied');
@@ -132,7 +131,6 @@ const WebcamOverlay: React.FC<WebcamOverlayProps> = ({ onRecordingDataReady }) =
 
       recorder.onstop = () => {
         const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-        console.log('Webcam recording stopped, blob size:', blob.size);
         if (onRecordingDataReady) {
           onRecordingDataReady(blob);
         }
@@ -143,7 +141,6 @@ const WebcamOverlay: React.FC<WebcamOverlayProps> = ({ onRecordingDataReady }) =
       recorder.start(1000); // Collect data every second
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
-      console.log('Webcam recording started');
     } catch (error) {
       console.error('Failed to start webcam recording:', error);
     }
@@ -169,7 +166,6 @@ const WebcamOverlay: React.FC<WebcamOverlayProps> = ({ onRecordingDataReady }) =
         size: size,
         shape: shape
       });
-      console.log('Webcam recording saved to sidecar');
     } catch (error) {
       console.error('Failed to save webcam recording:', error);
     }

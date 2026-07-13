@@ -60,7 +60,6 @@ interface VideoViewerProps {
   isPlaying: boolean;
   velocityRef: React.MutableRefObject<{ scale: number; x: number; y: number }>;
   videoTransformRef: React.MutableRefObject<VideoTransform>;
-  previewZoom?: number;
 }
 
 const WINDOW_EDGE_DETAIL_MARGIN = 0.22;
@@ -127,8 +126,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
   showMouseOverlay,
   isPlaying,
   velocityRef,
-  videoTransformRef,
-  previewZoom = 1
+  videoTransformRef
 }) => {
   const { videoFilePath, zoomAnalysis, currentTime, loadMouseEvents, visualSettings, displayResolution, videoWidth, videoHeight, captureMode } = useEditorStore();
   const meshRef = useRef<THREE.Mesh>(null);
@@ -172,8 +170,8 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
   const viewportAspect = viewport.width / viewport.height;
 
   let basePlaneWidth: number, basePlaneHeight: number;
-  const fitW = viewport.width * previewZoom;
-  const fitH = viewport.height * previewZoom;
+  const fitW = viewport.width;
+  const fitH = viewport.height;
   if (videoAspect > viewportAspect) {
     basePlaneWidth = fitW;
     basePlaneHeight = fitW / videoAspect;

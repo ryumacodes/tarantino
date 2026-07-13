@@ -19,16 +19,6 @@ import {
 type SetFn = (fn: (state: EditorState & EditorActions) => void) => void;
 type GetFn = () => EditorState & EditorActions;
 
-const summarizeVisualSettingsUpdate = (settings: Partial<VisualSettings>) => ({
-  ...settings,
-  customBackgroundImage: settings.customBackgroundImage
-    ? {
-      length: settings.customBackgroundImage.length,
-      prefix: settings.customBackgroundImage.slice(0, 48),
-    }
-    : settings.customBackgroundImage,
-});
-
 export const createSettingsActions = (set: SetFn, get: GetFn) => ({
   // Overlay Actions
   addOverlay: (overlay: Overlay) => set((state) => {
@@ -60,12 +50,10 @@ export const createSettingsActions = (set: SetFn, get: GetFn) => ({
   // Visual Settings Actions
   updateVisualSettings: (settings: Partial<VisualSettings>) => set((state) => {
     Object.assign(state.visualSettings, settings);
-    console.log('Visual settings updated:', summarizeVisualSettingsUpdate(settings));
   }),
 
   resetVisualSettings: () => set((state) => {
     state.visualSettings = { ...DEFAULT_VISUAL_SETTINGS };
-    console.log('Visual settings reset to defaults');
   }),
 
   applyWallpaper: (wallpaperId: string) => set((state) => {
@@ -88,31 +76,21 @@ export const createSettingsActions = (set: SetFn, get: GetFn) => ({
     } else if (wallpaper.type === 'solid') {
       state.visualSettings.backgroundColor = (wallpaper as { type: 'solid'; color: string }).color;
     }
-
-    console.log('Applied wallpaper:', wallpaperId, wallpaper);
   }),
 
   applyCustomWallpaper: (imageDataUrl: string) => set((state) => {
     state.visualSettings.backgroundType = 'wallpaper';
     state.visualSettings.wallpaperId = null;
     state.visualSettings.customBackgroundImage = imageDataUrl;
-    console.info('[Wallpaper Image] custom wallpaper linked to renderer state', {
-      backgroundType: state.visualSettings.backgroundType,
-      wallpaperId: state.visualSettings.wallpaperId,
-      dataUrlLength: imageDataUrl.length,
-      prefix: imageDataUrl.slice(0, 48),
-    });
   }),
 
   // Export Settings Actions
   updateExportSettings: (settings: Partial<ExportSettings>) => set((state) => {
     Object.assign(state.exportSettings, settings);
-    console.log('Export settings updated:', settings);
   }),
 
   resetExportSettings: () => set((state) => {
     state.exportSettings = { ...DEFAULT_EXPORT_SETTINGS };
-    console.log('Export settings reset to defaults');
   }),
 
   getExportDimensions: () => {

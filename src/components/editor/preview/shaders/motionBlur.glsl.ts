@@ -1,4 +1,4 @@
-// Motion blur fragment shader - Screen Studio style
+// Motion blur fragment shader
 // Separate channels for pan blur and zoom blur
 export const motionBlurFragmentShader = `
 uniform float uPanIntensity;

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
 
-/// Global state for tracking the last known mouse position (Screen Studio approach)
+/// Global state for tracking the last known mouse position.
 static LAST_MOUSE_POSITION: Mutex<(f64, f64)> = Mutex::new((0.0, 0.0));
 
 /// Mouse event data structure for recording
@@ -848,7 +848,7 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
                     })
                 }
                 EventType::ButtonPress(button) => {
-                    // Use last known mouse position for clicks (critical for Screen Studio zoom)
+                    // Click callbacks can arrive after movement data, so use the last tracked position.
                     let (click_x, click_y) = {
                         let pos = LAST_MOUSE_POSITION.lock();
                         *pos

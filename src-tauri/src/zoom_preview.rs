@@ -19,7 +19,7 @@ pub struct PreviewZoomIndicator {
 /// Configuration for preview generation
 #[derive(Debug, Clone)]
 pub struct PreviewConfig {
-    pub default_zoom_duration: u64, // Default 800ms like Screen Studio
+    pub default_zoom_duration: u64,
     pub min_click_spacing: u64,     // Minimum 500ms between previews
     pub confidence_threshold: f32,  // Only show previews above this confidence
 }

@@ -108,7 +108,6 @@ export const StyleSettings: React.FC<StyleSettingsProps> = ({
 
       <div className="cursor-divider" />
 
-      {/* Always use pointer cursor */}
       <div className="cursor-setting-section">
         <div className="toggle-row">
           <div className="toggle-info">
@@ -130,7 +129,6 @@ export const StyleSettings: React.FC<StyleSettingsProps> = ({
         </div>
       </div>
 
-      {/* Hide cursor if not moving */}
       <div className="cursor-setting-section">
         <div className="toggle-row">
           <div className="toggle-info">
@@ -150,7 +148,6 @@ export const StyleSettings: React.FC<StyleSettingsProps> = ({
 
       <div className="cursor-divider" />
 
-      {/* Loop cursor position */}
       <div className="cursor-setting-section">
         <div className="toggle-row">
           <div className="toggle-info">
@@ -171,7 +168,6 @@ export const StyleSettings: React.FC<StyleSettingsProps> = ({
         </div>
       </div>
 
-      {/* Hide cursor */}
       <div className="cursor-setting-section">
         <div className="toggle-row">
           <div className="toggle-info">
@@ -195,7 +191,6 @@ export const StyleSettings: React.FC<StyleSettingsProps> = ({
 
       <div className="cursor-divider" />
 
-      {/* Click effect */}
       <div className="cursor-setting-section">
         <label className="cursor-setting-label">Click effect</label>
         <div className="click-effect-group">

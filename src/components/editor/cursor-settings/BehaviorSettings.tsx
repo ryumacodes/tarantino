@@ -18,7 +18,6 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
 
   return (
     <>
-      {/* Rotation Section (Collapsible) */}
       <div className="collapsible-section">
         <button
           className="section-header"
@@ -34,7 +33,6 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
 
         {rotationExpanded && (
           <div className="section-content">
-            {/* Rotate cursor */}
             <div className="cursor-setting-section">
               <label className="cursor-setting-label">Rotate cursor</label>
               <div className="slider-with-reset">
@@ -59,7 +57,6 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
               </div>
             </div>
 
-            {/* Rotate cursor while moving */}
             <div className="cursor-setting-section">
               <div className="toggle-row">
                 <div className="toggle-info">
@@ -110,7 +107,6 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
 
       <div className="cursor-divider" />
 
-      {/* Advanced Section (Collapsible) */}
       <div className="collapsible-section">
         <button
           className="section-header"
@@ -126,7 +122,6 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
 
         {advancedExpanded && (
           <div className="section-content">
-            {/* Stop cursor movement at end */}
             <div className="cursor-setting-section">
               <label className="cursor-setting-label">Stop cursor movement at the end of the video</label>
               <span className="setting-description">
@@ -157,7 +152,6 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
               </div>
             </div>
 
-            {/* Remove cursor shakes */}
             <div className="cursor-setting-section">
               <div className="toggle-row">
                 <div className="toggle-info">
@@ -206,7 +200,6 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
               )}
             </div>
 
-            {/* Optimize cursor changes */}
             <div className="cursor-setting-section">
               <div className="toggle-row">
                 <div className="toggle-info">
