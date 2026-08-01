@@ -18,11 +18,12 @@ jobs:
             build-essential curl file wget pkg-config libssl-dev \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
             libxdo-dev libasound2-dev clang \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
             libavdevice-dev libswscale-dev libswresample-dev ffmpeg \
             gstreamer1.0-tools gstreamer1.0-pipewire \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-            gstreamer1.0-plugins-ugly
+            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
       - uses: dtolnay/rust-toolchain@1.88.0
         with:
           components: rustfmt
@@ -50,7 +51,7 @@ jobs:
             git curl wget file pkgconf openssl clang rustup nodejs pnpm \
             webkit2gtk-4.1 libayatana-appindicator librsvg xdotool alsa-lib \
             ffmpeg gstreamer gst-plugins-base gst-plugins-good \
-            gst-plugins-ugly gst-plugin-pipewire
+            gst-plugins-bad gst-plugins-ugly gst-plugin-pipewire
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
         run: |
@@ -60,3 +61,15 @@ jobs:
       - run: pnpm test:linux
       - name: Build Linux application
         run: pnpm tauri build --no-bundle
+
+  nix:
+    name: Nix package environment
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Verify in the Nix development environment
+        run: |
+          nix develop --accept-flake-config --command pnpm install --frozen-lockfile
+          nix develop --accept-flake-config --command pnpm test:linux
+          nix develop --accept-flake-config --command pnpm tauri build --no-bundle

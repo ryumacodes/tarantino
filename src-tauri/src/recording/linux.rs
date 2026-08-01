@@ -1,38 +1,35 @@
-//! Linux recording through the XDG ScreenCast portal and PipeWire.
+//! In-process Linux recording through the XDG ScreenCast portal and PipeWire.
 
-use std::os::fd::AsRawFd;
-use std::os::unix::process::CommandExt;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::path::Path;
-use std::process::Stdio;
 
 use anyhow::{Context, Result};
 use ashpd::desktop::{
-    PersistMode,
+    PersistMode, Session,
     screencast::{CursorMode, Screencast, SelectSourcesOptions, SourceType},
 };
-use tokio::process::{Child, Command};
+use gst::prelude::*;
 
 use super::{QualityPreset, RecordingConfig, RecordingTarget};
 
-const PIPEWIRE_CHILD_FD: i32 = 3;
-
 pub struct LinuxRecording {
-    child: Child,
-    // The portal objects and file descriptor must remain alive until GStreamer exits.
+    pipeline: gst::Pipeline,
+    // Portal ownership grants access to the PipeWire node for the recording lifetime.
     _portal: Screencast,
-    _session: ashpd::desktop::Session<Screencast>,
-    _pipewire_fd: std::os::fd::OwnedFd,
+    _session: Session<Screencast>,
+    _pipewire_fd: OwnedFd,
 }
 
 impl LinuxRecording {
     pub async fn start(config: &RecordingConfig, output_path: &Path) -> Result<Self> {
-        check_runtime_dependencies().await?;
-
         if config.include_system_audio {
             anyhow::bail!(
                 "System audio capture is not available on Linux yet; disable system audio and try again"
             );
         }
+
+        gst::init().context("Failed to initialize the native GStreamer runtime")?;
+        verify_runtime_elements()?;
 
         let portal = Screencast::new()
             .await
@@ -78,40 +75,23 @@ impl LinuxRecording {
             .streams()
             .first()
             .context("The desktop portal returned no PipeWire stream")?;
-        let node_id = stream.pipe_wire_node_id();
         let pipewire_fd = portal
             .open_pipe_wire_remote(&session, Default::default())
             .await
             .context("Failed to open the portal PipeWire remote")?;
 
-        let mut command = build_gstreamer_command(config, output_path, node_id);
-        let portal_fd = pipewire_fd.as_raw_fd();
-        // SAFETY: this closure only calls async-signal-safe libc functions between fork and exec.
-        unsafe {
-            command.pre_exec(move || {
-                if libc::dup2(portal_fd, PIPEWIRE_CHILD_FD) == -1 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                if libc::fcntl(PIPEWIRE_CHILD_FD, libc::F_SETFD, 0) == -1 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
-
-        let mut child = command
-            .spawn()
-            .context("Failed to start gst-launch-1.0 for Linux recording")?;
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-        if let Some(status) = child
-            .try_wait()
-            .context("Failed to inspect the GStreamer recorder")?
-        {
-            anyhow::bail!("GStreamer recorder exited during startup with {status}");
-        }
+        let pipeline = build_pipeline(
+            config,
+            output_path,
+            stream.pipe_wire_node_id(),
+            pipewire_fd.as_raw_fd(),
+        )?;
+        pipeline
+            .set_state(gst::State::Playing)
+            .context("Failed to start the native Linux recording pipeline")?;
 
         Ok(Self {
-            child,
+            pipeline,
             _portal: portal,
             _session: session,
             _pipewire_fd: pipewire_fd,
@@ -119,114 +99,154 @@ impl LinuxRecording {
     }
 
     pub fn signal_stop(&mut self) -> Result<()> {
-        let Some(pid) = self.child.id() else {
-            return Ok(());
-        };
-        // gst-launch -e converts SIGINT into EOS, allowing mp4mux to finalize the file.
-        let result = unsafe { libc::kill(pid as libc::pid_t, libc::SIGINT) };
-        if result == -1 {
-            let error = std::io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::ESRCH) {
-                return Err(error).context("Failed to stop the GStreamer recorder");
-            }
+        if !self.pipeline.send_event(gst::event::Eos::new()) {
+            anyhow::bail!("Failed to send end-of-stream to the Linux recorder");
         }
         Ok(())
     }
 
-    pub async fn wait(mut self) -> Result<()> {
-        let status = self
-            .child
-            .wait()
+    pub async fn wait(self) -> Result<()> {
+        let pipeline = self.pipeline.clone();
+        let wait_result = tokio::task::spawn_blocking(move || wait_for_pipeline(&pipeline))
             .await
-            .context("Failed to wait for the GStreamer recorder")?;
-        if !status.success() {
-            anyhow::bail!("GStreamer recorder exited with {status}");
-        }
-        Ok(())
+            .context("Linux recording finalization task panicked")?;
+        self.pipeline
+            .set_state(gst::State::Null)
+            .context("Failed to release the native Linux recording pipeline")?;
+        wait_result
     }
 }
 
-async fn check_runtime_dependencies() -> Result<()> {
-    let gst = Command::new("gst-launch-1.0")
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await
-        .context(
-            "gst-launch-1.0 is required for Linux recording; install the GStreamer tools and plugins",
-        )?;
-    if !gst.success() {
-        anyhow::bail!("gst-launch-1.0 is installed but could not start");
+impl Drop for LinuxRecording {
+    fn drop(&mut self) {
+        let _ = self.pipeline.set_state(gst::State::Null);
     }
+}
 
-    let pipewire_plugin = Command::new("gst-inspect-1.0")
-        .arg("pipewiresrc")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await
-        .context("gst-inspect-1.0 is required to verify the PipeWire plugin")?;
-    if !pipewire_plugin.success() {
-        anyhow::bail!(
-            "The GStreamer PipeWire source plugin is missing; install the PipeWire GStreamer plugin"
-        );
-    }
-
-    let h264_encoder = Command::new("gst-inspect-1.0")
-        .arg("x264enc")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await
-        .context("gst-inspect-1.0 is required to verify the H.264 encoder")?;
-    if !h264_encoder.success() {
-        anyhow::bail!(
-            "The GStreamer x264 encoder is missing; install the GStreamer ugly plugin collection"
-        );
+fn verify_runtime_elements() -> Result<()> {
+    for element in [
+        "pipewiresrc",
+        "queue",
+        "videoconvert",
+        "capsfilter",
+        "x264enc",
+        "h264parse",
+        "mp4mux",
+        "filesink",
+    ] {
+        if gst::ElementFactory::find(element).is_none() {
+            anyhow::bail!("Required native GStreamer element is missing: {element}");
+        }
     }
     Ok(())
 }
 
-fn build_gstreamer_command(config: &RecordingConfig, output_path: &Path, node_id: u32) -> Command {
-    let (bitrate_kbps, speed_preset) = match config.quality {
+fn build_pipeline(
+    config: &RecordingConfig,
+    output_path: &Path,
+    node_id: u32,
+    pipewire_fd: i32,
+) -> Result<gst::Pipeline> {
+    let (bitrate_kbps, speed_preset) = encoding_settings(&config.quality);
+
+    let source = gst::ElementFactory::make("pipewiresrc")
+        .property("fd", pipewire_fd)
+        .property("path", node_id.to_string())
+        .property("do-timestamp", true)
+        .build()
+        .context("Failed to create the PipeWire source")?;
+    let queue = make_element("queue")?;
+    let convert = make_element("videoconvert")?;
+    let caps_filter = gst::ElementFactory::make("capsfilter")
+        .property(
+            "caps",
+            gst::Caps::builder("video/x-raw")
+                .field("format", "I420")
+                .build(),
+        )
+        .build()
+        .context("Failed to create the raw-video format filter")?;
+    let encoder = gst::ElementFactory::make("x264enc")
+        .property("bitrate", bitrate_kbps)
+        .property("key-int-max", 120u32)
+        .build()
+        .context("Failed to create the native H.264 encoder")?;
+    encoder.set_property_from_str("speed-preset", speed_preset);
+    encoder.set_property_from_str("tune", "zerolatency");
+    let parser = make_element("h264parse")?;
+    let muxer = gst::ElementFactory::make("mp4mux")
+        .property("faststart", true)
+        .build()
+        .context("Failed to create the MP4 muxer")?;
+    let sink = gst::ElementFactory::make("filesink")
+        .property("location", output_path.to_string_lossy().as_ref())
+        .build()
+        .context("Failed to create the recording file sink")?;
+
+    let pipeline = gst::Pipeline::new();
+    pipeline
+        .add_many([
+            &source,
+            &queue,
+            &convert,
+            &caps_filter,
+            &encoder,
+            &parser,
+            &muxer,
+            &sink,
+        ])
+        .context("Failed to assemble the native Linux recording pipeline")?;
+    gst::Element::link_many([
+        &source,
+        &queue,
+        &convert,
+        &caps_filter,
+        &encoder,
+        &parser,
+        &muxer,
+        &sink,
+    ])
+    .context("Failed to link the native Linux recording pipeline")?;
+    Ok(pipeline)
+}
+
+fn make_element(name: &str) -> Result<gst::Element> {
+    gst::ElementFactory::make(name)
+        .build()
+        .with_context(|| format!("Failed to create native GStreamer element: {name}"))
+}
+
+fn encoding_settings(quality: &QualityPreset) -> (u32, &'static str) {
+    match quality {
         QualityPreset::Lossless => (32_000, "medium"),
         QualityPreset::High => (16_000, "fast"),
         QualityPreset::Medium => (8_000, "veryfast"),
         QualityPreset::Low => (4_000, "superfast"),
-    };
+    }
+}
 
-    let mut command = Command::new("gst-launch-1.0");
-    command
-        .arg("-e")
-        .arg("pipewiresrc")
-        .arg(format!("fd={PIPEWIRE_CHILD_FD}"))
-        .arg(format!("path={node_id}"))
-        .arg("do-timestamp=true")
-        .arg("!")
-        .arg("queue")
-        .arg("!")
-        .arg("videoconvert")
-        .arg("!")
-        .arg("video/x-raw,format=I420")
-        .arg("!")
-        .arg("x264enc")
-        .arg(format!("bitrate={bitrate_kbps}"))
-        .arg(format!("speed-preset={speed_preset}"))
-        .arg("tune=zerolatency")
-        .arg("key-int-max=120")
-        .arg("!")
-        .arg("h264parse")
-        .arg("!")
-        .arg("mp4mux")
-        .arg("faststart=true")
-        .arg("!")
-        .arg("filesink")
-        .arg(format!("location={}", output_path.to_string_lossy()))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::inherit());
-    command
+fn wait_for_pipeline(pipeline: &gst::Pipeline) -> Result<()> {
+    let bus = pipeline
+        .bus()
+        .context("Linux recording pipeline has no bus")?;
+    for message in bus.iter_timed(gst::ClockTime::from_seconds(15)) {
+        match message.view() {
+            gst::MessageView::Eos(..) => return Ok(()),
+            gst::MessageView::Error(error) => {
+                anyhow::bail!(
+                    "Native Linux recording failed in {}: {} ({})",
+                    error
+                        .src()
+                        .map(|source| source.path_string().to_string())
+                        .unwrap_or_else(|| "unknown element".to_string()),
+                    error.error(),
+                    error.debug().unwrap_or_default()
+                );
+            }
+            _ => {}
+        }
+    }
+    anyhow::bail!("Timed out while finalizing the native Linux recording")
 }
 
 #[cfg(test)]
@@ -234,18 +254,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pipeline_uses_portal_fd_and_selected_node() {
-        let config = RecordingConfig::default();
-        let command = build_gstreamer_command(&config, Path::new("/tmp/test recording.mp4"), 42);
-        let args = command
-            .as_std()
-            .get_args()
-            .map(|arg| arg.to_string_lossy().into_owned())
-            .collect::<Vec<_>>();
-
-        assert!(args.contains(&"fd=3".to_string()));
-        assert!(args.contains(&"path=42".to_string()));
-        assert!(args.contains(&"location=/tmp/test recording.mp4".to_string()));
-        assert!(!args.iter().any(|arg| arg.contains("x11grab")));
+    fn quality_presets_have_deterministic_native_encoder_settings() {
+        assert_eq!(encoding_settings(&QualityPreset::High), (16_000, "fast"));
+        assert_eq!(encoding_settings(&QualityPreset::Low), (4_000, "superfast"));
     }
 }

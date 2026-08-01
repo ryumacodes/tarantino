@@ -18,7 +18,7 @@ A cross-platform screen recorder and editor for polished product demos.
 - [Tauri](https://tauri.app/) and Rust — desktop shell and native application code
 - React and Zustand — editor interface and state management
 - ScreenCaptureKit and VideoToolbox — macOS capture and hardware video encoding
-- XDG Desktop Portal, PipeWire, and GStreamer — Linux capture and encoding
+- XDG Desktop Portal, PipeWire, and in-process GStreamer — Linux capture and encoding
 - wgpu and Metal — preview and export rendering
 - FFmpeg — media inspection and processing
 
@@ -78,8 +78,10 @@ pnpm test:linux
 ```
 
 The automated Linux matrix runs this suite on Ubuntu 24.04 and current Arch
-Linux. A final recording smoke test still requires a logged-in graphical
-session because the desktop portal deliberately requires user interaction.
+Linux, with the same build also verified in the repository's Nix development
+environment. NixOS developers can enter that environment with `nix develop`.
+A final recording smoke test still requires a logged-in graphical session
+because the desktop portal deliberately requires user interaction.
 
 ## Permissions
 

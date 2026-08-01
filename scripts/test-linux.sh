@@ -6,7 +6,7 @@ if [ "$(uname -s)" != "Linux" ]; then
   exit 1
 fi
 
-for command in pnpm cargo gst-launch-1.0 gst-inspect-1.0 ffmpeg ffprobe; do
+for command in pnpm cargo gst-inspect-1.0 ffmpeg ffprobe; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "error: required command is missing: $command" >&2
     exit 1
