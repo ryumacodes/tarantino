@@ -80,14 +80,8 @@ impl CaptureBackendFactory {
 
         #[cfg(target_os = "linux")]
         {
-            // Try PipeWire via xdg-desktop-portal
-            if Self::is_pipewire_available() {
-                println!("Using native PipeWire backend");
-                return Ok(Box::new(linux::PipeWireBackend::new()?));
-            }
-
-            // Fallback path disabled until xcap feature is added
-            anyhow::bail!("PipeWire is required for screen capture on Linux");
+            println!("Using the XDG desktop portal and PipeWire backend");
+            return Ok(Box::new(linux::PipeWireBackend::new()?));
         }
 
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
@@ -123,18 +117,5 @@ impl CaptureBackendFactory {
         // Windows 8+ has DXGI Desktop Duplication
         // We can do a more sophisticated check later
         true
-    }
-
-    /// Check if PipeWire is available on Linux
-    #[cfg(target_os = "linux")]
-    fn is_pipewire_available() -> bool {
-        // Check if PipeWire is running
-        use std::process::Command;
-
-        Command::new("pw-cli")
-            .arg("info")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
     }
 }

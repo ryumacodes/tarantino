@@ -1,0 +1,62 @@
+name: Linux
+
+on:
+  push:
+    branches: [linux-support]
+  pull_request:
+
+jobs:
+  ubuntu:
+    name: Ubuntu 24.04
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential curl file wget pkg-config libssl-dev \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libxdo-dev libasound2-dev clang \
+            libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
+            libavdevice-dev libswscale-dev libswresample-dev ffmpeg \
+            gstreamer1.0-tools gstreamer1.0-pipewire \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-ugly
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          components: rustfmt
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.17.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:linux
+      - name: Build Debian package
+        run: pnpm tauri build --bundles deb
+
+  arch:
+    name: Arch Linux
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    steps:
+      - name: Install system dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --needed --noconfirm \
+            git curl wget file pkgconf openssl clang rustup nodejs pnpm \
+            webkit2gtk-4.1 libayatana-appindicator librsvg xdotool alsa-lib \
+            ffmpeg gstreamer gst-plugins-base gst-plugins-good \
+            gst-plugins-ugly gst-plugin-pipewire
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: |
+          rustup default 1.88.0
+          rustup component add rustfmt
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:linux
+      - name: Build Linux application
+        run: pnpm tauri build --no-bundle

@@ -76,7 +76,7 @@ pub(super) fn build_recording_config(
     target_type: String,
     target_id: String,
     quality: String,
-    _include_cursor: bool, // Unused - always false, we use overlay cursor
+    include_cursor: bool,
     include_microphone: bool,
     include_system_audio: bool,
     output_path: Option<String>,
@@ -143,7 +143,11 @@ pub(super) fn build_recording_config(
     let final_output_path = output_path.unwrap_or_else(|| {
         let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
         let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
-        format!("{}/Movies/Tarantino/Recording_{}.mp4", home_dir, timestamp)
+        #[cfg(target_os = "linux")]
+        let media_dir = format!("{}/Videos", home_dir);
+        #[cfg(not(target_os = "linux"))]
+        let media_dir = format!("{}/Movies", home_dir);
+        format!("{}/Tarantino/Recording_{}.mp4", media_dir, timestamp)
     });
 
     Ok(RecordingConfig {
@@ -155,8 +159,9 @@ pub(super) fn build_recording_config(
             audio_codec: Some(AudioCodec::AAC),
         },
         output_path: final_output_path,
-        // Always false - we use overlay cursor in editor for styling/effects
-        include_cursor: false,
+        // Linux/Wayland blocks global cursor tracking, so the portal must embed
+        // the cursor when the user asks for it. macOS keeps the editable overlay.
+        include_cursor: cfg!(target_os = "linux") && include_cursor,
         cursor_size: 1.0,
         highlight_clicks: false,
         include_microphone,

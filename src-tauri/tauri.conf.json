@@ -40,6 +40,8 @@
         "enable": true,
         "scope": [
           "/Users/*/Movies/Tarantino/**",
+          "/home/*/Videos/Tarantino/**",
+          "/home/*/Movies/Tarantino/**",
           "/tmp/**",
           "/var/folders/**",
           "/private/tmp/**",

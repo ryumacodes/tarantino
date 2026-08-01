@@ -1,6 +1,6 @@
 # Tarantino
 
-A macOS screen recorder and editor for polished product demos.
+A cross-platform screen recorder and editor for polished product demos.
 
 > Early-stage software — under active development. Expect bugs and breaking changes.
 
@@ -18,12 +18,18 @@ A macOS screen recorder and editor for polished product demos.
 - [Tauri](https://tauri.app/) and Rust — desktop shell and native application code
 - React and Zustand — editor interface and state management
 - ScreenCaptureKit and VideoToolbox — macOS capture and hardware video encoding
+- XDG Desktop Portal, PipeWire, and GStreamer — Linux capture and encoding
 - wgpu and Metal — preview and export rendering
 - FFmpeg — media inspection and processing
 
 ## Platform Support
 
-Tarantino currently supports macOS. Windows and Linux capture backends are not ready yet.
+Tarantino supports macOS. Linux support is under active development for modern
+PipeWire desktops on both Wayland and X11. Windows capture is not ready yet.
+
+On Linux, the desktop portal presents the authoritative screen or window picker
+when recording starts. This avoids compositor-specific enumeration and works
+with GNOME, KDE Plasma, and other portal-capable desktop environments.
 
 ## Installation
 
@@ -58,6 +64,22 @@ pnpm tauri:dev:raw
 ```
 
 Use the regular development command unless you specifically need raw mode.
+
+### Linux development
+
+Linux requires the normal Tauri dependencies plus FFmpeg, PipeWire, the desktop
+portal for your desktop environment, and these GStreamer elements:
+`pipewiresrc`, `x264enc`, `h264parse`, and `mp4mux`.
+
+Run the distro-independent verification suite with:
+
+```bash
+pnpm test:linux
+```
+
+The automated Linux matrix runs this suite on Ubuntu 24.04 and current Arch
+Linux. A final recording smoke test still requires a logged-in graphical
+session because the desktop portal deliberately requires user interaction.
 
 ## Permissions
 

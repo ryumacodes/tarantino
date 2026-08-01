@@ -10,6 +10,7 @@
     "check:repo-hygiene": "sh scripts/check-repo-hygiene.sh",
     "test:unit": "vitest run",
     "test:macos": "sh scripts/test-macos.sh",
+    "test:linux": "sh scripts/test-linux.sh",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

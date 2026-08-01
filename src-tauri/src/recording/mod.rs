@@ -3,6 +3,8 @@ pub mod types;
 
 mod encoder_loop;
 mod finalization;
+#[cfg(target_os = "linux")]
+mod linux;
 
 use anyhow::Result;
 use std::path::PathBuf;
@@ -21,15 +23,17 @@ use crate::capture::backends::{
 pub struct RecordingAPI {
     current_state: RecordingState,
     temp_path: Option<PathBuf>,
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     child: Option<tokio::process::Child>,
+    #[cfg(target_os = "linux")]
+    linux_recording: Option<linux::LinuxRecording>,
     #[cfg(target_os = "macos")]
     capture_backend: Option<Box<dyn NativeCaptureBackend>>,
     #[cfg(target_os = "macos")]
     recording_task: Option<tokio::task::JoinHandle<Result<(), String>>>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     audio_task: Option<tokio::task::JoinHandle<Result<(), String>>>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     stop_signal: Arc<Mutex<bool>>,
     #[cfg(target_os = "macos")]
     video_start_time: Arc<parking_lot::Mutex<Option<SystemTime>>>,
@@ -40,15 +44,17 @@ impl RecordingAPI {
         Ok(Self {
             current_state: RecordingState::Idle,
             temp_path: None,
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "windows")]
             child: None,
+            #[cfg(target_os = "linux")]
+            linux_recording: None,
             #[cfg(target_os = "macos")]
             capture_backend: None,
             #[cfg(target_os = "macos")]
             recording_task: None,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             audio_task: None,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             stop_signal: Arc::new(Mutex::new(false)),
             #[cfg(target_os = "macos")]
             video_start_time: Arc::new(parking_lot::Mutex::new(None)),
@@ -162,43 +168,43 @@ impl RecordingAPI {
             ));
         }
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
         {
-            // Fallback to ffmpeg for other platforms
+            *self.stop_signal.lock().await = false;
+            let recording = linux::LinuxRecording::start(&config, &out_path).await?;
+            self.linux_recording = Some(recording);
+
+            let artifacts = artifacts::RecordingArtifacts::new(&out_path);
+            self.audio_task = crate::audio::spawn_audio_tasks(
+                None,
+                None,
+                if config.include_microphone {
+                    Some(artifacts.microphone())
+                } else {
+                    None
+                },
+                config.microphone_device.clone(),
+                Arc::clone(&self.stop_signal),
+            );
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            // Temporary Windows fallback until the native capture backend is ready.
             use tokio::process::Command;
             let mut cmd = Command::new("ffmpeg");
-
-            #[cfg(target_os = "windows")]
-            {
-                cmd.arg("-y")
-                    .arg("-f")
-                    .arg("gdigrab")
-                    .arg("-i")
-                    .arg("desktop")
-                    .arg("-c:v")
-                    .arg("libx264")
-                    .arg("-preset")
-                    .arg("veryfast")
-                    .arg("-crf")
-                    .arg("20")
-                    .arg(out_path.to_string_lossy().to_string());
-            }
-
-            #[cfg(target_os = "linux")]
-            {
-                cmd.arg("-y")
-                    .arg("-f")
-                    .arg("x11grab")
-                    .arg("-i")
-                    .arg(":0.0")
-                    .arg("-c:v")
-                    .arg("libx264")
-                    .arg("-preset")
-                    .arg("veryfast")
-                    .arg("-crf")
-                    .arg("20")
-                    .arg(out_path.to_string_lossy().to_string());
-            }
+            cmd.arg("-y")
+                .arg("-f")
+                .arg("gdigrab")
+                .arg("-i")
+                .arg("desktop")
+                .arg("-c:v")
+                .arg("libx264")
+                .arg("-preset")
+                .arg("veryfast")
+                .arg("-crf")
+                .arg("20")
+                .arg(out_path.to_string_lossy().to_string());
 
             let child = cmd.spawn()?;
             self.child = Some(child);
@@ -215,7 +221,15 @@ impl RecordingAPI {
             return *self.video_start_time.lock();
         }
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        {
+            *self.stop_signal.lock().await = true;
+            if let Some(recording) = &mut self.linux_recording {
+                recording.signal_stop()?;
+            }
+        }
+
+        #[cfg(target_os = "windows")]
         {
             None
         }
@@ -305,8 +319,22 @@ impl RecordingAPI {
             }
         }
 
-        // Join ffmpeg child on other platforms
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(recording) = self.linux_recording.take() {
+                recording.wait().await?;
+            }
+            if let Some(audio_handle) = self.audio_task.take() {
+                match audio_handle.await {
+                    Ok(Ok(())) => println!("Microphone capture task completed successfully"),
+                    Ok(Err(error)) => eprintln!("Microphone capture warning: {error}"),
+                    Err(error) => eprintln!("Microphone capture task panicked: {error}"),
+                }
+            }
+        }
+
+        // Join the temporary FFmpeg child on Windows.
+        #[cfg(target_os = "windows")]
         if let Some(mut child) = self.child.take() {
             match child.wait().await {
                 Ok(status) if !status.success() => {
