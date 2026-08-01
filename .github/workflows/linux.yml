@@ -70,6 +70,20 @@ jobs:
       - uses: cachix/install-nix-action@v31
       - name: Verify in the Nix development environment
         run: |
-          nix develop --accept-flake-config --command pnpm install --frozen-lockfile
-          nix develop --accept-flake-config --command pnpm test:linux
-          nix develop --accept-flake-config --command pnpm tauri build --no-bundle
+          run_nix() {
+            local log_file
+            log_file=$(mktemp)
+            if "$@" 2>&1 | tee "$log_file"; then
+              rm -f "$log_file"
+              return 0
+            fi
+            while IFS= read -r line; do
+              line=${line//'%'/'%25'}
+              echo "::error title=Nix Linux build::$line"
+            done < <(tail -n 120 "$log_file")
+            rm -f "$log_file"
+            return 1
+          }
+          run_nix nix develop --accept-flake-config --command pnpm install --frozen-lockfile
+          run_nix nix develop --accept-flake-config --command pnpm test:linux
+          run_nix nix develop --accept-flake-config --command pnpm tauri build --no-bundle
