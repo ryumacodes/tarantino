@@ -11,10 +11,12 @@ run_cargo() {
 
   cat "$cargo_log" >&2
   if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
-    tail -n 120 "$cargo_log" | while IFS= read -r line; do
-      escaped=$(printf '%s' "$line" | sed 's/%/%25/g; s/\r/%0D/g')
-      printf '::error title=Linux native build::%s\n' "$escaped"
-    done
+    diagnostic=$(grep -E -i 'error|failed|caused by|requires rustc|not found' "$cargo_log" | tail -n 40 || true)
+    if [ -z "$diagnostic" ]; then
+      diagnostic=$(tail -n 60 "$cargo_log")
+    fi
+    escaped=$(printf '%s' "$diagnostic" | sed 's/%/%25/g; s/\r/%0D/g' | awk 'BEGIN { ORS="%0A" } { print }')
+    printf '::error title=Linux native build::%s\n' "$escaped"
   fi
   rm -f "$cargo_log"
   return 1
