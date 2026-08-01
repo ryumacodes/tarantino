@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::recording::artifacts::RecordingArtifacts;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VideoInfo {
     pub duration_ms: u64,
@@ -223,11 +225,9 @@ pub fn validate_export_zoom_blocks(blocks: &mut Vec<ZoomBlock>, duration_ms: u64
 pub fn load_zoom_blocks_from_sidecar(video_path: &std::path::Path) -> Option<Vec<ZoomBlock>> {
     use crate::auto_zoom;
 
-    let video_str = video_path.to_str()?;
-    let base_path = video_str.trim_end_matches(".mp4");
-    let zoom_path = format!("{}.auto_zoom.json", base_path);
+    let zoom_path = RecordingArtifacts::new(video_path).auto_zoom();
 
-    if !std::path::Path::new(&zoom_path).exists() {
+    if !zoom_path.exists() {
         return None;
     }
 

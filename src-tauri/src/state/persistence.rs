@@ -62,15 +62,14 @@ pub fn save_zoom_sidecar(
 
     let (width, height, scale_factor, recording_area) = display_info;
 
-    // Save zoom analysis (use consistent naming: strip .mp4 before adding extension)
-    let base_path = video_path.trim_end_matches(".mp4");
-    let zoom_path = format!("{}.auto_zoom.json", base_path);
+    let artifacts = crate::recording::artifacts::RecordingArtifacts::new(video_path);
+    let zoom_path = artifacts.auto_zoom();
     save_analysis(analysis, &zoom_path)?;
-    println!("Zoom analysis saved to: {}", zoom_path);
+    println!("Zoom analysis saved to: {}", zoom_path.display());
 
     // Save raw mouse events for preview zoom indicators
     // Include display resolution, scale factor, and recording area for proper coordinate normalization
-    let mouse_path = format!("{}.mouse.json", base_path);
+    let mouse_path = artifacts.mouse();
     let mouse_sidecar = serde_json::json!({
         "capture_mode": capture_mode,
         "display_width": width,
@@ -92,7 +91,10 @@ pub fn save_zoom_sidecar(
     std::fs::write(&mouse_path, &mouse_json)?;
     println!(
         "Mouse events saved to {} (display: {}x{}, scale: {})",
-        mouse_path, width, height, scale_factor
+        mouse_path.display(),
+        width,
+        height,
+        scale_factor
     );
 
     Ok(())

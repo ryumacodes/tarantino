@@ -14,11 +14,8 @@ use crate::event_capture::{CaptureSession, EnhancedMouseEvent};
 use crate::state::UnifiedAppState;
 
 async fn wait_for_webcam_sidecar(temp_path: &str, max_wait: tokio::time::Duration) -> bool {
-    let temp_base = temp_path.trim_end_matches(".mp4");
-    let candidates = [
-        format!("{}.webcam.mp4", temp_base),
-        format!("{}.webcam.webm", temp_base),
-    ];
+    let artifacts = crate::recording::artifacts::RecordingArtifacts::new(temp_path);
+    let candidates = [artifacts.webcam_mp4(), artifacts.webcam_webm()];
     let started = std::time::Instant::now();
 
     loop {
@@ -27,7 +24,7 @@ async fn wait_for_webcam_sidecar(temp_path: &str, max_wait: tokio::time::Duratio
                 if metadata.len() > 0 {
                     println!(
                         "📹 [BG_PROCESS] Webcam sidecar ready: {} ({} bytes)",
-                        candidate,
+                        candidate.display(),
                         metadata.len()
                     );
                     return true;
@@ -45,6 +42,47 @@ async fn wait_for_webcam_sidecar(temp_path: &str, max_wait: tokio::time::Duratio
 
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     }
+}
+
+pub async fn apply_post_processing(video_path: &str) -> Result<String> {
+    let processor = crate::post_processing::create_default_processor();
+    let source_artifacts = crate::recording::artifacts::RecordingArtifacts::new(video_path);
+    let zoom_analysis_path = source_artifacts.auto_zoom();
+    let zoom_analysis = if zoom_analysis_path.exists() {
+        crate::auto_zoom::load_analysis(&zoom_analysis_path).ok()
+    } else {
+        None
+    };
+
+    let input_path = std::path::Path::new(video_path);
+    let output_path = input_path.with_file_name(format!(
+        "processed_{}",
+        input_path.file_name().unwrap().to_string_lossy()
+    ));
+    processor
+        .process_video(input_path, &output_path, zoom_analysis.as_ref())
+        .await?;
+
+    let destination_artifacts = crate::recording::artifacts::RecordingArtifacts::new(&output_path);
+    for (source, destination) in source_artifacts.sidecar_pairs(&destination_artifacts) {
+        if source.exists() {
+            let name = source
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("sidecar");
+            if let Err(error) = std::fs::copy(&source, &destination) {
+                println!("⚠️ [POST_PROCESS] Failed to copy {}: {}", name, error);
+            } else {
+                println!(
+                    "✅ [POST_PROCESS] Copied {} to: {}",
+                    name,
+                    destination.display()
+                );
+            }
+        }
+    }
+
+    Ok(output_path.to_string_lossy().to_string())
 }
 
 /// Open the editor window with the given media file
@@ -427,78 +465,20 @@ pub async fn process_recorded_file(
             media_path = final_path.to_str().unwrap_or("").to_string();
             println!("📁 [PROCESS] Moved video to: {}", media_path);
 
-            // Also move sidecar files that belong to the recording.
-            let temp_base = temp_path.trim_end_matches(".mp4");
-            let final_base = media_path.trim_end_matches(".mp4");
-
-            // Move the native window silhouette used to remove transparent corner pixels.
-            // It is captured beside the temporary MP4, so it must follow the video to
-            // its final path for preview and export to find it.
-            let temp_window_mask = format!("{}.window-mask.png", temp_base);
-            let final_window_mask = format!("{}.window-mask.png", final_base);
-            if std::path::Path::new(&temp_window_mask).exists() {
-                if let Err(e) = std::fs::rename(&temp_window_mask, &final_window_mask) {
-                    println!("⚠️ [PROCESS] Failed to move window-mask.png: {}", e);
-                } else {
-                    println!(
-                        "📁 [PROCESS] Moved window-mask.png to: {}",
-                        final_window_mask
-                    );
+            let temp_artifacts = crate::recording::artifacts::RecordingArtifacts::new(&temp_path);
+            let final_artifacts = crate::recording::artifacts::RecordingArtifacts::new(&media_path);
+            for (source, destination) in temp_artifacts.sidecar_pairs(&final_artifacts) {
+                if !source.exists() {
+                    continue;
                 }
-            }
-
-            // Move mouse.json
-            let temp_mouse = format!("{}.mouse.json", temp_base);
-            let final_mouse = format!("{}.mouse.json", final_base);
-            if std::path::Path::new(&temp_mouse).exists() {
-                if let Err(e) = std::fs::rename(&temp_mouse, &final_mouse) {
-                    println!("⚠️ [PROCESS] Failed to move mouse.json: {}", e);
+                let name = source
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("sidecar");
+                if let Err(error) = std::fs::rename(&source, &destination) {
+                    println!("⚠️ [PROCESS] Failed to move {}: {}", name, error);
                 } else {
-                    println!("📁 [PROCESS] Moved mouse.json to: {}", final_mouse);
-                }
-            }
-
-            // Move auto_zoom.json
-            let temp_zoom = format!("{}.auto_zoom.json", temp_base);
-            let final_zoom = format!("{}.auto_zoom.json", final_base);
-            if std::path::Path::new(&temp_zoom).exists() {
-                if let Err(e) = std::fs::rename(&temp_zoom, &final_zoom) {
-                    println!("⚠️ [PROCESS] Failed to move auto_zoom.json: {}", e);
-                } else {
-                    println!("📁 [PROCESS] Moved auto_zoom.json to: {}", final_zoom);
-                }
-            }
-
-            // Move webcam.mp4 (native AVFoundation capture)
-            let temp_webcam = format!("{}.webcam.mp4", temp_base);
-            let final_webcam = format!("{}.webcam.mp4", final_base);
-            if std::path::Path::new(&temp_webcam).exists() {
-                if let Err(e) = std::fs::rename(&temp_webcam, &final_webcam) {
-                    println!("⚠️ [PROCESS] Failed to move webcam.mp4: {}", e);
-                } else {
-                    println!("📁 [PROCESS] Moved webcam.mp4 to: {}", final_webcam);
-                }
-            }
-
-            let temp_webcam_webm = format!("{}.webcam.webm", temp_base);
-            let final_webcam_webm = format!("{}.webcam.webm", final_base);
-            if std::path::Path::new(&temp_webcam_webm).exists() {
-                if let Err(e) = std::fs::rename(&temp_webcam_webm, &final_webcam_webm) {
-                    println!("⚠️ [PROCESS] Failed to move webcam.webm: {}", e);
-                } else {
-                    println!("📁 [PROCESS] Moved webcam.webm to: {}", final_webcam_webm);
-                }
-            }
-
-            for suffix in ["mic.wav", "system.wav"] {
-                let temp_audio = format!("{}.{}", temp_base, suffix);
-                let final_audio = format!("{}.{}", final_base, suffix);
-                if std::path::Path::new(&temp_audio).exists() {
-                    if let Err(e) = std::fs::rename(&temp_audio, &final_audio) {
-                        println!("⚠️ [PROCESS] Failed to move {}: {}", suffix, e);
-                    } else {
-                        println!("📁 [PROCESS] Moved {} to: {}", suffix, final_audio);
-                    }
+                    println!("📁 [PROCESS] Moved {} to: {}", name, destination.display());
                 }
             }
         }
@@ -549,10 +529,11 @@ pub async fn process_recorded_file(
     // We don't save it here to avoid overwriting with hardcoded values
 
     // Auto-zoom generation
-    let auto_zoom_path = format!("{}.auto_zoom.json", media_path.trim_end_matches(".mp4"));
-    println!("🔍 [PROCESS] Auto-zoom path: {}", auto_zoom_path);
+    let auto_zoom_path =
+        crate::recording::artifacts::RecordingArtifacts::new(&media_path).auto_zoom();
+    println!("🔍 [PROCESS] Auto-zoom path: {}", auto_zoom_path.display());
 
-    if !std::path::Path::new(&auto_zoom_path).exists() {
+    if !auto_zoom_path.exists() {
         println!("🔍 [PROCESS] Generating auto-zoom analysis...");
 
         let mut session = CaptureSession::new();
@@ -596,7 +577,10 @@ pub async fn process_recorded_file(
                 }
 
                 match crate::auto_zoom::save_analysis(&analysis, &auto_zoom_path) {
-                    Ok(_) => println!("✅ [PROCESS] Auto-zoom saved to: {}", auto_zoom_path),
+                    Ok(_) => println!(
+                        "✅ [PROCESS] Auto-zoom saved to: {}",
+                        auto_zoom_path.display()
+                    ),
                     Err(e) => println!("❌ [PROCESS] Failed to save auto-zoom: {}", e),
                 }
             }
@@ -613,87 +597,4 @@ pub async fn process_recorded_file(
         media_path
     );
     Ok(media_path)
-}
-
-/// Apply post-processing effects to a video
-pub async fn apply_post_processing(video_path: &str) -> Result<String> {
-    let processor = crate::post_processing::create_default_processor();
-    let zoom_analysis_path = format!("{}.auto_zoom.json", video_path.trim_end_matches(".mp4"));
-    let zoom_analysis = if std::path::Path::new(&zoom_analysis_path).exists() {
-        crate::auto_zoom::load_analysis(&zoom_analysis_path).ok()
-    } else {
-        None
-    };
-
-    let input_path = std::path::Path::new(video_path);
-    let output_path = input_path.with_file_name(format!(
-        "processed_{}",
-        input_path.file_name().unwrap().to_string_lossy()
-    ));
-    processor
-        .process_video(input_path, &output_path, zoom_analysis.as_ref())
-        .await?;
-
-    // Copy sidecar files (auto_zoom.json and mouse.json) to processed_ path
-    let original_zoom_path = format!("{}.auto_zoom.json", video_path.trim_end_matches(".mp4"));
-    let processed_zoom_path = format!(
-        "{}.auto_zoom.json",
-        output_path.to_string_lossy().trim_end_matches(".mp4")
-    );
-
-    if std::path::Path::new(&original_zoom_path).exists() {
-        if let Err(e) = std::fs::copy(&original_zoom_path, &processed_zoom_path) {
-            println!("⚠️ [POST_PROCESS] Failed to copy auto_zoom.json: {}", e);
-        } else {
-            println!(
-                "✅ [POST_PROCESS] Copied auto_zoom.json to: {}",
-                processed_zoom_path
-            );
-        }
-    }
-
-    let original_mouse_path = format!("{}.mouse.json", video_path.trim_end_matches(".mp4"));
-    let processed_mouse_path = format!(
-        "{}.mouse.json",
-        output_path.to_string_lossy().trim_end_matches(".mp4")
-    );
-
-    if std::path::Path::new(&original_mouse_path).exists() {
-        if let Err(e) = std::fs::copy(&original_mouse_path, &processed_mouse_path) {
-            println!("⚠️ [POST_PROCESS] Failed to copy mouse.json: {}", e);
-        } else {
-            println!(
-                "✅ [POST_PROCESS] Copied mouse.json to: {}",
-                processed_mouse_path
-            );
-        }
-    }
-
-    let original_base = video_path.trim_end_matches(".mp4");
-    let processed_base = output_path
-        .to_string_lossy()
-        .trim_end_matches(".mp4")
-        .to_string();
-    for suffix in [
-        "window-mask.png",
-        "webcam.mp4",
-        "webcam.webm",
-        "mic.wav",
-        "system.wav",
-    ] {
-        let original_sidecar = format!("{}.{}", original_base, suffix);
-        let processed_sidecar = format!("{}.{}", processed_base, suffix);
-        if std::path::Path::new(&original_sidecar).exists() {
-            if let Err(e) = std::fs::copy(&original_sidecar, &processed_sidecar) {
-                println!("⚠️ [POST_PROCESS] Failed to copy {}: {}", suffix, e);
-            } else {
-                println!(
-                    "✅ [POST_PROCESS] Copied {} to: {}",
-                    suffix, processed_sidecar
-                );
-            }
-        }
-    }
-
-    Ok(output_path.to_string_lossy().to_string())
 }

@@ -18,9 +18,11 @@ use super::types::{
 };
 use super::visual_effects::{determine_output_path, get_cursor_config, get_webcam_info};
 use super::zoom_trajectory::{ZoomFrameState, simulate_zoom_trajectory};
-use crate::cursor_renderer::{
-    CursorEvent, SpringConfig, parse_cursor_events, parse_hex_rgb, simulate_cursor_positions,
-};
+use crate::cursor_renderer::{parse_hex_rgb, simulate_cursor_positions};
+
+mod support;
+use support::{get_cursor_spring_config, get_zoom_spring_config, resolve_mouse_events_path};
+pub use support::{load_raw_cursor_events, resolve_spring_preset};
 
 /// Apply video effects and export using GPU-accelerated compositing.
 pub async fn export_video(
@@ -79,23 +81,7 @@ pub async fn export_video(
     let (source_width, source_height) = (video_info.width, video_info.height);
     let duration_ms = video_info.duration_ms;
     let is_window_mode = settings.capture_mode.as_deref() == Some("window");
-    // Look for mouse.json sidecar — for processed_ files, fall back to original recording path
-    let mouse_events_path = {
-        let direct = input_path.with_extension("mouse.json");
-        if direct.exists() {
-            direct
-        } else if let Some(fname) = input_path.file_name().and_then(|f| f.to_str()) {
-            if fname.starts_with("processed_") {
-                let original = input_path.with_file_name(fname.replacen("processed_", "", 1));
-                let fallback = original.with_extension("mouse.json");
-                if fallback.exists() { fallback } else { direct }
-            } else {
-                direct
-            }
-        } else {
-            direct
-        }
-    };
+    let mouse_events_path = resolve_mouse_events_path(input_path);
     let cursor_enabled = settings
         .cursor_settings
         .as_ref()
@@ -609,137 +595,4 @@ pub async fn export_video(
     }
 
     Ok(final_output_path)
-}
-
-/// Load raw cursor events from sidecar for zoom trajectory simulation.
-pub fn load_raw_cursor_events(
-    mouse_events_path: &Path,
-    source_width: u32,
-    source_height: u32,
-) -> Vec<CursorEvent> {
-    let content = match std::fs::read_to_string(mouse_events_path) {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
-    };
-    let sidecar: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
-
-    let (events, _sf, ex, ey, ew, eh) = if let Some(mouse_events) = sidecar.get("mouse_events") {
-        let dw = sidecar
-            .get("display_width")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(source_width as f64);
-        let dh = sidecar
-            .get("display_height")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(source_height as f64);
-        let sf = sidecar
-            .get("scale_factor")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(1.0);
-        let recording_area = sidecar.get("recording_area");
-        let (ex, ey, ew, eh) = if let Some(area) = recording_area {
-            (
-                area.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                area.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                area.get("width").and_then(|v| v.as_f64()).unwrap_or(dw),
-                area.get("height").and_then(|v| v.as_f64()).unwrap_or(dh),
-            )
-        } else {
-            (0.0, 0.0, dw, dh)
-        };
-        (
-            mouse_events.as_array().cloned().unwrap_or_default(),
-            sf,
-            ex,
-            ey,
-            ew,
-            eh,
-        )
-    } else if let Some(arr) = sidecar.as_array() {
-        (
-            arr.clone(),
-            1.0,
-            0.0,
-            0.0,
-            source_width as f64,
-            source_height as f64,
-        )
-    } else {
-        return Vec::new();
-    };
-
-    parse_cursor_events(&events, 1.0, ex, ey, ew, eh)
-}
-
-fn get_zoom_spring_config(settings: &ExportSettings) -> SpringConfig {
-    if let (Some(t), Some(f), Some(m)) = (
-        settings.zoom_spring_tension,
-        settings.zoom_spring_friction,
-        settings.zoom_spring_mass,
-    ) {
-        return SpringConfig {
-            tension: t,
-            friction: f,
-            mass: m,
-        };
-    }
-    let name = settings.animation_speed.as_deref().unwrap_or("mellow");
-    resolve_spring_preset(name)
-}
-
-fn get_cursor_spring_config(settings: &ExportSettings) -> SpringConfig {
-    if let Some(ref cursor) = settings.cursor_settings {
-        if let (Some(t), Some(f), Some(m)) = (
-            cursor.spring_tension,
-            cursor.spring_friction,
-            cursor.spring_mass,
-        ) {
-            return SpringConfig {
-                tension: t,
-                friction: f,
-                mass: m,
-            };
-        }
-        if let Some(ref preset) = cursor.speed_preset {
-            return resolve_spring_preset(preset);
-        }
-    }
-    SpringConfig {
-        tension: 170.0,
-        friction: 30.0,
-        mass: 1.0,
-    }
-}
-
-pub fn resolve_spring_preset(name: &str) -> SpringConfig {
-    match name {
-        "slow" => SpringConfig {
-            tension: 120.0,
-            friction: 28.0,
-            mass: 1.0,
-        },
-        "mellow" => SpringConfig {
-            tension: 170.0,
-            friction: 30.0,
-            mass: 1.0,
-        },
-        "quick" => SpringConfig {
-            tension: 280.0,
-            friction: 38.0,
-            mass: 1.0,
-        },
-        "rapid" => SpringConfig {
-            tension: 400.0,
-            friction: 44.0,
-            mass: 1.0,
-        },
-        _ => SpringConfig {
-            tension: 170.0,
-            friction: 30.0,
-            mass: 1.0,
-        },
-    }
 }

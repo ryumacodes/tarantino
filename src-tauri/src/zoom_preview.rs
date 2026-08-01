@@ -187,7 +187,8 @@ fn load_mouse_events_from_session(session_path: &Path) -> Result<Vec<MouseEvent>
     // For now, let's assume mouse events are stored in a JSON file alongside the video
     // In the actual implementation, this would read from the session format used by the recording system
 
-    let mouse_events_path = session_path.with_extension("mouse.json");
+    let mouse_events_path =
+        crate::recording::artifacts::RecordingArtifacts::new(session_path).mouse();
 
     if !mouse_events_path.exists() {
         // Return empty vec if no mouse data exists
@@ -243,8 +244,8 @@ pub async fn get_preview_zoom_indicators(
 /// Tauri command to check if mouse data exists for preview
 #[command]
 pub async fn has_mouse_data_for_preview(video_path: String) -> Result<bool, String> {
-    let video_path = Path::new(&video_path);
-    let mouse_events_path = video_path.with_extension("mouse.json");
+    let mouse_events_path =
+        crate::recording::artifacts::RecordingArtifacts::new(&video_path).mouse();
     Ok(mouse_events_path.exists())
 }
 

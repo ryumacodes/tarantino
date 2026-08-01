@@ -1,3 +1,4 @@
+pub mod artifacts;
 pub mod types;
 
 mod encoder_loop;
@@ -126,9 +127,9 @@ impl RecordingAPI {
             // Spawn separate audio tasks so the editor can show and edit each
             // source independently, then flatten only at export time.
             let audio_stop_signal = Arc::clone(&self.stop_signal);
-            let audio_base = out_path.with_extension("");
-            let system_audio_path = audio_base.with_extension("system.wav");
-            let mic_audio_path = audio_base.with_extension("mic.wav");
+            let artifacts = artifacts::RecordingArtifacts::new(&out_path);
+            let system_audio_path = artifacts.system_audio();
+            let mic_audio_path = artifacts.microphone();
             self.audio_task = crate::audio::spawn_audio_tasks(
                 audio_rx,
                 if config.include_system_audio {

@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::Result;
 use tauri::{Emitter, Manager, State};
 
-use crate::state::UnifiedAppState;
+use crate::{recording::artifacts::RecordingArtifacts, state::UnifiedAppState};
 
 // Global flag to prevent concurrent stop operations
 pub static STOPPING_RECORDING: AtomicBool = AtomicBool::new(false);
@@ -253,9 +253,8 @@ pub async fn record_stop(
             println!("Moved recording to {}", final_path.display());
             media_path = final_path.to_str().unwrap_or("").to_string();
 
-            let temp_window_mask =
-                std::path::Path::new(&temp_path).with_extension("window-mask.png");
-            let final_window_mask = final_path.with_extension("window-mask.png");
+            let temp_window_mask = RecordingArtifacts::new(&temp_path).window_mask();
+            let final_window_mask = RecordingArtifacts::new(&final_path).window_mask();
             if temp_window_mask.exists() {
                 if let Err(error) = std::fs::rename(&temp_window_mask, &final_window_mask) {
                     println!(

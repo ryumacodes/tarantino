@@ -136,14 +136,6 @@ impl UIStateManager {
         }
     }
 
-    /// Set window loading state
-    pub fn set_window_loading(&self, window_id: &str, loading: bool) {
-        let mut windows = self.window_states.write();
-        if let Some(state) = windows.get_mut(window_id) {
-            state.loading = loading;
-        }
-    }
-
     /// Set tray to idle mode
     pub fn set_tray_idle(&self) {
         let mut state = self.tray_state.write();
@@ -169,15 +161,6 @@ impl UIStateManager {
         state.status_text = message.to_string();
         state.recording_duration = None;
         state.menu_items = self.get_processing_menu_items();
-    }
-
-    /// Set tray error state
-    pub fn set_tray_error(&self, error: &str) {
-        let mut state = self.tray_state.write();
-        state.mode = TrayMode::Error(error.to_string());
-        state.status_text = "Error".to_string();
-        state.recording_duration = None;
-        state.menu_items = self.get_error_menu_items();
     }
 
     /// Get current tray state
@@ -320,42 +303,6 @@ impl UIStateManager {
             },
         ]
     }
-
-    /// Get error menu items
-    fn get_error_menu_items(&self) -> Vec<TrayMenuItem> {
-        vec![
-            TrayMenuItem {
-                id: "error_status".to_string(),
-                label: "Error occurred".to_string(),
-                enabled: false,
-                visible: true,
-            },
-            TrayMenuItem {
-                id: "separator1".to_string(),
-                label: "-".to_string(),
-                enabled: false,
-                visible: true,
-            },
-            TrayMenuItem {
-                id: "retry".to_string(),
-                label: "Retry".to_string(),
-                enabled: true,
-                visible: true,
-            },
-            TrayMenuItem {
-                id: "settings".to_string(),
-                label: "Settings".to_string(),
-                enabled: true,
-                visible: true,
-            },
-            TrayMenuItem {
-                id: "quit".to_string(),
-                label: "Quit Tarantino".to_string(),
-                enabled: true,
-                visible: true,
-            },
-        ]
-    }
 }
 
 impl Default for TrayState {
@@ -402,11 +349,6 @@ mod tests {
         manager.set_tray_processing("Processing video...");
         let state = manager.get_tray_state();
         assert!(matches!(state.mode, TrayMode::Processing));
-
-        // Switch to error
-        manager.set_tray_error("Recording failed");
-        let state = manager.get_tray_state();
-        assert!(matches!(state.mode, TrayMode::Error(_)));
     }
 
     #[test]

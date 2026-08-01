@@ -12,6 +12,52 @@ import { cn } from '../utils/cn';
 import { useCaptureShortcuts } from '../hooks/useCaptureShortcuts';
 type CaptureMode = 'display' | 'window' | 'area' | 'device';
 type WebcamShape = 'circle' | 'roundrect';
+
+interface NativeMenuChoice {
+  id: string;
+  name?: string;
+}
+
+interface CaptureWindowInfo {
+  id: string;
+  title?: string;
+  app_name?: string;
+}
+
+const isRecordableWindow = (windowInfo: CaptureWindowInfo) => {
+  const appName = (windowInfo.app_name || '').toLowerCase();
+  const title = (windowInfo.title || '').toLowerCase();
+  return appName !== 'tarantino' && title !== 'tarantino' && !title.includes('web inspector');
+};
+
+const createSelectionItems = <T extends NativeMenuChoice>(
+  choices: T[],
+  selectedId: string | null,
+  onSelect: (choice: T) => void,
+  label: (choice: T) => string = (choice) => choice.name || choice.id,
+) => Promise.all(
+  choices.map((choice) => MenuItem.new({
+    text: `${selectedId === choice.id ? '✓ ' : '   '}${label(choice)}`,
+    action: () => onSelect(choice),
+  })),
+);
+
+const popupNativeMenu = async (items: Awaited<ReturnType<typeof MenuItem.new>>[]) => {
+  const menu = await Menu.new({ items });
+  await menu.popup();
+};
+
+const handleCaptureBarDrag = async (event: React.MouseEvent) => {
+  const target = event.target as HTMLElement;
+  if (target.tagName === 'BUTTON' || target.closest('button') || target.closest('.capture-bar__input')) return;
+
+  try {
+    await Window.getCurrent().startDragging();
+  } catch (error) {
+    console.error('Failed to start dragging:', error);
+  }
+};
+
 const CaptureBar: React.FC = () => {
   const [captureMode, setCaptureMode] = useState<CaptureMode>('display');
   const [cameraEnabled, setCameraEnabled] = useState(false);
@@ -48,11 +94,7 @@ const CaptureBar: React.FC = () => {
   const stopInFlightRef = useRef(false);
   const { state, setRecordingState, stopRecording } = useRecordingStore();
   const isRecording = state === 'recording', isStarting = state === 'prerecord';
-  const appWindows = windows.filter((w: any) => {
-    const appName = (w.app_name || '').toLowerCase();
-    const title = (w.title || '').toLowerCase();
-    return appName !== 'tarantino' && title !== 'tarantino' && !title.includes('web inspector');
-  });
+  const appWindows = windows.filter(isRecordableWindow);
   const windowModeReady = !windowsLoading && appWindows.length > 0;
   const selectedTargetReady = captureMode === 'window'
     ? windowModeReady && selectedWindow !== null
@@ -60,11 +102,6 @@ const CaptureBar: React.FC = () => {
       ? selectedDisplay !== null
       : selectedDevice !== null;
   const canRecord = !startInFlightRef.current && !stopInFlightRef.current && !isStarting && (isRecording || selectedTargetReady);
-  const isRecordableWindow = (windowInfo: any) => {
-    const appName = (windowInfo.app_name || '').toLowerCase();
-    const title = (windowInfo.title || '').toLowerCase();
-    return appName !== 'tarantino' && title !== 'tarantino' && !title.includes('web inspector');
-  };
   useEffect(() => {
     loadDevices();
   }, []);
@@ -80,18 +117,6 @@ const CaptureBar: React.FC = () => {
       unlisten.then(fn => fn());
     };
   }, [stopRecording]);
-
-  const handleDragStart = async (e: React.MouseEvent) => {
-    const target = e.target as HTMLElement;
-    if (target.tagName === 'BUTTON' || target.closest('button') || target.closest('.capture-bar__input')) {
-      return;
-    }
-    try {
-      await Window.getCurrent().startDragging();
-    } catch (error) {
-      console.error('Failed to start dragging:', error);
-    }
-  };
 
   const loadDevices = async () => {
     try {
@@ -284,13 +309,10 @@ const CaptureBar: React.FC = () => {
     }
   };
   const showCameraMenu = async () => {
-    const cameraItems = await Promise.all(
-      devices.map((device: any) =>
-        MenuItem.new({
-          text: `${selectedCameraDevice === device.id ? '✓ ' : '   '}${device.name || device.id}`,
-          action: () => handleCameraDeviceSelect(device.id),
-        })
-      )
+    const cameraItems = await createSelectionItems(
+      devices,
+      selectedCameraDevice,
+      (device) => handleCameraDeviceSelect(device.id),
     );
     const shapeItems = await Promise.all([
       MenuItem.new({ text: 'Webcam shape', enabled: false }),
@@ -303,74 +325,48 @@ const CaptureBar: React.FC = () => {
         action: () => handleWebcamShapeSelect('roundrect'),
       }),
     ]);
-    const items = cameraItems.length > 0
-      ? cameraItems.concat(shapeItems)
-      : shapeItems;
-    const menu = await Menu.new({ items });
-    await menu.popup();
+    await popupNativeMenu(cameraItems.length > 0 ? cameraItems.concat(shapeItems) : shapeItems);
   };
 
   const showMicMenu = async () => {
     if (audioDevices.microphones.length === 0) return;
-    const items = await Promise.all(
-      audioDevices.microphones.map((mic: any) =>
-        MenuItem.new({
-          text: `${selectedMicDevice === mic.id ? '✓ ' : '   '}${mic.name || mic.id}`,
-          action: () => handleMicDeviceSelect(mic.id),
-        })
-      )
+    const items = await createSelectionItems(
+      audioDevices.microphones,
+      selectedMicDevice,
+      (microphone) => handleMicDeviceSelect(microphone.id),
     );
-    const menu = await Menu.new({ items });
-    await menu.popup();
+    await popupNativeMenu(items);
   };
 
   const showSystemAudioMenu = async () => {
     const sources = audioDevices.system_sources || [];
-    const items = await Promise.all(
-      sources.length > 0
-        ? sources.map((source: any) =>
-            MenuItem.new({
-              text: `${selectedSystemAudioDevice === source.id ? '✓ ' : '   '}${source.name || source.id}`,
-              action: () => handleSystemAudioDeviceSelect(source.id),
-            })
-          )
-        : [
-            MenuItem.new({
-              text: `${selectedSystemAudioDevice === 'default' ? '✓ ' : '   '}System Default`,
-              action: () => handleSystemAudioDeviceSelect('default'),
-            }),
-          ]
+    const choices = sources.length > 0 ? sources : [{ id: 'default', name: 'System Default' }];
+    const items = await createSelectionItems(
+      choices,
+      selectedSystemAudioDevice,
+      (source) => handleSystemAudioDeviceSelect(source.id),
     );
-    const menu = await Menu.new({ items });
-    await menu.popup();
+    await popupNativeMenu(items);
   };
 
   const showWindowMenu = async () => {
     if (isStarting || isRecording || windowsLoading) return;
-    const freshWindows = windows;
-    const appWindows = freshWindows.filter((w: any) => {
-      return isRecordableWindow(w);
-    });
-
     if (appWindows.length === 0) {
       const noItems = await MenuItem.new({ text: 'No windows available', enabled: false });
-      await (await Menu.new({ items: [noItems] })).popup();
+      await popupNativeMenu([noItems]);
       return;
     }
 
-    const items = await Promise.all(
-      appWindows.map((w: any) =>
-        MenuItem.new({
-          text: `${selectedWindow === w.id ? '\u2713 ' : '   '}${w.app_name ? w.app_name + ' — ' : ''}${w.title}`,
-          action: () => {
-            setSelectedWindow(w.id);
-            selectWindow(w.id);
-          },
-        })
-      )
+    const items = await createSelectionItems(
+      appWindows,
+      selectedWindow,
+      (windowInfo) => {
+        setSelectedWindow(windowInfo.id);
+        selectWindow(windowInfo.id);
+      },
+      (windowInfo) => `${windowInfo.app_name ? `${windowInfo.app_name} — ` : ''}${windowInfo.title}`,
     );
-    const menu = await Menu.new({ items });
-    await menu.popup();
+    await popupNativeMenu(items);
   };
 
   const startRecordingNow = async () => {
@@ -467,7 +463,7 @@ const CaptureBar: React.FC = () => {
   });
 
   return (
-    <div className="capture-bar-pill" onMouseDown={handleDragStart}>
+    <div className="capture-bar-pill" onMouseDown={handleCaptureBarDrag}>
       <div
         className={cn('capture-bar__record', { recording: isRecording || isStarting, disabled: !canRecord })}
         onClick={handleRecord}

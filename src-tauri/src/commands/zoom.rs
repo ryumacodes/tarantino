@@ -7,25 +7,23 @@ pub async fn load_auto_zoom_data(video_path: String) -> Result<Option<ZoomAnalys
     println!("📂 [LOAD_ZOOM] load_auto_zoom_data called");
     println!("📂 [LOAD_ZOOM] Video path: {}", video_path);
 
-    let auto_zoom_path = format!("{}.auto_zoom.json", video_path.trim_end_matches(".mp4"));
+    let artifacts = crate::recording::artifacts::RecordingArtifacts::new(&video_path);
+    let auto_zoom_path = artifacts.auto_zoom();
     println!(
         "📂 [LOAD_ZOOM] Looking for auto_zoom file at: {}",
-        auto_zoom_path
+        auto_zoom_path.display()
     );
 
     // Also check if mouse.json exists for debugging
-    let mouse_path = format!("{}.mouse.json", video_path.trim_end_matches(".mp4"));
-    println!("📂 [LOAD_ZOOM] Mouse file would be at: {}", mouse_path);
+    let mouse_path = artifacts.mouse();
     println!(
-        "   - auto_zoom.json exists: {}",
-        std::path::Path::new(&auto_zoom_path).exists()
+        "📂 [LOAD_ZOOM] Mouse file would be at: {}",
+        mouse_path.display()
     );
-    println!(
-        "   - mouse.json exists: {}",
-        std::path::Path::new(&mouse_path).exists()
-    );
+    println!("   - auto_zoom.json exists: {}", auto_zoom_path.exists());
+    println!("   - mouse.json exists: {}", mouse_path.exists());
 
-    if !std::path::Path::new(&auto_zoom_path).exists() {
+    if !auto_zoom_path.exists() {
         println!("⚠️ [LOAD_ZOOM] No auto-zoom file found!");
         return Ok(None);
     }
@@ -60,11 +58,15 @@ pub async fn load_auto_zoom_data(video_path: String) -> Result<Option<ZoomAnalys
 pub async fn save_auto_zoom_data(video_path: String, analysis: ZoomAnalysis) -> Result<(), String> {
     println!("Saving auto-zoom data for video: {}", video_path);
 
-    let auto_zoom_path = format!("{}.auto_zoom.json", video_path.trim_end_matches(".mp4"));
+    let auto_zoom_path =
+        crate::recording::artifacts::RecordingArtifacts::new(&video_path).auto_zoom();
 
     auto_zoom::save_analysis(&analysis, &auto_zoom_path)
         .map_err(|e| format!("Failed to save auto-zoom data: {}", e))?;
 
-    println!("Successfully saved auto-zoom data to: {}", auto_zoom_path);
+    println!(
+        "Successfully saved auto-zoom data to: {}",
+        auto_zoom_path.display()
+    );
     Ok(())
 }

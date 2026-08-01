@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use crate::recording::artifacts::RecordingArtifacts;
+
 use super::types::ExportSettings;
 
 #[derive(Debug, Clone)]
@@ -10,9 +12,9 @@ pub struct AudioTrackFiles {
 
 impl AudioTrackFiles {
     pub fn discover(input_path: &Path) -> Self {
-        let base = input_path.with_extension("");
-        let mic = existing(base.with_extension("mic.wav"));
-        let system = existing(base.with_extension("system.wav"));
+        let artifacts = RecordingArtifacts::new(input_path);
+        let mic = existing(artifacts.microphone());
+        let system = existing(artifacts.system_audio());
         Self { mic, system }
     }
 

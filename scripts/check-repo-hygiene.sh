@@ -31,3 +31,4 @@ if [ "$fail" -ne 0 ]; then
 fi
 
 echo "Repo hygiene check passed."
+scripts/check-source-size.sh

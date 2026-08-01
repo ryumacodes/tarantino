@@ -447,19 +447,6 @@ impl UnifiedAppState {
         }
     }
 
-    /// Show error in UI
-    pub fn show_error(&self, error: &str) {
-        self.ui
-            .set_interface_mode(InterfaceMode::Error(error.to_string()));
-        self.ui.set_tray_error(error);
-    }
-
-    /// Notify editor ready
-    pub fn notify_editor_ready(&self) {
-        self.ui.set_window_loading("editor", false);
-        println!("Editor ready");
-    }
-
     /// Get current recording audio flags (mic, system)
     pub fn get_recording_audio_flags(&self) -> (bool, bool) {
         let cfg = self.recording.get_current_config();

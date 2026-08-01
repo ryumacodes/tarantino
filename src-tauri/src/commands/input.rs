@@ -1,6 +1,6 @@
 //! Input configuration commands (camera, mic, system audio, webcam)
 
-use crate::state::UnifiedAppState;
+use crate::{recording::artifacts::RecordingArtifacts, state::UnifiedAppState};
 use serde::Deserialize;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -396,9 +396,7 @@ pub async fn save_webcam_recording(
             .ok_or_else(|| "No active recording session".to_string())?
             .output_path
     };
-    let base = recording_path.trim_end_matches(".mp4");
-
-    let webcam_path = format!("{}.webcam.webm", base);
+    let webcam_path = RecordingArtifacts::new(&recording_path).webcam_webm();
     let mut file = fs::File::create(&webcam_path)
         .map_err(|e| format!("Failed to create webcam file: {}", e))?;
     file.write_all(&data)
@@ -406,7 +404,7 @@ pub async fn save_webcam_recording(
 
     println!(
         "Webcam recording saved: {} ({} bytes)",
-        webcam_path,
+        webcam_path.display(),
         data.len()
     );
     Ok(())
@@ -446,13 +444,13 @@ pub async fn stop_webview_webcam_recording(
     sync_webcam_window_transform(&win, state).await;
     win.emit("webcam:stop", ()).map_err(|e| e.to_string())?;
 
-    let webcam_path = format!("{}.webcam.webm", output_path.trim_end_matches(".mp4"));
-    let path = std::path::Path::new(&webcam_path);
+    let webcam_path = RecordingArtifacts::new(output_path).webcam_webm();
+    let path = webcam_path.as_path();
     let mut saved = false;
     for _ in 0..150 {
         if let Ok(metadata) = std::fs::metadata(path) {
             if metadata.len() > 0 {
-                println!("Webcam WebView recording saved: {}", webcam_path);
+                println!("Webcam WebView recording saved: {}", webcam_path.display());
                 saved = true;
                 break;
             }
@@ -463,7 +461,7 @@ pub async fn stop_webview_webcam_recording(
     if !saved {
         println!(
             "Warning: timed out waiting for WebView webcam recording at {}",
-            webcam_path
+            webcam_path.display()
         );
     }
 

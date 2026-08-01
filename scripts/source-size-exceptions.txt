@@ -1,0 +1,3 @@
+# path|reason|maximum lines
+src-tauri/src/capture/backends/macos/sck_wrapper.mm|Single ScreenCaptureKit capture lifecycle; callbacks and ownership stay together|800
+src-tauri/src/video_processing/gpu_compositor/composite.wgsl|Single cohesive GPU program; runtime string concatenation is intentionally avoided|700
