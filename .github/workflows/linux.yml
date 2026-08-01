@@ -106,8 +106,8 @@ jobs:
           zypper --non-interactive refresh
           zypper --non-interactive install --no-recommends \
             gcc gcc-c++ make curl file git wget pkg-config clang \
-            nodejs22 npm22 libopenssl-devel webkit2gtk-4_1-devel \
-            libappindicator3-devel librsvg-devel libxdo-devel alsa-devel \
+            nodejs24 libopenssl-devel webkit2gtk3-devel \
+            libappindicator3-1 librsvg-devel xdotool alsa-devel \
             gstreamer-devel gstreamer-plugins-base-devel gstreamer-utils \
             gstreamer-plugins-base gstreamer-plugins-good \
             gstreamer-plugins-bad gstreamer-plugins-ugly \
@@ -116,7 +116,8 @@ jobs:
             'pkgconfig(libavutil)' 'pkgconfig(libavfilter)' \
             'pkgconfig(libavdevice)' 'pkgconfig(libswscale)' \
             'pkgconfig(libswresample)'
-          npm install --global pnpm@11.17.0
+          corepack enable
+          corepack prepare pnpm@11.17.0 --activate
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
         run: |
