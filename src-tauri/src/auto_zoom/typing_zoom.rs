@@ -1,5 +1,5 @@
 use crate::event_capture::EnhancedMouseEvent;
-use crate::mouse_tracking::{KeyEvent, KeyMotion, MouseEventType};
+use crate::input::{KeyEvent, KeyMotion, MouseEventType};
 
 use super::{ZoomBlock, ZoomCenter};
 

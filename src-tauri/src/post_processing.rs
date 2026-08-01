@@ -1,5 +1,5 @@
 use crate::auto_zoom::{ZoomAnalysis, ZoomBlock};
-use crate::mouse_tracking::{MouseEvent, MouseEventType};
+use crate::input::{MouseEvent, MouseEventType};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::Path;

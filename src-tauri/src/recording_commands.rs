@@ -159,7 +159,7 @@ pub async fn record_start_new(
                 .webcam_stop_signal
                 .store(false, std::sync::atomic::Ordering::SeqCst);
             let stop = Arc::clone(&state.webcam_stop_signal);
-            let task = crate::webcam::spawn_webcam_task(frame_rx, webcam_path, 30, stop);
+            let task = crate::camera::spawn_webcam_task(frame_rx, webcam_path, 30, stop);
             *state.webcam_task.lock() = Some(task);
             println!("[Webcam] Frame recording started (preview hidden)");
         }

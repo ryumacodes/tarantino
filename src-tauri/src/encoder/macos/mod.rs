@@ -13,27 +13,8 @@ use std::ptr;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
-use super::EncoderConfig;
+use super::{EncodedFrame, EncoderConfig};
 use ffi::*;
-
-/// Encoded frame output from VideoToolbox
-#[derive(Debug, Clone)]
-pub struct EncodedFrame {
-    /// Compressed frame data (H.264 NAL units)
-    pub data: Bytes,
-    /// Presentation timestamp in microseconds
-    pub timestamp_us: u64,
-    /// Whether this is a keyframe (IDR frame)
-    pub is_keyframe: bool,
-    /// Presentation timestamp (in encoder timescale)
-    pub pts: i64,
-    /// Decode timestamp (in encoder timescale)
-    pub dts: i64,
-    /// SPS (Sequence Parameter Set) data - extracted from format description
-    pub sps: Option<Bytes>,
-    /// PPS (Picture Parameter Set) data - extracted from format description
-    pub pps: Option<Bytes>,
-}
 
 /// VideoToolbox encoder wrapper
 pub struct VideoToolboxEncoder {

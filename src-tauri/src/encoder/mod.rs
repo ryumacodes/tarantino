@@ -1,18 +1,12 @@
 use anyhow::Result;
 use std::path::Path;
 
+mod types;
+pub use types::{EncodedFrame, EncoderConfig};
+
 // Platform-specific encoder implementations
 #[cfg(target_os = "macos")]
 pub mod macos;
-
-#[derive(Clone)]
-pub struct EncoderConfig {
-    pub width: u32,
-    pub height: u32,
-    pub fps: u32,
-    pub bitrate: u32,
-    pub hardware_accel: bool,
-}
 
 /// Platform-agnostic encoder wrapper
 pub enum Encoder {
@@ -124,7 +118,7 @@ impl Encoder {
     }
 
     /// Try to receive an encoded frame (non-blocking)
-    pub fn try_receive_frame(&self) -> Option<macos::EncodedFrame> {
+    pub fn try_receive_frame(&self) -> Option<EncodedFrame> {
         match self {
             #[cfg(target_os = "macos")]
             Self::VideoToolbox(encoder) => encoder.try_receive_frame(),

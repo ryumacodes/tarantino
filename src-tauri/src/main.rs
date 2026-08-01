@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod audio;
 mod auto_zoom;
+mod camera;
 mod capture;
 mod commands;
 mod cursor_renderer;
@@ -8,7 +10,7 @@ mod encoder;
 mod event_capture;
 mod ffmpeg;
 mod ffmpeg_manager;
-mod mouse_tracking;
+mod input;
 mod muxer;
 mod permissions;
 mod post_processing;
@@ -17,8 +19,6 @@ mod recording_commands;
 mod sidecar;
 mod state;
 mod video_processing;
-#[cfg(target_os = "macos")]
-mod webcam;
 mod zoom_preview;
 
 use anyhow::Result;

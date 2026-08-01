@@ -1,4 +1,4 @@
-use crate::mouse_tracking::MouseEvent;
+use crate::input::MouseEvent;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;

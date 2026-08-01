@@ -1,4 +1,4 @@
-use crate::mouse_tracking::{MouseButton, MouseEvent, MouseEventType};
+use crate::input::{MouseButton, MouseEvent, MouseEventType};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::Path;

@@ -1,4 +1,4 @@
-//! Native webcam capture using AVFoundation (macOS)
+//! Native webcam capture using AVFoundation (macOS).
 //!
 //! Two-phase lifecycle:
 //! 1. Toggle camera ON → start AVCaptureSession + show preview window

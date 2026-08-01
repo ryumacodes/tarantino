@@ -48,7 +48,7 @@ pub fn save_zoom_sidecar(
     video_path: &str,
     analysis: &crate::auto_zoom::ZoomAnalysis,
     mouse_events: &[crate::event_capture::EnhancedMouseEvent],
-    key_events: &[crate::mouse_tracking::KeyEvent],
+    key_events: &[crate::input::KeyEvent],
     display_info: (
         u32,
         u32,

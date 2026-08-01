@@ -282,15 +282,13 @@ pub fn spawn_background_recording_processing(
                         .filter(|e| {
                             matches!(
                                 e.event_type,
-                                crate::mouse_tracking::MouseEventType::ButtonPress { .. }
+                                crate::input::MouseEventType::ButtonPress { .. }
                             )
                         })
                         .count();
                     let moves = events
                         .iter()
-                        .filter(|e| {
-                            matches!(e.event_type, crate::mouse_tracking::MouseEventType::Move)
-                        })
+                        .filter(|e| matches!(e.event_type, crate::input::MouseEventType::Move))
                         .count();
                     println!("   - clicks (ButtonPress): {}", clicks);
                     println!("   - moves: {}", moves);
@@ -362,8 +360,8 @@ pub fn spawn_background_recording_processing(
 /// Process a recorded file: move to permanent location and generate auto-zoom data
 pub async fn process_recorded_file(
     temp_path: &str,
-    mouse_events: Vec<crate::mouse_tracking::MouseEvent>,
-    key_events: Vec<crate::mouse_tracking::KeyEvent>,
+    mouse_events: Vec<crate::input::MouseEvent>,
+    key_events: Vec<crate::input::KeyEvent>,
     start_time: Option<std::time::SystemTime>,
 ) -> Result<String> {
     println!("📁 [PROCESS] Starting process_recorded_file");
@@ -377,7 +375,7 @@ pub async fn process_recorded_file(
         .filter(|e| {
             matches!(
                 e.event_type,
-                crate::mouse_tracking::MouseEventType::ButtonPress { .. }
+                crate::input::MouseEventType::ButtonPress { .. }
             )
         })
         .count();
@@ -538,7 +536,7 @@ pub async fn process_recorded_file(
         enhanced_events.len()
     );
 
-    let normalized_key_events: Vec<crate::mouse_tracking::KeyEvent> = key_events
+    let normalized_key_events: Vec<crate::input::KeyEvent> = key_events
         .iter()
         .map(|e| {
             let mut normalized = e.clone();

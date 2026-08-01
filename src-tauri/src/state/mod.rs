@@ -48,7 +48,7 @@ pub struct UnifiedAppState {
 
     /// Active webcam capture session and encoding task
     #[cfg(target_os = "macos")]
-    pub webcam_capture: Mutex<Option<crate::webcam::WebcamCapture>>,
+    pub webcam_capture: Mutex<Option<crate::camera::WebcamCapture>>,
     #[cfg(target_os = "macos")]
     pub webcam_task: Mutex<Option<tokio::task::JoinHandle<Result<String, String>>>>,
     #[cfg(target_os = "macos")]

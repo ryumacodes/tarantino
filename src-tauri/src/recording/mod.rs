@@ -1,8 +1,6 @@
 pub mod types;
 
-#[cfg(target_os = "macos")]
 mod encoder_loop;
-#[cfg(target_os = "macos")]
 mod finalization;
 
 use anyhow::Result;
@@ -131,7 +129,7 @@ impl RecordingAPI {
             let audio_base = out_path.with_extension("");
             let system_audio_path = audio_base.with_extension("system.wav");
             let mic_audio_path = audio_base.with_extension("mic.wav");
-            self.audio_task = encoder_loop::spawn_audio_tasks(
+            self.audio_task = crate::audio::spawn_audio_tasks(
                 audio_rx,
                 if config.include_system_audio {
                     Some(system_audio_path)

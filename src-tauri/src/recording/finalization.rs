@@ -4,13 +4,10 @@
 
 use std::path::Path;
 
-#[cfg(target_os = "macos")]
 use crate::encoder::Encoder;
-#[cfg(target_os = "macos")]
 use crate::muxer::Mp4Muxer;
 
 /// Drain remaining encoded frames from the encoder
-#[cfg(target_os = "macos")]
 pub fn drain_encoder_frames(
     encoder: Option<&mut Encoder>,
     muxer: Option<&mut Mp4Muxer>,
@@ -107,7 +104,6 @@ pub fn drain_encoder_frames(
 }
 
 /// Flush the encoder and drain any final frames
-#[cfg(target_os = "macos")]
 pub fn flush_encoder(
     encoder: &mut Encoder,
     muxer: Option<&mut Mp4Muxer>,
@@ -166,7 +162,6 @@ pub fn flush_encoder(
 }
 
 /// Finalize the MP4 muxer
-#[cfg(target_os = "macos")]
 pub fn finalize_muxer(
     muxer: Mp4Muxer,
     output_path: &Path,

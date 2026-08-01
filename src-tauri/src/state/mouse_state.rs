@@ -9,22 +9,18 @@ use super::{UnifiedAppState, save_zoom_sidecar};
 
 impl UnifiedAppState {
     /// Get the mouse tracker instance
-    pub fn get_mouse_tracker(
-        &self,
-    ) -> Arc<parking_lot::Mutex<crate::mouse_tracking::MouseTracker>> {
+    pub fn get_mouse_tracker(&self) -> Arc<parking_lot::Mutex<crate::input::MouseTracker>> {
         static MOUSE_TRACKER: once_cell::sync::Lazy<
-            Arc<parking_lot::Mutex<crate::mouse_tracking::MouseTracker>>,
+            Arc<parking_lot::Mutex<crate::input::MouseTracker>>,
         > = once_cell::sync::Lazy::new(|| {
-            Arc::new(parking_lot::Mutex::new(
-                crate::mouse_tracking::MouseTracker::new(),
-            ))
+            Arc::new(parking_lot::Mutex::new(crate::input::MouseTracker::new()))
         });
         Arc::clone(&MOUSE_TRACKER)
     }
 
     /// Start mouse tracking
     pub async fn start_mouse_tracking(&self) -> Result<()> {
-        use crate::mouse_tracking::create_mouse_listener;
+        use crate::input::create_mouse_listener;
         use std::sync::atomic::{AtomicBool, Ordering};
         static LISTENER_STARTED: once_cell::sync::Lazy<AtomicBool> =
             once_cell::sync::Lazy::new(|| AtomicBool::new(false));
@@ -54,7 +50,7 @@ impl UnifiedAppState {
     }
 
     /// Get all captured mouse events
-    pub async fn get_mouse_events(&self) -> Result<Vec<crate::mouse_tracking::MouseEvent>> {
+    pub async fn get_mouse_events(&self) -> Result<Vec<crate::input::MouseEvent>> {
         let tracker = self.get_mouse_tracker();
         let events = {
             let guard = tracker.lock();
@@ -64,7 +60,7 @@ impl UnifiedAppState {
     }
 
     /// Get all captured key events
-    pub async fn get_key_events(&self) -> Result<Vec<crate::mouse_tracking::KeyEvent>> {
+    pub async fn get_key_events(&self) -> Result<Vec<crate::input::KeyEvent>> {
         let tracker = self.get_mouse_tracker();
         let events = {
             let guard = tracker.lock();
@@ -74,9 +70,7 @@ impl UnifiedAppState {
     }
 
     /// Get mouse tracking statistics
-    pub async fn get_mouse_tracking_stats(
-        &self,
-    ) -> Result<crate::mouse_tracking::MouseTrackingStats> {
+    pub async fn get_mouse_tracking_stats(&self) -> Result<crate::input::MouseTrackingStats> {
         let tracker = self.get_mouse_tracker();
         let stats = {
             let guard = tracker.lock();
@@ -172,7 +166,7 @@ impl UnifiedAppState {
             .collect();
 
         // Normalize key event timestamps to 0-based (same as mouse events)
-        let normalized_key_events: Vec<crate::mouse_tracking::KeyEvent> = key_events
+        let normalized_key_events: Vec<crate::input::KeyEvent> = key_events
             .into_iter()
             .map(|mut k| {
                 k.timestamp = k.timestamp.saturating_sub(start_time);

@@ -1,84 +1,75 @@
 # Tarantino
 
-Recording good product demos should be fast and accessible. Tarantino was built for that.
+A macOS screen recorder and editor for polished product demos.
 
-Tarantino is a screen recording and editing app for making polished product videos without dragging every detail around by hand. It is built around a simple idea: record quickly, make the result feel intentional, and export fast enough that iteration does not become a chore.
+> Early-stage software — under active development. Expect bugs and breaking changes.
 
-## What It Does
+## Features
 
-- Records your screen, a window, or a selected capture source
-- Gives you a small floating capture bar that stays out of the way
-- Supports camera, microphone, and system audio controls
-- Lets you place and resize a webcam overlay before recording
-- Opens recordings into an editor for review and polishing
-- Adds smart zooms around clicks, typing, and cursor movement
-- Supports manual zoom blocks when you want full control
-- Renders clean cursor effects, click highlights, trails, and motion
-- Adds presentation-style framing with padding, rounded corners, shadows, backgrounds, and device frames
+- **Display and window capture** — Record a full display or a single app window
+- **Audio and webcam** — Capture system audio, a microphone, and a positioned camera overlay
+- **Automatic zooms** — Generate zooms from clicks and typing, then adjust them in the timeline
+- **Cursor effects** — Smooth cursor movement and render clicks, trails, and motion effects
+- **Presentation framing** — Add padding, rounded corners, shadows, backgrounds, and device frames
+- **GPU export** — Render edits and effects through one accelerated compositor
 
-## Fast Exports Matter
+## Built With
 
-Tarantino uses a GPU compositor for export.
-
-That is a core part of the app, not an optional extra. The GPU compositor keeps visual effects like zoom, motion blur, cursor rendering, shadows, rounded corners, webcam overlays, and device frames moving through one fast export path.
-
-The goal is simple: you should be able to try an edit, export it, notice something, adjust it, and export again without losing momentum.
-
-## The Editing Feel
-
-Tarantino is designed for product demos, walkthroughs, tutorials, and short clips where the recording should feel guided but not over-produced.
-
-The editor focuses on the things that usually make a screen recording feel better:
-
-- Smooth zooms
-- Clear cursor motion
-- Good framing
-- Clean audio/video output
-- Fast preview and export loops
+- [Tauri](https://tauri.app/) and Rust — desktop shell and native application code
+- React and Zustand — editor interface and state management
+- ScreenCaptureKit and VideoToolbox — macOS capture and hardware video encoding
+- wgpu and Metal — preview and export rendering
+- FFmpeg — media inspection and processing
 
 ## Platform Support
 
-Tarantino currently works on macOS.
+Tarantino currently supports macOS. Windows and Linux capture backends are not ready yet.
 
-Linux and Windows support are planned next.
+## Installation
 
-## Current Focus
+### Developers (Fresh Clone)
 
-The priority is to keep improving:
-
-- GPU-accelerated exporting
-- Faster compile and development feedback
-- Reliable macOS capture
-- Better editing flow
-- Cleaner project structure
-- More polished final videos
-
-## Development
-
-Install dependencies:
+You will need Node.js, pnpm, Rust, and the Xcode Command Line Tools.
 
 ```bash
+git clone https://github.com/ryumacodes/tarantino.git
+cd tarantino
 pnpm install
-```
-
-Run the app in development:
-
-```bash
 pnpm tauri:dev
 ```
 
-On macOS, development runs in raw mode so camera and screen permissions belong to the terminal that launched Tarantino. Run this from Terminal or iTerm2 when testing camera or screen access.
+The first recording may prompt for Screen Recording, Microphone, or Camera access. If you change a permission in macOS System Settings, restart Tarantino before testing it again.
 
-Packaged builds use the normal app permission flow.
+## Development
 
-Build the app:
+Common development tasks:
 
 ```bash
-pnpm tauri:build
+pnpm tauri:dev       # Run the development app
+pnpm test:unit       # Run frontend unit tests
+pnpm test:macos      # Run the complete macOS verification suite
+pnpm tauri:build     # Build the packaged app
 ```
+
+For permission debugging, Tarantino can also run as a raw binary. In this mode, macOS associates capture permissions with the terminal that launched it:
+
+```bash
+pnpm tauri:dev:raw
+```
+
+Use the regular development command unless you specifically need raw mode.
+
+## Permissions
+
+Tarantino needs macOS permission for the sources you choose to record:
+
+- Screen Recording for displays and windows
+- Microphone for voice capture
+- Camera for webcam overlays
+- Accessibility for native cursor and keyboard event tracking
+
+Grant only the permissions needed for the recording you are making.
 
 ## License
 
-PolyForm Noncommercial License 1.0.0.
-
-Commercial use is not permitted without prior written permission from the copyright holder.
+[PolyForm Noncommercial License 1.0.0](./LICENSE). Commercial use requires prior written permission from the copyright holder.

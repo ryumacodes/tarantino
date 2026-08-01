@@ -1,4 +1,4 @@
-use crate::mouse_tracking::MouseEvent;
+use crate::input::MouseEvent;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 

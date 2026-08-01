@@ -191,7 +191,7 @@ pub async fn record_stop(
             .filter(|e| {
                 matches!(
                     e.event_type,
-                    crate::mouse_tracking::MouseEventType::ButtonPress { .. }
+                    crate::input::MouseEventType::ButtonPress { .. }
                 )
             })
             .count();
@@ -387,7 +387,7 @@ pub async fn record_stop_instant(
             .filter(|e| {
                 matches!(
                     e.event_type,
-                    crate::mouse_tracking::MouseEventType::ButtonPress { .. }
+                    crate::input::MouseEventType::ButtonPress { .. }
                 )
             })
             .count();

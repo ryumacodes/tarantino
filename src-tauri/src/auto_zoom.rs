@@ -1,5 +1,5 @@
 use crate::event_capture::{CaptureSession, EnhancedMouseEvent};
-use crate::mouse_tracking::KeyEvent;
+use crate::input::KeyEvent;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 mod typing_zoom;
@@ -194,7 +194,7 @@ impl ZoomProcessor {
             .filter(|event| {
                 matches!(
                     event.base.event_type,
-                    crate::mouse_tracking::MouseEventType::ButtonPress { .. }
+                    crate::input::MouseEventType::ButtonPress { .. }
                 )
             })
             .cloned()
@@ -476,7 +476,7 @@ mod tests {
                 timestamp: 2000 + i * 100,
                 is_modifier: false,
                 is_typing: true,
-                key_motion: crate::mouse_tracking::KeyMotion::Character,
+                key_motion: crate::input::KeyMotion::Character,
                 cursor_x: Some(300.0),
                 cursor_y: Some(800.0),
                 caret_x: None,
@@ -507,9 +507,9 @@ mod tests {
                 is_modifier: false,
                 is_typing: true,
                 key_motion: if i == 6 {
-                    crate::mouse_tracking::KeyMotion::Newline
+                    crate::input::KeyMotion::Newline
                 } else {
-                    crate::mouse_tracking::KeyMotion::Character
+                    crate::input::KeyMotion::Character
                 },
                 cursor_x: Some(300.0),
                 cursor_y: Some(500.0),
@@ -574,7 +574,7 @@ mod tests {
                 timestamp: 2000 + i * 100,
                 is_modifier: false,
                 is_typing: true,
-                key_motion: crate::mouse_tracking::KeyMotion::Character,
+                key_motion: crate::input::KeyMotion::Character,
                 cursor_x: Some(if i == 0 { 300.0 } else { 950.0 }),
                 cursor_y: Some(if i == 0 { 800.0 } else { 50.0 }),
                 caret_x: None,
@@ -604,7 +604,7 @@ mod tests {
                 timestamp: 2000 + i * 100,
                 is_modifier: false,
                 is_typing: true,
-                key_motion: crate::mouse_tracking::KeyMotion::Character,
+                key_motion: crate::input::KeyMotion::Character,
                 cursor_x: Some(300.0),
                 cursor_y: Some(800.0),
                 caret_x: Some(100.0 + (i as f64 * 20.0)),
@@ -629,7 +629,7 @@ mod tests {
             timestamp: 1000,
             is_modifier: false,
             is_typing: true,
-            key_motion: crate::mouse_tracking::KeyMotion::Character,
+            key_motion: crate::input::KeyMotion::Character,
             cursor_x: Some(100.0),
             cursor_y: Some(100.0),
             caret_x: Some(800.0),
@@ -653,7 +653,7 @@ mod tests {
                 timestamp: 1000,
                 is_modifier: true,
                 is_typing: false,
-                key_motion: crate::mouse_tracking::KeyMotion::Character,
+                key_motion: crate::input::KeyMotion::Character,
                 cursor_x: None,
                 cursor_y: None,
                 caret_x: None,
@@ -663,7 +663,7 @@ mod tests {
                 timestamp: 1100,
                 is_modifier: false,
                 is_typing: false,
-                key_motion: crate::mouse_tracking::KeyMotion::Character,
+                key_motion: crate::input::KeyMotion::Character,
                 cursor_x: None,
                 cursor_y: None,
                 caret_x: None,
@@ -673,7 +673,7 @@ mod tests {
                 timestamp: 1200,
                 is_modifier: true,
                 is_typing: false,
-                key_motion: crate::mouse_tracking::KeyMotion::Character,
+                key_motion: crate::input::KeyMotion::Character,
                 cursor_x: None,
                 cursor_y: None,
                 caret_x: None,
@@ -703,11 +703,11 @@ mod tests {
 
     fn create_test_enhanced_move_event(timestamp: u64, x: f64, y: f64) -> EnhancedMouseEvent {
         EnhancedMouseEvent {
-            base: crate::mouse_tracking::MouseEvent {
+            base: crate::input::MouseEvent {
                 timestamp,
                 x,
                 y,
-                event_type: crate::mouse_tracking::MouseEventType::Move,
+                event_type: crate::input::MouseEventType::Move,
                 display_id: None,
             },
             window_id: None,
@@ -722,7 +722,7 @@ mod tests {
             timestamp,
             is_modifier: false,
             is_typing,
-            key_motion: crate::mouse_tracking::KeyMotion::Character,
+            key_motion: crate::input::KeyMotion::Character,
             cursor_x: None,
             cursor_y: None,
             caret_x: None,
@@ -732,12 +732,12 @@ mod tests {
 
     fn create_test_mouse_event(timestamp: u64, x: f64, y: f64) -> EnhancedMouseEvent {
         EnhancedMouseEvent {
-            base: crate::mouse_tracking::MouseEvent {
+            base: crate::input::MouseEvent {
                 timestamp,
                 x,
                 y,
-                event_type: crate::mouse_tracking::MouseEventType::ButtonPress {
-                    button: crate::mouse_tracking::MouseButton::Left,
+                event_type: crate::input::MouseEventType::ButtonPress {
+                    button: crate::input::MouseButton::Left,
                 },
                 display_id: None,
             },

@@ -47,6 +47,7 @@
 
 // Native capture backends
 pub mod backends;
+pub mod types;
 
 // Re-export new backend architecture as primary API
-pub use backends::CaptureSourceType;
+pub use types::CaptureSourceType;

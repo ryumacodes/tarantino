@@ -151,7 +151,7 @@ pub async fn input_set_camera(
         }
 
         if enabled {
-            if let Err(error) = crate::webcam::ensure_camera_permission() {
+            if let Err(error) = crate::camera::ensure_camera_permission() {
                 println!(
                     "Camera input: native permission preflight failed: {}",
                     error
@@ -199,7 +199,7 @@ async fn input_set_camera_native(
                 capture.set_shape(&shape);
                 println!("Camera input: updated native preview shape={}", shape);
             } else {
-                let mut capture = crate::webcam::WebcamCapture::start(did.as_deref(), &shape, 30)
+                let mut capture = crate::camera::WebcamCapture::start(did.as_deref(), &shape, 30)
                     .map_err(|error| {
                     println!("Camera input: failed to start camera: {}", error);
                     state

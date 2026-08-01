@@ -10,6 +10,7 @@
 //! - Hardware-accelerated encoding support
 
 use anyhow::Result;
+use bytes::Bytes;
 use std::ffi::CString;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;

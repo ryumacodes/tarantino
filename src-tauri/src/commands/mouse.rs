@@ -1,6 +1,6 @@
 //! Mouse tracking commands
 
-use crate::mouse_tracking::{MouseEvent, MouseTrackingStats};
+use crate::input::{MouseEvent, MouseTrackingStats};
 use crate::state::UnifiedAppState;
 use std::sync::Arc;
 use tauri::State;

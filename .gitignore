@@ -39,6 +39,7 @@ coverage
 # Local workspace/tool artifacts
 .claude/settings.local.json
 .codex/
+.kisuke/
 .cursor/
 .tmp/
 .temp/

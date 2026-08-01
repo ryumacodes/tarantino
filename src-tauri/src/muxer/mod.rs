@@ -15,7 +15,7 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
 
-use crate::encoder::macos::EncodedFrame;
+use crate::encoder::EncodedFrame;
 
 /// MP4 muxer for writing H.264 video directly to MP4 container
 pub struct Mp4Muxer {
