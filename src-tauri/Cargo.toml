@@ -22,7 +22,6 @@ bytemuck = { version = "1.25", features = ["derive"] }
 pollster = "1.0"
 image = "0.25"
 base64 = "0.23"
-imageproc = "0.27"  # Drawing shapes for cursor rendering
 anyhow = "1.0"
 thiserror = "2.0"
 tracing = "0.1"
