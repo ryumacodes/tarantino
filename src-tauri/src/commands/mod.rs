@@ -31,5 +31,5 @@ pub mod zoom;
 
 // Re-export only items that are used via `commands::` path
 pub use misc::reset_tray_to_idle;
-pub use recording_control::{record_stop_instant, STOPPING_RECORDING};
+pub use recording_control::{STOPPING_RECORDING, record_stop_instant};
 pub use tray::create_idle_tray_menu;

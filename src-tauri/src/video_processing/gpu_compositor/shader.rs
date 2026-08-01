@@ -350,7 +350,22 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             } else {
                 content_color = sample_with_motion_blur(content_uv);
             }
-            let window_radius = select(0.0, min(u.input_width, u.input_height) * 0.04, is_window);
+            let has_native_window_mask = textureDimensions(corner_mask_tex).x > 1u;
+            let native_window_alpha = textureSampleLevel(
+                corner_mask_tex,
+                bilinear_sampler,
+                content_uv,
+                0.0
+            ).r;
+            content_color.a = content_color.a * native_window_alpha;
+            // Older recordings have no silhouette sidecar, so retain the
+            // conservative compatibility radius only for those files.
+            let needs_fallback_radius = is_window && !has_native_window_mask;
+            let window_radius = select(
+                0.0,
+                min(u.input_width, u.input_height) * 0.022,
+                needs_fallback_radius
+            );
             let input_radius = max(u.corner_radius, window_radius);
             content_color.a = content_color.a * is_inside_rounded_rect(vec2<f32>(input_x, input_y), vec2<f32>(u.input_width, u.input_height), input_radius);
             result = alpha_blend(result, content_color);

@@ -169,6 +169,12 @@ pub struct ExportSettings {
     // For window mode: host display dimensions (for proportional window sizing on the canvas)
     pub screen_width: Option<u32>,
     pub screen_height: Option<u32>,
+    // Selected window dimensions in logical display points. Together with the
+    // host display dimensions, these preserve its real desktop proportion.
+    pub window_width: Option<u32>,
+    pub window_height: Option<u32>,
+    // Native per-recording window silhouette captured alongside area video.
+    pub window_mask_path: Option<String>,
     // Legacy fields for compatibility
     #[serde(default)]
     pub zoom_keyframes: Option<serde_json::Value>,

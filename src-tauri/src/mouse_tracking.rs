@@ -1,10 +1,10 @@
 use anyhow::Result;
 use parking_lot::Mutex;
-use rdev::{listen, Button, Event, EventType, Key};
+use rdev::{Button, Event, EventType, Key, listen};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
 
@@ -94,6 +94,7 @@ pub enum KeyMotion {
 }
 
 #[cfg(target_os = "macos")]
+#[allow(unsafe_op_in_unsafe_fn)]
 mod macos_accessibility {
     use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
     use core_foundation::string::{CFString, CFStringRef};
@@ -120,7 +121,7 @@ mod macos_accessibility {
     }
 
     #[link(name = "ApplicationServices", kind = "framework")]
-    extern "C" {
+    unsafe extern "C" {
         fn AXUIElementCreateSystemWide() -> AXUIElementRef;
         fn AXUIElementCopyAttributeValue(
             element: AXUIElementRef,
@@ -180,11 +181,7 @@ mod macos_accessibility {
             &range as *const _ as *const c_void,
         );
 
-        if value.is_null() {
-            None
-        } else {
-            Some(value)
-        }
+        if value.is_null() { None } else { Some(value) }
     }
 
     unsafe fn copy_attribute(element: AXUIElementRef, attribute: CFStringRef) -> Option<CFTypeRef> {
@@ -974,7 +971,9 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
         if let Err(error) = listen(callback) {
             eprintln!("🚨 Mouse tracking error: {:?}", error);
             eprintln!("This is likely due to missing Accessibility permissions.");
-            eprintln!("Please enable Accessibility permissions in System Preferences and restart Tarantino.");
+            eprintln!(
+                "Please enable Accessibility permissions in System Preferences and restart Tarantino."
+            );
         }
     });
 

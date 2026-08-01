@@ -151,6 +151,11 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
         capture_mode: storeState.captureMode ?? 'display',
         screen_width: storeState.screenResolution?.width ?? null,
         screen_height: storeState.screenResolution?.height ?? null,
+        window_width: storeState.recordingArea?.width ?? null,
+        window_height: storeState.recordingArea?.height ?? null,
+        window_mask_path: storeState.videoFilePath
+          ? `${storeState.videoFilePath.replace(/\.[^/.]+$/, '')}.window-mask.png`
+          : null,
         animation_speed: visualSettings.zoomSpeedPreset ?? 'mellow',
         zoom_spring_tension: SPRING_PRESETS[visualSettings.zoomSpeedPreset ?? 'mellow'].tension,
         zoom_spring_friction: SPRING_PRESETS[visualSettings.zoomSpeedPreset ?? 'mellow'].friction,
@@ -245,21 +250,35 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [commandOpen, shortcutsOpen, notesOpen, currentTime]);
 
-  // Auto-play timer
+  // Keep editor playback on the media clock. Recreating a setInterval after
+  // every state update accumulates React/render overhead and makes preview
+  // time (including the cursor) run slower than the fixed-rate export clock.
   useEffect(() => {
-    if (isPlaying) {
-      const interval = setInterval(() => {
-        const nextTime = currentTime + 16.67; // 60fps
-        if (nextTime >= duration) {
-          setIsPlaying(false);
-          setCurrentTime(duration);
-        } else {
-          setCurrentTime(nextTime);
-        }
-      }, 16.67);
-      return () => clearInterval(interval);
-    }
-  }, [isPlaying, currentTime, duration, setCurrentTime]);
+    if (!isPlaying) return;
+
+    let animationFrameId = 0;
+    const fallbackStartTime = useEditorStore.getState().currentTime;
+    const fallbackStartWallTime = performance.now();
+
+    const updatePlaybackTime = (now: number) => {
+      const video = window.__TARANTINO_VIDEO_ELEMENT;
+      const nextTime = video && video.readyState >= HTMLMediaElement.HAVE_METADATA
+        ? video.currentTime * 1000
+        : fallbackStartTime + (now - fallbackStartWallTime);
+
+      if (nextTime >= duration) {
+        setCurrentTime(duration);
+        setIsPlaying(false);
+        return;
+      }
+
+      setCurrentTime(nextTime);
+      animationFrameId = requestAnimationFrame(updatePlaybackTime);
+    };
+
+    animationFrameId = requestAnimationFrame(updatePlaybackTime);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [isPlaying, duration, setCurrentTime, setIsPlaying]);
 
   // Format the recorded date for the status bar
   const formattedRecordedDate = recordedAt

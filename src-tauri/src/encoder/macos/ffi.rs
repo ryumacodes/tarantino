@@ -37,7 +37,7 @@ pub type VTFrameCallbackFn = extern "C" fn(context: *mut c_void, frame: VTEncode
 #[link(name = "CoreVideo", kind = "framework")]
 #[link(name = "CoreMedia", kind = "framework")]
 #[link(name = "CoreFoundation", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     /// Check if VideoToolbox is available
     pub fn vt_encoder_is_available() -> bool;
 

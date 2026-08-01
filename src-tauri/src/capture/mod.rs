@@ -33,6 +33,7 @@
 //!     include_cursor: true,
 //!     include_audio: false,
 //!     region: None,
+//!     output_path: None,
 //! };
 //! let handle = backend.start_capture(config).await?;
 //!

@@ -99,7 +99,7 @@ pub struct SCKAudioData {
 }
 
 // External functions implemented in Objective-C++ (sck_wrapper.mm)
-extern "C" {
+unsafe extern "C" {
     /// Check if ScreenCaptureKit is available
     pub fn sck_is_available() -> bool;
 

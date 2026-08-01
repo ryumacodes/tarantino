@@ -24,7 +24,7 @@ mod zoom_preview;
 use anyhow::Result;
 use state::UnifiedAppState;
 use std::sync::Arc;
-use tauri::{tray::TrayIconBuilder, Manager};
+use tauri::{Manager, tray::TrayIconBuilder};
 
 // Re-export CaptureMode from commands::capture for external use
 pub use commands::capture::CaptureMode;

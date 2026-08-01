@@ -4,22 +4,22 @@
 //! motion blur, webcam overlay, device frame) run on the GPU via wgpu
 //! compute shaders. FFmpeg is used only for decode and encode.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::io::{BufReader, BufWriter, Read as IoRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use super::audio_export::{append_audio_encode_args, append_audio_inputs, AudioTrackFiles};
+use super::audio_export::{AudioTrackFiles, append_audio_encode_args, append_audio_inputs};
 use super::codec_config::{add_trim_settings, build_codec_args};
-use super::gpu_compositor::{build_gpu_config_with_webcam, GpuCompositor};
+use super::gpu_compositor::{GpuCompositor, build_gpu_config_with_webcam};
 use super::types::{
-    load_zoom_blocks_from_sidecar, validate_export_zoom_blocks, ExportSettings, ProcessingProgress,
-    VideoInfo, ZoomBlock,
+    ExportSettings, ProcessingProgress, VideoInfo, ZoomBlock, load_zoom_blocks_from_sidecar,
+    validate_export_zoom_blocks,
 };
 use super::visual_effects::{determine_output_path, get_cursor_config, get_webcam_info};
-use super::zoom_trajectory::{simulate_zoom_trajectory, ZoomFrameState};
+use super::zoom_trajectory::{ZoomFrameState, simulate_zoom_trajectory};
 use crate::cursor_renderer::{
-    parse_cursor_events, parse_hex_rgb, simulate_cursor_positions, CursorEvent, SpringConfig,
+    CursorEvent, SpringConfig, parse_cursor_events, parse_hex_rgb, simulate_cursor_positions,
 };
 
 /// Apply video effects and export using GPU-accelerated compositing.
@@ -88,11 +88,7 @@ pub async fn export_video(
             if fname.starts_with("processed_") {
                 let original = input_path.with_file_name(fname.replacen("processed_", "", 1));
                 let fallback = original.with_extension("mouse.json");
-                if fallback.exists() {
-                    fallback
-                } else {
-                    direct
-                }
+                if fallback.exists() { fallback } else { direct }
             } else {
                 direct
             }
@@ -481,7 +477,7 @@ pub async fn export_video(
         });
 
         // Upload webcam frame to GPU (if available)
-        if let (Some(ref mut wc_reader), Some(ref mut wc_buf), Some((wc_w, wc_h))) = (
+        if let (Some(wc_reader), Some(wc_buf), Some((wc_w, wc_h))) = (
             &mut webcam_reader,
             &mut webcam_frame_buffer,
             webcam_frame_size,

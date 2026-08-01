@@ -100,6 +100,8 @@ pub struct CaptureConfig {
     pub include_audio: bool,
     /// Specific region to capture (None = full source)
     pub region: Option<CaptureRegion>,
+    /// Recording output path, used for capture-specific sidecar assets.
+    pub output_path: Option<String>,
 }
 
 #[derive(Clone, Debug)]

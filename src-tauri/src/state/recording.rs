@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_recording_config_storage() {
+    async fn test_recording_config_access() {
         let manager = RecordingStateManager::new().unwrap();
 
         let config = RecordingConfig {
@@ -213,8 +213,9 @@ mod tests {
             ..Default::default()
         };
 
-        // Store config (this will fail to start recording but should store config)
-        let _result = manager.start_recording(config.clone()).await;
+        // Keep this unit test independent of live ScreenCaptureKit hardware.
+        // start_recording intentionally clears the config if backend startup fails.
+        *manager.current_config.write() = Some(config);
 
         let stored_config = manager.get_current_config();
         assert!(stored_config.is_some(), "Should have stored config");

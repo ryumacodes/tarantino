@@ -158,14 +158,10 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     const vs = store.visualSettings;
     const duration = store.duration || 0;
 
-    let currentTime = 0;
-    const video = window.__TARANTINO_VIDEO_ELEMENT;
-    if (video && video.duration > 0) {
-      currentTime = video.currentTime * 1000;
-    } else {
-      const editorTime = window.__TARANTINO_CURRENT_TIME;
-      if (editorTime !== undefined) currentTime = editorTime;
-    }
+    // The editor synchronizes this value to the media clock every animation
+    // frame. Using one clock keeps cursor sampling, timeline, zoom, and export
+    // on identical millisecond timestamps.
+    const currentTime = store.currentTime;
 
     const frameIdx = Math.min(
       Math.floor((currentTime / 1000) * 60),

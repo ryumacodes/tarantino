@@ -1,6 +1,6 @@
 use super::*;
-use crate::video_processing::zoom_trajectory::ZoomFrameState;
 use crate::video_processing::CursorSettings;
+use crate::video_processing::zoom_trajectory::ZoomFrameState;
 
 pub fn parse_cursor_events(
     events: &[serde_json::Value],
@@ -232,7 +232,7 @@ pub fn simulate_cursor_positions(
         }
 
         // Transform through zoom if active
-        if let Some(ref trajectory) = zoom_trajectory {
+        if let Some(trajectory) = zoom_trajectory {
             if !trajectory.is_empty() {
                 let tidx = (frame_num as usize).min(trajectory.len() - 1);
                 let zs = &trajectory[tidx];
@@ -268,7 +268,7 @@ pub fn simulate_cursor_positions(
                 // Transform effect position through zoom
                 let mut rx = *exact_x;
                 let mut ry = *exact_y;
-                if let Some(ref trajectory) = zoom_trajectory {
+                if let Some(trajectory) = zoom_trajectory {
                     if !trajectory.is_empty() {
                         let tidx = (frame_num as usize).min(trajectory.len() - 1);
                         let zs = &trajectory[tidx];

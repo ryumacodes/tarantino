@@ -128,7 +128,19 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
   velocityRef,
   videoTransformRef
 }) => {
-  const { videoFilePath, zoomAnalysis, currentTime, loadMouseEvents, visualSettings, displayResolution, videoWidth, videoHeight, captureMode } = useEditorStore();
+  const {
+    videoFilePath,
+    zoomAnalysis,
+    currentTime,
+    loadMouseEvents,
+    visualSettings,
+    displayResolution,
+    screenResolution,
+    recordingArea,
+    videoWidth,
+    videoHeight,
+    captureMode,
+  } = useEditorStore();
   const meshRef = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
   const { viewport } = useThree();
@@ -197,6 +209,21 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
     if (isWindowFocus) {
       planeWidth = contentW;
       planeHeight = contentH;
+    } else if (
+      screenResolution?.width &&
+      screenResolution?.height &&
+      recordingArea?.width &&
+      recordingArea?.height
+    ) {
+      // Desktop mode stages the selected window at the same proportion it
+      // occupied on its host display. The virtual display is aspect-fitted
+      // into the selected canvas, while the background remains fixed.
+      const desktopScale = Math.min(
+        contentW / screenResolution.width,
+        contentH / screenResolution.height
+      );
+      planeWidth = recordingArea.width * desktopScale;
+      planeHeight = recordingArea.height * desktopScale;
     } else {
       if (sourceAspect > videoAspect) {
         planeWidth = contentW;

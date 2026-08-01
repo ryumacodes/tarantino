@@ -1,6 +1,6 @@
 //! FFmpeg command building and execution logic
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::process::Stdio;
 use tokio::process::Command as AsyncCommand;
 
@@ -183,7 +183,10 @@ pub fn build_command_software_with_fallback_level(
                     // Level 2: Software with more conservative seeking
                     let conservative_offset = (time_offset - 0.5).max(0.0);
                     cmd.args(["-ss", &format!("{:.3}", conservative_offset)]);
-                    println!("[FFMPEG FALLBACK L2] Software decoder with conservative seeking (time offset: {:.3}s -> {:.3}s)", time_offset, conservative_offset);
+                    println!(
+                        "[FFMPEG FALLBACK L2] Software decoder with conservative seeking (time offset: {:.3}s -> {:.3}s)",
+                        time_offset, conservative_offset
+                    );
                 }
                 3 => {
                     // Level 3: Try from middle of video instead

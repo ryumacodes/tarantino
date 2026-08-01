@@ -1,8 +1,8 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -581,6 +581,7 @@ fn discard_recording_files(output_path: &str) {
                 base.with_extension("webcam.mp4"),
                 base.with_extension("mic.wav"),
                 base.with_extension("system.wav"),
+                base.with_extension("window-mask.png"),
             ]);
         }
     }

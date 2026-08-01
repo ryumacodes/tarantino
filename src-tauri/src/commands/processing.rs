@@ -429,9 +429,25 @@ pub async fn process_recorded_file(
             media_path = final_path.to_str().unwrap_or("").to_string();
             println!("📁 [PROCESS] Moved video to: {}", media_path);
 
-            // Also move sidecar files (mouse.json and auto_zoom.json) that were saved by generate_zoom_analysis
+            // Also move sidecar files that belong to the recording.
             let temp_base = temp_path.trim_end_matches(".mp4");
             let final_base = media_path.trim_end_matches(".mp4");
+
+            // Move the native window silhouette used to remove transparent corner pixels.
+            // It is captured beside the temporary MP4, so it must follow the video to
+            // its final path for preview and export to find it.
+            let temp_window_mask = format!("{}.window-mask.png", temp_base);
+            let final_window_mask = format!("{}.window-mask.png", final_base);
+            if std::path::Path::new(&temp_window_mask).exists() {
+                if let Err(e) = std::fs::rename(&temp_window_mask, &final_window_mask) {
+                    println!("⚠️ [PROCESS] Failed to move window-mask.png: {}", e);
+                } else {
+                    println!(
+                        "📁 [PROCESS] Moved window-mask.png to: {}",
+                        final_window_mask
+                    );
+                }
+            }
 
             // Move mouse.json
             let temp_mouse = format!("{}.mouse.json", temp_base);
@@ -660,7 +676,13 @@ pub async fn apply_post_processing(video_path: &str) -> Result<String> {
         .to_string_lossy()
         .trim_end_matches(".mp4")
         .to_string();
-    for suffix in ["webcam.mp4", "webcam.webm", "mic.wav", "system.wav"] {
+    for suffix in [
+        "window-mask.png",
+        "webcam.mp4",
+        "webcam.webm",
+        "mic.wav",
+        "system.wav",
+    ] {
         let original_sidecar = format!("{}.{}", original_base, suffix);
         let processed_sidecar = format!("{}.{}", processed_base, suffix);
         if std::path::Path::new(&original_sidecar).exists() {

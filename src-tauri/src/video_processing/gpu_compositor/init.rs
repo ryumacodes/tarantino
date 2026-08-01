@@ -12,28 +12,28 @@ impl GpuCompositor {
         ripple_color: [f32; 3],
         cursor_config: Option<&crate::video_processing::CursorSettings>,
     ) -> Result<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let mut instance_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+        instance_descriptor.backends = wgpu::Backends::all();
+        let instance = wgpu::Instance::new(instance_descriptor);
 
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }))
-        .ok_or_else(|| anyhow!("Failed to find a suitable GPU adapter"))?;
+        .map_err(|e| anyhow!("Failed to find a suitable GPU adapter: {}", e))?;
 
         println!("[GPU] Using adapter: {:?}", adapter.get_info().name);
 
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("Export Compositor"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-            },
-            None,
-        ))
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("Export Compositor"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            memory_hints: wgpu::MemoryHints::Performance,
+            trace: wgpu::Trace::Off,
+        }))
         .map_err(|e| anyhow!("Failed to create GPU device: {}", e))?;
 
         let out_w = config.output_width;
@@ -120,14 +120,14 @@ impl GpuCompositor {
                 view_formats: &[],
             });
             queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &tex,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
                 shape.as_raw(),
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(cw * 4),
                     rows_per_image: Some(ch),
@@ -164,13 +164,14 @@ impl GpuCompositor {
             (tex, false)
         };
 
-        // Pre-bake corner mask texture
+        // Upload the selected window's native silhouette once. A 1x1 white
+        // texture is the compatibility sentinel for older recordings.
         let corner_mask_texture = Self::create_corner_mask_texture(
             &device,
             &queue,
-            config.content_width,
-            config.content_height,
-            config.corner_radius,
+            config.input_width,
+            config.input_height,
+            config.window_mask.as_ref(),
         );
 
         // Pre-bake shadow texture
@@ -316,15 +317,17 @@ impl GpuCompositor {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Composite Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         let composite_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Composite Pipeline"),
             layout: Some(&pipeline_layout),
             module: &shader,
-            entry_point: "main",
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
+            cache: None,
         });
 
         // Create cached sampler and placeholder texture (reused every frame)
@@ -390,8 +393,15 @@ impl GpuCompositor {
             _ => 2.0,
         };
 
-        println!("[GPU] Compositor initialized: {}x{}, cursor={}, corner_radius={}, shadow={}, cursor_style={}",
-            out_w, out_h, cursor_has_shape, config.corner_radius, config.shadow_enabled, cursor_style_str);
+        println!(
+            "[GPU] Compositor initialized: {}x{}, cursor={}, corner_radius={}, shadow={}, cursor_style={}",
+            out_w,
+            out_h,
+            cursor_has_shape,
+            config.corner_radius,
+            config.shadow_enabled,
+            cursor_style_str
+        );
 
         Ok(Self {
             device,

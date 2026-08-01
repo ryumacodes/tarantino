@@ -167,9 +167,13 @@ pub fn flush_encoder(
 
 /// Finalize the MP4 muxer
 #[cfg(target_os = "macos")]
-pub fn finalize_muxer(muxer: Mp4Muxer, output_path: &Path) -> Option<String> {
+pub fn finalize_muxer(
+    muxer: Mp4Muxer,
+    output_path: &Path,
+    target_duration_ms: Option<u64>,
+) -> Option<String> {
     println!("Finalizing MP4 muxer...");
-    if let Err(e) = muxer.finish() {
+    if let Err(e) = muxer.finish_with_duration(target_duration_ms) {
         let err = format!("Failed to finalize muxer: {}", e);
         eprintln!("{}", err);
         return Some(err);

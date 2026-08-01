@@ -13,9 +13,9 @@ use crate::encoder::{Encoder, EncoderConfig};
 #[cfg(target_os = "macos")]
 use crate::muxer::Mp4Muxer;
 #[cfg(target_os = "macos")]
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-#[cfg(target_os = "macos")]
 use cpal::Sample;
+#[cfg(target_os = "macos")]
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 #[cfg(target_os = "macos")]
 struct WavWriter {
@@ -224,7 +224,7 @@ fn spawn_microphone_task(
         let config = device
             .default_input_config()
             .map_err(|e| format!("Failed to get default microphone config: {}", e))?;
-        let sample_rate = config.sample_rate().0;
+        let sample_rate = config.sample_rate();
         let channels = config.channels();
         let writer = Arc::new(std::sync::Mutex::new(WavWriter::create(
             &audio_path,
@@ -285,7 +285,7 @@ fn build_mic_stream<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     writer: Arc<std::sync::Mutex<WavWriter>>,
-    err_fn: impl Fn(cpal::StreamError) + Send + 'static,
+    err_fn: impl Fn(cpal::Error) + Send + 'static,
 ) -> Result<cpal::Stream, String>
 where
     T: cpal::Sample + cpal::SizedSample,
@@ -293,7 +293,7 @@ where
 {
     device
         .build_input_stream(
-            config,
+            config.clone(),
             move |data: &[T], _| {
                 let samples: Vec<i16> = data
                     .iter()
@@ -329,12 +329,15 @@ pub fn spawn_video_task(
 
         let mut written_frame_count = 0u64;
         let mut should_stop = false;
+        let mut first_frame_received_at: Option<std::time::Instant> = None;
+        let mut stop_requested_at: Option<std::time::Instant> = None;
 
         loop {
             // Check stop signal
             if *stop_signal.lock().await {
                 println!("Stop signal received, draining remaining frames before finalizing...");
                 should_stop = true;
+                stop_requested_at.get_or_insert_with(std::time::Instant::now);
             }
 
             // Receive frame with timeout
@@ -368,6 +371,7 @@ pub fn spawn_video_task(
             };
 
             frame_count += 1;
+            first_frame_received_at.get_or_insert_with(std::time::Instant::now);
             if frame_count % 60 == 0 {
                 println!("Captured {} frames", frame_count);
             }
@@ -502,7 +506,16 @@ pub fn spawn_video_task(
 
         // Finalize muxer
         if let Some(mux) = muxer {
-            if let Some(err) = super::finalization::finalize_muxer(mux, &output_path) {
+            let target_duration_ms = first_frame_received_at.map(|started_at| {
+                stop_requested_at
+                    .unwrap_or_else(std::time::Instant::now)
+                    .saturating_duration_since(started_at)
+                    .as_millis()
+                    .min(u64::MAX as u128) as u64
+            });
+            if let Some(err) =
+                super::finalization::finalize_muxer(mux, &output_path, target_duration_ms)
+            {
                 if error_msg.is_none() {
                     error_msg = Some(err);
                 }

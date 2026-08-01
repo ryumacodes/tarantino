@@ -1,9 +1,9 @@
 //! Video processing and editing capabilities with caching and memory optimizations
 
 use crate::ffmpeg_manager::{
-    get_ffmpeg_manager, FFmpegOperation, OperationPriority, OperationResult,
+    FFmpegOperation, OperationPriority, OperationResult, get_ffmpeg_manager,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -98,11 +98,7 @@ impl VideoProcessor {
         let fps = if let Some((num, den)) = fps_str.split_once('/') {
             let num: f64 = num.parse().unwrap_or(30.0);
             let den: f64 = den.parse().unwrap_or(1.0);
-            if den != 0.0 {
-                num / den
-            } else {
-                30.0
-            }
+            if den != 0.0 { num / den } else { 30.0 }
         } else {
             30.0
         };

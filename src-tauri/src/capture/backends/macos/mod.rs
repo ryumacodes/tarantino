@@ -10,6 +10,7 @@
 //! - Hardware-accelerated encoding support
 
 use anyhow::Result;
+use std::ffi::CString;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 
@@ -167,7 +168,9 @@ impl NativeCaptureBackend for ScreenCaptureKitBackend {
         // Check permissions first
         let perms = self.check_permissions().await?;
         if !perms.screen_recording {
-            anyhow::bail!("Screen recording permission not granted. Please enable in System Settings > Privacy & Security > Screen Recording");
+            anyhow::bail!(
+                "Screen recording permission not granted. Please enable in System Settings > Privacy & Security > Screen Recording"
+            );
         }
 
         // Create broadcast channels for frames and audio
@@ -280,6 +283,12 @@ impl NativeCaptureBackend for ScreenCaptureKitBackend {
         };
 
         // Build FFI config now to keep !Send pointer out of await regions
+        let output_path = config
+            .output_path
+            .as_deref()
+            .map(CString::new)
+            .transpose()
+            .map_err(|_| anyhow::anyhow!("Recording output path contains a null byte"))?;
         let sck_config = SCKCaptureConfig {
             source_id: config.source_id,
             is_display: matches!(config.source_type, CaptureSourceType::Display),
@@ -290,7 +299,9 @@ impl NativeCaptureBackend for ScreenCaptureKitBackend {
             crop_y: config.region.as_ref().map(|r| r.y).unwrap_or(0),
             crop_width: config.region.as_ref().map(|r| r.width).unwrap_or(0),
             crop_height: config.region.as_ref().map(|r| r.height).unwrap_or(0),
-            output_path: std::ptr::null(),
+            output_path: output_path
+                .as_ref()
+                .map_or(std::ptr::null(), |path| path.as_ptr()),
         };
 
         let _guard = SCK_SHAREABLE_LOCK.lock().unwrap();

@@ -130,7 +130,16 @@ pub(super) fn detect_typing_sessions(
         let (min_x, max_x, min_y, max_y) = center_ranges(&s.centers);
         println!(
             "   Session {}: {}ms-{}ms, {} keys, cursor=({:.2}, {:.2}), centers x={:.3}-{:.3} y={:.3}-{:.3}",
-            i, s.start_time, s.end_time, s.key_count, s.cursor_x, s.cursor_y, min_x, max_x, min_y, max_y
+            i,
+            s.start_time,
+            s.end_time,
+            s.key_count,
+            s.cursor_x,
+            s.cursor_y,
+            min_x,
+            max_x,
+            min_y,
+            max_y
         );
     }
 

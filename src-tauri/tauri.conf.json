@@ -54,7 +54,7 @@
     "targets": "all",
     "macOS": {
       "frameworks": [],
-      "minimumSystemVersion": "10.15",
+      "minimumSystemVersion": "12.3",
       "exceptionDomain": "",
       "signingIdentity": "-",
       "providerShortName": null,

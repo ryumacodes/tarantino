@@ -5,7 +5,7 @@
 
 mod simulation;
 
-pub use simulation::{parse_cursor_events, simulate_cursor_positions, CursorFrameState};
+pub use simulation::{CursorFrameState, parse_cursor_events, simulate_cursor_positions};
 
 /// Spring physics state for smooth cursor animation
 #[derive(Clone, Copy, Debug)]

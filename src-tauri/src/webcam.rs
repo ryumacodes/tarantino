@@ -8,8 +8,8 @@
 
 use std::os::raw::{c_char, c_void};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use bytes::Bytes;
 use tokio::sync::broadcast;
@@ -27,7 +27,7 @@ struct AVCFrameData {
     stride: u32,
 }
 
-extern "C" {
+unsafe extern "C" {
     fn avc_start_webcam(
         device_id: *const c_char,
         shape: *const c_char,

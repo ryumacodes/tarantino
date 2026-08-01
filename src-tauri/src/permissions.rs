@@ -39,7 +39,7 @@ mod macos {
     use std::ffi::c_void;
 
     // External function declarations for macOS accessibility APIs
-    extern "C" {
+    unsafe extern "C" {
         fn AXIsProcessTrusted() -> bool;
         fn AXIsProcessTrustedWithOptions(options: *const c_void) -> bool;
         fn CFDictionaryCreate(
@@ -53,7 +53,7 @@ mod macos {
     }
 
     // External constants
-    extern "C" {
+    unsafe extern "C" {
         static kAXTrustedCheckOptionPrompt: CFStringRef;
     }
 
@@ -424,7 +424,9 @@ pub fn validate_mouse_tracking_permissions() -> Result<(), PermissionError> {
             match macos::request_accessibility_permission() {
                 Ok(granted) if granted => return Ok(()),
                 Ok(_) => {
-                    println!("=== PERMISSIONS: Accessibility permission still not granted after request ===");
+                    println!(
+                        "=== PERMISSIONS: Accessibility permission still not granted after request ==="
+                    );
                     return Err(PermissionError::UserDenied);
                 }
                 Err(e) => {

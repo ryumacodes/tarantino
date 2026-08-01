@@ -7,7 +7,7 @@
 //! This is the single source of truth for zoom animation in export,
 //! replacing the old FFmpeg zoompan smoothstep approximation.
 
-use crate::cursor_renderer::{spring_step, CursorEvent, SpringConfig, SpringState};
+use crate::cursor_renderer::{CursorEvent, SpringConfig, SpringState, spring_step};
 use crate::video_processing::types::ZoomBlock;
 
 /// Per-frame zoom state produced by the spring simulation

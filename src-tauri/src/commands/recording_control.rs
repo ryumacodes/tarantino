@@ -3,8 +3,8 @@
 //! Handles starting, stopping, pausing, and resuming recordings.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
 use tauri::{Emitter, Manager, State};
@@ -252,6 +252,24 @@ pub async fn record_stop(
         if std::fs::rename(&temp_path, &final_path).is_ok() {
             println!("Moved recording to {}", final_path.display());
             media_path = final_path.to_str().unwrap_or("").to_string();
+
+            let temp_window_mask =
+                std::path::Path::new(&temp_path).with_extension("window-mask.png");
+            let final_window_mask = final_path.with_extension("window-mask.png");
+            if temp_window_mask.exists() {
+                if let Err(error) = std::fs::rename(&temp_window_mask, &final_window_mask) {
+                    println!(
+                        "Warning: Failed to move native window silhouette to {}: {}",
+                        final_window_mask.display(),
+                        error
+                    );
+                } else {
+                    println!(
+                        "Moved native window silhouette to {}",
+                        final_window_mask.display()
+                    );
+                }
+            }
         }
     }
 

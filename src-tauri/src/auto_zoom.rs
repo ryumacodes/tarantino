@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 mod typing_zoom;
 
 pub use typing_zoom::validate_zoom_blocks;
-use typing_zoom::{create_typing_zoom_blocks, detect_typing_sessions, TypingZoomConfig};
+use typing_zoom::{TypingZoomConfig, create_typing_zoom_blocks, detect_typing_sessions};
 
 /// Click-based zoom configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]

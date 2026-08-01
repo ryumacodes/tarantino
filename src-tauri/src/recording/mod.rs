@@ -99,6 +99,7 @@ impl RecordingAPI {
                 include_cursor: config.include_cursor,
                 include_audio: config.include_system_audio,
                 region: None,
+                output_path: Some(config.output_path.clone()),
             };
 
             // Start capture
@@ -209,10 +210,12 @@ impl RecordingAPI {
             println!("Signaling stop to native recording");
             *self.stop_signal.lock().await = true;
 
-            // Give the recording loop time to see the stop signal before channel closes
-            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-
-            // Stop capture backend
+            // Stop the capture source before yielding to the encoder task. The encoder's
+            // VideoToolbox flush and MP4 finalization contain synchronous work; yielding
+            // here lets that work run first and keeps ScreenCaptureKit recording for
+            // seconds after the user clicked Stop. Closing the source immediately gives
+            // the encoder a fixed queue to drain and makes the media endpoint match the
+            // user's stop action.
             if let Some(backend) = &mut self.capture_backend {
                 println!("Stopping capture backend");
                 let _ = backend.stop_capture().await;

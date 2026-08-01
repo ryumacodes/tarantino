@@ -91,8 +91,15 @@ pub async fn show_display_preview(
                 let pos = tauri::LogicalPosition::new(frame.origin.x, frame.origin.y);
                 let size = tauri::LogicalSize::new(frame.size.width, frame.size.height);
 
-                println!("Found NSScreen for display {} (CGDirectDisplayID {}): frame origin({}, {}), size({} x {})",
-                         display_id, display.cg_display_id, frame.origin.x, frame.origin.y, frame.size.width, frame.size.height);
+                println!(
+                    "Found NSScreen for display {} (CGDirectDisplayID {}): frame origin({}, {}), size({} x {})",
+                    display_id,
+                    display.cg_display_id,
+                    frame.origin.x,
+                    frame.origin.y,
+                    frame.size.width,
+                    frame.size.height
+                );
 
                 (pos, size)
             }

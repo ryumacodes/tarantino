@@ -4,7 +4,7 @@
 //! shadow, webcam mask, motion blur, background compositing) with GPU compute shaders.
 //! Keeps per-frame compositing work on the GPU.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use image::RgbaImage;
 mod config;
 mod init;
@@ -41,6 +41,8 @@ pub struct GpuCompositorConfig {
     pub background_gradient: Option<GradientConfig>,
     /// Background image for custom wallpaper export
     pub background_image: Option<RgbaImage>,
+    /// Native selected-window silhouette (white inside, black outside)
+    pub window_mask: Option<RgbaImage>,
     /// Corner radius in pixels (0 = no rounding)
     pub corner_radius: f32,
     /// Shadow settings
@@ -391,13 +393,9 @@ impl GpuCompositor {
             webcam_pos_x: webcam_cfg.as_ref().map_or(0.0, |w| w.pos_x),
             webcam_pos_y: webcam_cfg.as_ref().map_or(0.0, |w| w.pos_y),
             webcam_size: webcam_cfg.as_ref().map_or(0.0, |w| w.size),
-            webcam_shape: webcam_cfg.as_ref().map_or(0.0, |w| {
-                if w.shape == "circle" {
-                    0.0
-                } else {
-                    1.0
-                }
-            }),
+            webcam_shape: webcam_cfg
+                .as_ref()
+                .map_or(0.0, |w| if w.shape == "circle" { 0.0 } else { 1.0 }),
             device_frame_enabled: if df_cfg.is_some() { 1.0 } else { 0.0 },
             device_frame_bezel: df_cfg.as_ref().map_or(0.0, |d| d.bezel as f32),
             device_frame_corner_radius: df_cfg.as_ref().map_or(0.0, |d| d.corner_radius as f32),
@@ -466,14 +464,14 @@ impl GpuCompositor {
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
         self.queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &self.source_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             source_frame,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(in_w * 4),
                 rows_per_image: Some(in_h),
@@ -508,15 +506,15 @@ impl GpuCompositor {
 
         // Copy output texture to download buffer
         encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &self.output_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::ImageCopyBuffer {
+            wgpu::TexelCopyBufferInfo {
                 buffer: &self.download_buffer,
-                layout: wgpu::ImageDataLayout {
+                layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(self.padded_bytes_per_row),
                     rows_per_image: Some(out_h),
@@ -537,13 +535,17 @@ impl GpuCompositor {
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = sender.send(result);
         });
-        self.device.poll(wgpu::Maintain::Wait);
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|e| anyhow!("GPU poll error: {}", e))?;
         receiver
             .recv()
             .map_err(|e| anyhow!("GPU readback channel error: {}", e))?
             .map_err(|e| anyhow!("GPU readback map error: {:?}", e))?;
 
-        let data = buffer_slice.get_mapped_range();
+        let data = buffer_slice
+            .get_mapped_range()
+            .map_err(|e| anyhow!("GPU mapped range error: {}", e))?;
         let unpadded_bytes_per_row = (out_w * 4) as usize;
         let padded = self.padded_bytes_per_row as usize;
         let result = if padded != unpadded_bytes_per_row {

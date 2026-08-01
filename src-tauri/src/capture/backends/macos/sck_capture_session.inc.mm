@@ -77,7 +77,14 @@
 
             // Get timestamp
             CMTime presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
-            uint64_t timestamp_us = (uint64_t)((presentationTime.value * 1000000) / presentationTime.timescale);
+            CMTime presentationTimeUs = CMTimeConvertScale(
+                presentationTime,
+                1000000,
+                kCMTimeRoundingMethod_RoundHalfAwayFromZero
+            );
+            uint64_t timestamp_us = CMTIME_IS_NUMERIC(presentationTimeUs) && presentationTimeUs.value > 0
+                ? (uint64_t)presentationTimeUs.value
+                : 0;
 
             // Create frame data
             size_t dataSize = bytesPerRow * height;
@@ -132,7 +139,14 @@
 
                 // Get timestamp
                 CMTime presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
-                uint64_t timestamp_us = (uint64_t)((presentationTime.value * 1000000) / presentationTime.timescale);
+                CMTime presentationTimeUs = CMTimeConvertScale(
+                    presentationTime,
+                    1000000,
+                    kCMTimeRoundingMethod_RoundHalfAwayFromZero
+                );
+                uint64_t timestamp_us = CMTIME_IS_NUMERIC(presentationTimeUs) && presentationTimeUs.value > 0
+                    ? (uint64_t)presentationTimeUs.value
+                    : 0;
 
                 // Create audio data
                 SCKAudioData audio = {

@@ -5,7 +5,7 @@
 use anyhow::Result;
 use std::sync::Arc;
 
-use super::{save_zoom_sidecar, UnifiedAppState};
+use super::{UnifiedAppState, save_zoom_sidecar};
 
 impl UnifiedAppState {
     /// Get the mouse tracker instance

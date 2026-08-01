@@ -23,6 +23,23 @@ pub fn build_gpu_config(
     let background_color = parse_hex_color(bg_hex);
     let background_gradient = build_gradient_config(visual);
     let background_image = visual.and_then(decode_custom_background_image);
+    let window_mask = settings
+        .window_mask_path
+        .as_deref()
+        .filter(|_| settings.capture_mode.as_deref() == Some("window"))
+        .and_then(|path| match image::open(path) {
+            Ok(image) => {
+                println!("[Window Mask] loaded native silhouette: {}", path);
+                Some(image.to_rgba8())
+            }
+            Err(error) => {
+                println!(
+                    "[Window Mask] native silhouette unavailable (using compatibility radius): {}",
+                    error
+                );
+                None
+            }
+        });
 
     let corner_radius_pct = visual.and_then(|v| v.corner_radius).unwrap_or(0.0);
     let min_dim = content_w.min(content_h) as f32;
@@ -110,31 +127,25 @@ pub fn build_gpu_config(
                     let ox = (content_w - iw) / 2;
                     let oy = (content_h - ih) / 2;
                     (iw, ih, ox, oy)
-                } else {
-                    // Display mode (or window mode with missing screen dims): aspect-fit to fill content
-                    let src_aspect = sw as f64 / sh as f64;
-                    let cnt_aspect = content_w as f64 / content_h as f64;
-                    let (mut iw, mut ih) = if (src_aspect - cnt_aspect).abs() < 0.01 {
-                        // Same aspect ratio — input fills content
-                        (content_w, content_h)
-                    } else if src_aspect > cnt_aspect {
-                        // Source wider — fit to content width, letterbox vertically
-                        let h = (content_w as f64 / src_aspect).round() as u32;
-                        (content_w, h)
+                } else if is_window_mode {
+                    if let (Some(screen_w), Some(screen_h), Some(window_w), Some(window_h)) = (
+                        settings.screen_width,
+                        settings.screen_height,
+                        settings.window_width,
+                        settings.window_height,
+                    ) {
+                        if screen_w > 0 && screen_h > 0 && window_w > 0 && window_h > 0 {
+                            proportional_window_input(
+                                screen_w, screen_h, window_w, window_h, content_w, content_h,
+                            )
+                        } else {
+                            aspect_fit_input(sw, sh, content_w, content_h)
+                        }
                     } else {
-                        // Source taller — fit to content height, pillarbox horizontally
-                        let w = (content_h as f64 * src_aspect).round() as u32;
-                        (w, content_h)
-                    };
-                    // Ensure even dims
-                    iw = iw - (iw % 2);
-                    ih = ih - (ih % 2);
-                    // Clamp to content
-                    iw = iw.min(content_w);
-                    ih = ih.min(content_h);
-                    let ox = (content_w - iw) / 2;
-                    let oy = (content_h - ih) / 2;
-                    (iw, ih, ox, oy)
+                        aspect_fit_input(sw, sh, content_w, content_h)
+                    }
+                } else {
+                    aspect_fit_input(sw, sh, content_w, content_h)
                 }
             } else {
                 (content_w, content_h, 0, 0)
@@ -163,6 +174,7 @@ pub fn build_gpu_config(
         background_color,
         background_gradient,
         background_image,
+        window_mask,
         corner_radius,
         shadow_enabled,
         shadow_blur,
@@ -175,6 +187,72 @@ pub fn build_gpu_config(
         motion_blur_pan_intensity,
         motion_blur_zoom_intensity,
         window_mode: settings.capture_mode.as_deref() == Some("window"),
+    }
+}
+
+fn aspect_fit_input(
+    source_w: u32,
+    source_h: u32,
+    content_w: u32,
+    content_h: u32,
+) -> (u32, u32, u32, u32) {
+    let src_aspect = source_w as f64 / source_h as f64;
+    let cnt_aspect = content_w as f64 / content_h as f64;
+    let (mut input_w, mut input_h) = if (src_aspect - cnt_aspect).abs() < 0.01 {
+        (content_w, content_h)
+    } else if src_aspect > cnt_aspect {
+        (content_w, (content_w as f64 / src_aspect).round() as u32)
+    } else {
+        ((content_h as f64 * src_aspect).round() as u32, content_h)
+    };
+    input_w = (input_w.min(content_w).max(2)) & !1;
+    input_h = (input_h.min(content_h).max(2)) & !1;
+    let offset_x = (content_w - input_w) / 2;
+    let offset_y = (content_h - input_h) / 2;
+    (input_w, input_h, offset_x, offset_y)
+}
+
+fn proportional_window_input(
+    screen_w: u32,
+    screen_h: u32,
+    window_w: u32,
+    window_h: u32,
+    content_w: u32,
+    content_h: u32,
+) -> (u32, u32, u32, u32) {
+    // Match preview Desktop mode: aspect-fit a virtual host display into the
+    // content area, then size the selected window by its real proportion of it.
+    let desktop_scale =
+        (content_w as f64 / screen_w as f64).min(content_h as f64 / screen_h as f64);
+    let mut input_w = (window_w as f64 * desktop_scale).round() as u32;
+    let mut input_h = (window_h as f64 * desktop_scale).round() as u32;
+    input_w = (input_w.min(content_w).max(2)) & !1;
+    input_h = (input_h.min(content_h).max(2)) & !1;
+    let offset_x = (content_w - input_w) / 2;
+    let offset_y = (content_h - input_h) / 2;
+    (input_w, input_h, offset_x, offset_y)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::proportional_window_input;
+
+    #[test]
+    fn desktop_layout_preserves_window_proportion_within_host_display() {
+        let layout = proportional_window_input(1470, 956, 874, 709, 1920, 1080);
+
+        assert_eq!(layout, (986, 800, 467, 140));
+    }
+
+    #[test]
+    fn desktop_layout_uses_selected_canvas_as_the_outer_bounds() {
+        let (width, height, offset_x, offset_y) =
+            proportional_window_input(1470, 956, 1180, 710, 1920, 1080);
+
+        assert!(width < 1920);
+        assert!(height < 1080);
+        assert_eq!(offset_x, (1920 - width) / 2);
+        assert_eq!(offset_y, (1080 - height) / 2);
     }
 }
 

@@ -1,9 +1,9 @@
 //! Thumbnail extraction for video timeline scrubbing
 
 use crate::ffmpeg_manager::{
-    get_ffmpeg_manager, FFmpegOperation, OperationPriority, OperationResult,
+    FFmpegOperation, OperationPriority, OperationResult, get_ffmpeg_manager,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Semaphore;

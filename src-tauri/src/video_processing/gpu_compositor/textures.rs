@@ -31,14 +31,14 @@ impl GpuCompositor {
             view_formats: &[],
         });
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             data,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(width * 4),
                 rows_per_image: Some(height),
@@ -164,14 +164,14 @@ impl GpuCompositor {
     pub fn upload_webcam_frame(&self, data: &[u8], width: u32, height: u32) {
         if let Some(ref tex) = self.webcam_texture {
             self.queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: tex,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
                 data,
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(width * 4),
                     rows_per_image: Some(height),
@@ -197,37 +197,21 @@ impl GpuCompositor {
         queue: &wgpu::Queue,
         width: u32,
         height: u32,
-        corner_radius: f32,
+        native_mask: Option<&image::RgbaImage>,
     ) -> wgpu::Texture {
-        let mut data = vec![255u8; (width * height * 4) as usize];
-
-        if corner_radius > 0.0 {
-            let r = corner_radius.min(width.min(height) as f32 / 2.0);
-            for y in 0..height {
-                for x in 0..width {
-                    let idx = ((y * width + x) * 4) as usize;
-                    // Check each corner
-                    let alpha = Self::rounded_corner_alpha(
-                        x as f32,
-                        y as f32,
-                        width as f32,
-                        height as f32,
-                        r,
-                    );
-                    let a = (alpha * 255.0).clamp(0.0, 255.0) as u8;
-                    data[idx] = 255; // R
-                    data[idx + 1] = 255; // G
-                    data[idx + 2] = 255; // B
-                    data[idx + 3] = a; // A
-                }
-            }
-        }
+        let (texture_width, texture_height, data) = if let Some(mask) = native_mask {
+            let resized =
+                image::imageops::resize(mask, width, height, image::imageops::FilterType::Lanczos3);
+            (width, height, resized.into_raw())
+        } else {
+            (1, 1, vec![255u8; 4])
+        };
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Corner Mask"),
             size: wgpu::Extent3d {
-                width,
-                height,
+                width: texture_width,
+                height: texture_height,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -239,21 +223,21 @@ impl GpuCompositor {
         });
 
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             &data,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(width * 4),
-                rows_per_image: Some(height),
+                bytes_per_row: Some(texture_width * 4),
+                rows_per_image: Some(texture_height),
             },
             wgpu::Extent3d {
-                width,
-                height,
+                width: texture_width,
+                height: texture_height,
                 depth_or_array_layers: 1,
             },
         );
@@ -383,14 +367,14 @@ impl GpuCompositor {
         });
 
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             &data,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(out_w * 4),
                 rows_per_image: Some(out_h),

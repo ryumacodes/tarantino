@@ -27,7 +27,10 @@ pub struct Mp4Muxer {
     timescale: u32,
     sps: Option<Vec<u8>>,
     pps: Option<Vec<u8>>,
-    pending_samples: Vec<(EncodedFrame, u32)>, // Store frames until we have SPS/PPS
+    pending_samples: Vec<EncodedFrame>, // Store frames until we have SPS/PPS
+    pending_timed_sample: Option<EncodedFrame>,
+    default_duration_ms: u32,
+    timeline_duration: u64,
 }
 
 impl Mp4Muxer {
@@ -77,6 +80,9 @@ impl Mp4Muxer {
             sps: None,
             pps: None,
             pending_samples: Vec::new(),
+            pending_timed_sample: None,
+            default_duration_ms: (1000 / fps.max(1)).max(1),
+            timeline_duration: 0,
         })
     }
 
@@ -182,8 +188,8 @@ impl Mp4Muxer {
         if !self.pending_samples.is_empty() {
             println!("Writing {} pending samples", self.pending_samples.len());
             let samples: Vec<_> = self.pending_samples.drain(..).collect();
-            for (frame, duration_ms) in samples {
-                self.write_frame_internal(&frame, duration_ms)?;
+            for frame in samples {
+                self.queue_timed_sample(frame)?;
             }
         }
 
@@ -324,7 +330,7 @@ impl Mp4Muxer {
         let sample_duration = (duration_ms as u64 * self.timescale as u64) / 1000;
 
         let sample = Mp4Sample {
-            start_time: (self.frame_count as u64 * sample_duration),
+            start_time: self.timeline_duration,
             duration: sample_duration as u32,
             rendering_offset: 0,
             is_sync: frame.is_keyframe,
@@ -337,6 +343,7 @@ impl Mp4Muxer {
             .ok_or_else(|| anyhow::anyhow!("Writer not available"))?;
 
         writer.write_sample(track_id, &sample)?;
+        self.timeline_duration += sample_duration;
         self.frame_count += 1;
 
         if self.frame_count % 100 == 0 {
@@ -347,7 +354,22 @@ impl Mp4Muxer {
     }
 
     /// Write an encoded frame to the MP4 file
-    pub fn write_frame(&mut self, frame: &EncodedFrame, duration_ms: u32) -> Result<()> {
+    fn queue_timed_sample(&mut self, frame: EncodedFrame) -> Result<()> {
+        if let Some(previous) = self.pending_timed_sample.replace(frame) {
+            let current_timestamp = self
+                .pending_timed_sample
+                .as_ref()
+                .map(|sample| sample.timestamp_us)
+                .unwrap_or(previous.timestamp_us);
+            let duration_ms = (((current_timestamp.saturating_sub(previous.timestamp_us)) + 500)
+                / 1000)
+                .max(1) as u32;
+            self.write_frame_internal(&previous, duration_ms)?;
+        }
+        Ok(())
+    }
+
+    pub fn write_frame(&mut self, frame: &EncodedFrame, _duration_ms: u32) -> Result<()> {
         // Extract SPS/PPS from frame metadata if available (preferred method)
         // VideoToolbox provides these via format description - more reliable than bitstream scanning
         if self.sps.is_none() {
@@ -375,23 +397,39 @@ impl Mp4Muxer {
 
         // If track is initialized, write the frame
         if self.track_id.is_some() {
-            self.write_frame_internal(frame, duration_ms)?;
+            self.queue_timed_sample(frame.clone())?;
         } else {
             // Otherwise, queue it for later
-            self.pending_samples.push((frame.clone(), duration_ms));
+            self.pending_samples.push(frame.clone());
         }
 
         Ok(())
     }
 
     /// Finalize and close the MP4 file
-    pub fn finish(mut self) -> Result<()> {
+    pub fn finish(self) -> Result<()> {
+        self.finish_with_duration(None)
+    }
+
+    /// Finish the file and hold the final captured image until the requested
+    /// recording duration. This keeps static tails aligned with cursor/audio.
+    pub fn finish_with_duration(mut self, target_duration_ms: Option<u64>) -> Result<()> {
         // Initialize track if we have pending samples
         if !self.pending_samples.is_empty() && self.track_id.is_none() {
             if let Err(e) = self.initialize_track() {
                 eprintln!("Failed to initialize track during finish: {}", e);
                 return Err(e);
             }
+        }
+
+        if let Some(last_frame) = self.pending_timed_sample.take() {
+            let written_ms = self.timeline_duration * 1000 / self.timescale as u64;
+            let tail_duration_ms = target_duration_ms
+                .map(|target| target.saturating_sub(written_ms))
+                .unwrap_or(self.default_duration_ms as u64)
+                .max(self.default_duration_ms as u64)
+                .min(u32::MAX as u64) as u32;
+            self.write_frame_internal(&last_frame, tail_duration_ms)?;
         }
 
         if let Some(mut writer) = self.writer.take() {

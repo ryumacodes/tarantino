@@ -9,7 +9,7 @@
 pub mod operations;
 pub mod types;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -20,8 +20,8 @@ pub use operations::{
     build_command, build_command_software_only, build_command_software_with_fallback_level,
 };
 pub use types::{
-    ActiveOperation, FFmpegOperation, ManagerStats, OperationPriority, OperationResult,
-    QueuedOperation, DEFAULT_OPERATION_TIMEOUT, MAX_CONCURRENT_OPERATIONS,
+    ActiveOperation, DEFAULT_OPERATION_TIMEOUT, FFmpegOperation, MAX_CONCURRENT_OPERATIONS,
+    ManagerStats, OperationPriority, OperationResult, QueuedOperation,
 };
 
 /// Centralized FFmpeg process manager
@@ -103,7 +103,10 @@ impl FFmpegManager {
         // If it failed, retry with multi-level software fallback
         if let OperationResult::Error(ref error_msg) = result {
             if operations::should_retry_with_software(error_msg) {
-                println!("[FFMPEG FALLBACK] Operation {} failed with error, starting multi-level software fallback", operation_id);
+                println!(
+                    "[FFMPEG FALLBACK] Operation {} failed with error, starting multi-level software fallback",
+                    operation_id
+                );
                 println!(
                     "[FFMPEG FALLBACK] Error detected: {}",
                     if error_msg.len() > 150 {
