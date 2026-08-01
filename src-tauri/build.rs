@@ -8,9 +8,6 @@ fn main() {
 
     #[cfg(target_os = "windows")]
     build_windows_backend();
-
-    #[cfg(target_os = "linux")]
-    build_linux_backend();
 }
 
 #[cfg(target_os = "macos")]
@@ -81,12 +78,4 @@ fn build_windows_backend() {
     println!("cargo:rustc-link-lib=dxgi");
     println!("cargo:rustc-link-lib=mfplat");
     println!("cargo:rustc-link-lib=mfreadwrite");
-}
-
-#[cfg(target_os = "linux")]
-fn build_linux_backend() {
-    // Linux PipeWire backend
-    // Link PipeWire libraries
-    println!("cargo:rustc-link-lib=pipewire-0.3");
-    println!("cargo:rustc-link-lib=spa-0.2");
 }

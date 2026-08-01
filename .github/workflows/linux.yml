@@ -19,7 +19,6 @@ jobs:
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
             libxdo-dev libasound2-dev clang \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            libpipewire-0.3-dev \
             libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
             libavdevice-dev libswscale-dev libswresample-dev ffmpeg \
             gstreamer1.0-tools gstreamer1.0-pipewire \
@@ -51,7 +50,7 @@ jobs:
           pacman -S --needed --noconfirm \
             git curl wget file pkgconf openssl clang rustup nodejs pnpm \
             webkit2gtk-4.1 libayatana-appindicator librsvg xdotool alsa-lib \
-            ffmpeg gstreamer libpipewire gst-plugins-base gst-plugins-good \
+            ffmpeg gstreamer gst-plugins-base gst-plugins-good \
             gst-plugins-bad gst-plugins-ugly gst-plugin-pipewire
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
