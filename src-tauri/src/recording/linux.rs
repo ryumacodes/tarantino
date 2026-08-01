@@ -57,7 +57,7 @@ impl LinuxRecording {
                 &session,
                 SelectSourcesOptions::default()
                     .set_cursor_mode(cursor_mode)
-                    .set_sources(source_type)
+                    .set_sources(Some(source_type.into()))
                     .set_multiple(false)
                     .set_restore_token(None)
                     .set_persist_mode(PersistMode::DoNot),

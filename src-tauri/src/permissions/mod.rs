@@ -114,6 +114,7 @@ pub fn open_accessibility_preferences() -> Result<(), PermissionError> {
     #[cfg(not(target_os = "macos"))]
     {
         other_platforms::open_accessibility_preferences()
+            .map_err(|e| PermissionError::SystemError(e.to_string()))
     }
 }
 
@@ -158,6 +159,7 @@ pub fn open_camera_preferences() -> Result<(), PermissionError> {
     #[cfg(not(target_os = "macos"))]
     {
         other_platforms::open_camera_preferences()
+            .map_err(|e| PermissionError::SystemError(e.to_string()))
     }
 }
 

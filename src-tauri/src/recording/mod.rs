@@ -223,10 +223,7 @@ impl RecordingAPI {
 
         #[cfg(target_os = "linux")]
         {
-            *self.stop_signal.lock().await = true;
-            if let Some(recording) = &mut self.linux_recording {
-                recording.signal_stop()?;
-            }
+            None
         }
 
         #[cfg(target_os = "windows")]
@@ -254,7 +251,15 @@ impl RecordingAPI {
             }
         }
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        {
+            *self.stop_signal.lock().await = true;
+            if let Some(recording) = &mut self.linux_recording {
+                recording.signal_stop()?;
+            }
+        }
+
+        #[cfg(target_os = "windows")]
         {
             // Try to gracefully terminate the ffmpeg recorder
             if let Some(child) = &mut self.child {
