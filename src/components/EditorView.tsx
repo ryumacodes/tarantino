@@ -84,6 +84,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
           kind: block.kind ?? 'click',
           zoom_in_speed: block.zoom_in_speed ?? null,
           zoom_out_speed: block.zoom_out_speed ?? null,
+          timing_adjusted: block.timing_adjusted ?? false,
           centers: block.centers ?? [],
         })),
         zoom_keyframes: zoomKeyframes,

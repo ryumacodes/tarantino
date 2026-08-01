@@ -3,7 +3,7 @@ import { useThree, useFrame } from '@react-three/fiber';
 import { Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { useEditorStore, SPRING_PRESETS } from '../../../stores/editor';
+import { useEditorStore, SPRING_PRESETS, ZOOM_SPEED_PRESETS } from '../../../stores/editor';
 import { VideoMaterial, VideoFallback } from './VideoMaterial';
 import { BackgroundPlane } from './BackgroundPlane';
 import { VideoShadow } from './VideoShadow';
@@ -270,12 +270,16 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
     let targetCenterY = 0.5;
     let isZooming = false;
     let isFollowPhase = false;
+    let isAdjustedExit = false;
     let zoomSpringConfig: SpringConfig = lastBlockOutConfigRef.current ?? globalZoomConfig;
 
     if (zoomAnalysis && zoomAnalysis.zoom_blocks.length > 0) {
-      const activeBlock = zoomAnalysis.zoom_blocks.find(
+      const activeBlockIndex = zoomAnalysis.zoom_blocks.findIndex(
         block => currentTime >= block.start_time && currentTime <= block.end_time
       );
+      const activeBlock = activeBlockIndex >= 0
+        ? zoomAnalysis.zoom_blocks[activeBlockIndex]
+        : undefined;
 
       if (activeBlock) {
         isZooming = true;
@@ -286,7 +290,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
         const blockOutConfig = activeBlock.zoom_out_speed
           ? SPRING_PRESETS[activeBlock.zoom_out_speed] : globalZoomConfig;
 
-        const blockKey = `${activeBlock.start_time}-${activeBlock.end_time}`;
+        const blockKey = activeBlock.id;
         if (prevActiveBlockRef.current !== blockKey) {
           prevActiveBlockRef.current = blockKey;
           const alreadyZoomed = zoomSpring.current.value > 1.1;
@@ -326,11 +330,33 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
           targetCenterY = anchorCenterY;
         }
 
+        const nextBlock = zoomAnalysis.zoom_blocks[activeBlockIndex + 1];
+        const hasContinuousNextBlock = Boolean(
+          nextBlock && nextBlock.start_time <= activeBlock.end_time + 1
+        );
+        if (activeBlock.timing_adjusted && !hasContinuousNextBlock) {
+          const outPreset = activeBlock.zoom_out_speed ?? visualSettings.zoomSpeedPreset;
+          const zoomOutLeadMs = ZOOM_SPEED_PRESETS[outPreset].zoomOut;
+          const zoomOutStart = Math.max(
+            activeBlock.start_time,
+            activeBlock.end_time - zoomOutLeadMs
+          );
+          if (currentTime >= zoomOutStart) {
+            isZooming = false;
+            isFollowPhase = false;
+            isAdjustedExit = true;
+            targetScale = 1;
+            targetCenterX = 0.5;
+            targetCenterY = 0.5;
+            zoomSpringConfig = blockOutConfig;
+          }
+        }
+
         lastBlockOutConfigRef.current = blockOutConfig;
       }
     }
 
-    if (!isZooming) {
+    if (!isZooming && !isAdjustedExit) {
       targetCenterX = 0.5;
       targetCenterY = 0.5;
       prevActiveBlockRef.current = null;

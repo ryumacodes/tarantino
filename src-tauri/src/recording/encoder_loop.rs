@@ -14,6 +14,7 @@ pub fn spawn_video_task(
     output_path: PathBuf,
     fps: u32,
     stop_signal: Arc<Mutex<bool>>,
+    video_start_time: Arc<parking_lot::Mutex<Option<std::time::SystemTime>>>,
 ) -> tokio::task::JoinHandle<Result<(), String>> {
     tokio::spawn(async move {
         println!("Recording task started");
@@ -69,7 +70,11 @@ pub fn spawn_video_task(
             };
 
             frame_count += 1;
-            first_frame_received_at.get_or_insert_with(std::time::Instant::now);
+            if first_frame_received_at.is_none() {
+                first_frame_received_at = Some(std::time::Instant::now());
+                let first_frame_wall_time = frame.captured_at;
+                *video_start_time.lock() = Some(first_frame_wall_time);
+            }
             if frame_count % 60 == 0 {
                 println!("Captured {} frames", frame_count);
             }

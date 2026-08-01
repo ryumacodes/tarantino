@@ -7,6 +7,7 @@ mod finalization;
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::SystemTime;
 use tokio::sync::Mutex;
 
 pub use types::*;
@@ -30,6 +31,8 @@ pub struct RecordingAPI {
     audio_task: Option<tokio::task::JoinHandle<Result<(), String>>>,
     #[cfg(target_os = "macos")]
     stop_signal: Arc<Mutex<bool>>,
+    #[cfg(target_os = "macos")]
+    video_start_time: Arc<parking_lot::Mutex<Option<SystemTime>>>,
 }
 
 impl RecordingAPI {
@@ -47,6 +50,8 @@ impl RecordingAPI {
             audio_task: None,
             #[cfg(target_os = "macos")]
             stop_signal: Arc::new(Mutex::new(false)),
+            #[cfg(target_os = "macos")]
+            video_start_time: Arc::new(parking_lot::Mutex::new(None)),
         })
     }
 
@@ -65,6 +70,7 @@ impl RecordingAPI {
 
         #[cfg(target_os = "macos")]
         {
+            *self.video_start_time.lock() = None;
             println!("Starting native ScreenCaptureKit recording");
 
             // Extract source ID and type from config
@@ -152,6 +158,7 @@ impl RecordingAPI {
                 output_path,
                 fps,
                 stop_signal,
+                Arc::clone(&self.video_start_time),
             ));
         }
 
@@ -200,6 +207,18 @@ impl RecordingAPI {
         self.current_state = RecordingState::Recording;
         self.temp_path = Some(out_path);
         Ok(())
+    }
+
+    pub fn video_start_time(&self) -> Option<SystemTime> {
+        #[cfg(target_os = "macos")]
+        {
+            return *self.video_start_time.lock();
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
+        }
     }
 
     pub async fn signal_stop(&mut self) -> Result<String> {

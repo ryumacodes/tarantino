@@ -28,6 +28,11 @@ struct AVCFrameData {
 }
 
 unsafe extern "C" {
+    fn avc_enumerate_video_devices(
+        context: *mut c_void,
+        callback: extern "C" fn(*mut c_void, *const c_char, *const c_char, bool),
+    ) -> usize;
+
     fn avc_start_webcam(
         device_id: *const c_char,
         shape: *const c_char,
@@ -51,6 +56,50 @@ unsafe extern "C" {
     fn avc_stop_webcam(session_ptr: *mut c_void);
     fn avc_check_camera_permission() -> bool;
     fn avc_request_camera_permission() -> bool;
+}
+
+#[derive(Clone, Debug)]
+pub struct CameraDevice {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+}
+
+extern "C" fn camera_device_callback(
+    context: *mut c_void,
+    device_id: *const c_char,
+    device_name: *const c_char,
+    is_default: bool,
+) {
+    if context.is_null() || device_id.is_null() || device_name.is_null() {
+        return;
+    }
+
+    unsafe {
+        let devices = &mut *(context as *mut Vec<CameraDevice>);
+        let id = std::ffi::CStr::from_ptr(device_id)
+            .to_string_lossy()
+            .into_owned();
+        let name = std::ffi::CStr::from_ptr(device_name)
+            .to_string_lossy()
+            .into_owned();
+        devices.push(CameraDevice {
+            id,
+            name,
+            is_default,
+        });
+    }
+}
+
+pub fn enumerate_camera_devices() -> Vec<CameraDevice> {
+    let mut devices = Vec::new();
+    unsafe {
+        avc_enumerate_video_devices(
+            &mut devices as *mut Vec<CameraDevice> as *mut c_void,
+            camera_device_callback,
+        );
+    }
+    devices
 }
 
 #[cfg(target_os = "macos")]
@@ -99,6 +148,7 @@ extern "C" fn webcam_frame_callback(context: *mut c_void, frame: AVCFrameData) {
 /// Active webcam capture session (preview + optional recording)
 pub struct WebcamCapture {
     session_ptr: *mut c_void,
+    device_id: Option<String>,
     /// Held alive while recording to keep the channel open
     recording_context: Option<Box<WebcamCallbackContext>>,
 }
@@ -152,8 +202,13 @@ impl WebcamCapture {
         println!("[Webcam] Camera started with preview");
         Ok(Self {
             session_ptr,
+            device_id: device_id.map(str::to_owned),
             recording_context: None,
         })
+    }
+
+    pub fn uses_device(&self, device_id: Option<&str>) -> bool {
+        self.device_id.as_deref() == device_id
     }
 
     /// Begin recording frames. Returns a receiver for encoded frame data.

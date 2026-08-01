@@ -5,6 +5,13 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WebcamDeviceSelection {
+    device_id: Option<String>,
+    device_name: Option<String>,
+}
+
 /// Grant camera/microphone permission to a WKWebView on macOS.
 /// Returns true if the delegate was successfully installed.
 #[cfg(target_os = "macos")]
@@ -131,6 +138,7 @@ fn grant_media_capture_permission(win: &tauri::WebviewWindow) -> bool {
 pub async fn input_set_camera(
     enabled: bool,
     device_id: Option<String>,
+    device_name: Option<String>,
     shape: String,
     _app: AppHandle,
     state: State<'_, Arc<UnifiedAppState>>,
@@ -171,7 +179,8 @@ pub async fn input_set_camera(
 
     #[cfg(target_os = "macos")]
     {
-        return input_set_camera_with_window(enabled, device_id, shape, _app, state).await;
+        return input_set_camera_with_window(enabled, device_id, device_name, shape, _app, state)
+            .await;
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -195,10 +204,15 @@ async fn input_set_camera_native(
         if enabled {
             // Start capture session + show native preview window
             let did = state.camera_device_id.lock().clone();
-            if let Some(ref mut capture) = *state.webcam_capture.lock() {
-                capture.set_shape(&shape);
-                println!("Camera input: updated native preview shape={}", shape);
-            } else {
+            let mut capture_guard = state.webcam_capture.lock();
+            let needs_restart = capture_guard
+                .as_ref()
+                .is_none_or(|capture| !capture.uses_device(did.as_deref()));
+
+            if needs_restart {
+                if let Some(mut old_capture) = capture_guard.take() {
+                    old_capture.stop();
+                }
                 let mut capture = crate::camera::WebcamCapture::start(did.as_deref(), &shape, 30)
                     .map_err(|error| {
                     println!("Camera input: failed to start camera: {}", error);
@@ -217,8 +231,11 @@ async fn input_set_camera_native(
                     println!("Camera input: discarded stale native camera start");
                     return Ok(());
                 }
-                *state.webcam_capture.lock() = Some(capture);
+                *capture_guard = Some(capture);
                 println!("Camera input: enabled — preview showing");
+            } else if let Some(capture) = capture_guard.as_mut() {
+                capture.set_shape(&shape);
+                println!("Camera input: updated native preview shape={}", shape);
             }
         } else {
             // Stop capture session + close preview
@@ -235,6 +252,7 @@ async fn input_set_camera_native(
 async fn input_set_camera_with_window(
     enabled: bool,
     device_id: Option<String>,
+    device_name: Option<String>,
     shape: String,
     app: AppHandle,
     _state: State<'_, Arc<UnifiedAppState>>,
@@ -243,18 +261,26 @@ async fn input_set_camera_with_window(
         if let Some(win) = app.get_webview_window("webcam-preview") {
             win.emit("webcam:set-shape", shape.clone())
                 .map_err(|e| e.to_string())?;
+            win.emit(
+                "webcam:set-device",
+                WebcamDeviceSelection {
+                    device_id,
+                    device_name,
+                },
+            )
+            .map_err(|e| e.to_string())?;
         } else {
             use tauri::{LogicalSize, Size, WebviewUrl, WebviewWindowBuilder};
 
-            let url = if let Some(ref did) = device_id {
-                format!(
-                    "webcam.html?deviceId={}&shape={}",
-                    urlencoding::encode(did),
-                    urlencoding::encode(&shape)
-                )
-            } else {
-                format!("webcam.html?shape={}", urlencoding::encode(&shape))
-            };
+            let mut url = format!("webcam.html?shape={}", urlencoding::encode(&shape));
+            if let Some(ref did) = device_id {
+                url.push_str("&deviceId=");
+                url.push_str(&urlencoding::encode(did));
+            }
+            if let Some(ref name) = device_name {
+                url.push_str("&deviceName=");
+                url.push_str(&urlencoding::encode(name));
+            }
 
             let win =
                 WebviewWindowBuilder::new(&app, "webcam-preview", WebviewUrl::App(url.into()))

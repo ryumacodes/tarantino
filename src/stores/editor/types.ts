@@ -226,6 +226,7 @@ export interface ZoomBlock {
   kind?: 'click' | 'typing';
   zoom_in_speed?: 'slow' | 'mellow' | 'quick' | 'rapid';   // per-block, falls back to global zoomSpeedPreset
   zoom_out_speed?: 'slow' | 'mellow' | 'quick' | 'rapid';  // per-block, falls back to global zoomSpeedPreset
+  timing_adjusted?: boolean;
 }
 
 export interface ZoomAnalysis {

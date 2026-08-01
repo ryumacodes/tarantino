@@ -117,7 +117,7 @@ impl UnifiedAppState {
     }
 
     /// Signal stop recording (instant response)
-    /// Returns (temp_path, recording_start_time) tuple
+    /// Returns the temporary path and media timeline origin.
     pub async fn signal_stop_recording(&self) -> Result<(String, Option<SystemTime>)> {
         println!("=== UNIFIED_STATE: signal_stop_recording called ===");
         println!("=== UNIFIED_STATE: About to call recording.signal_stop_recording() ===");
@@ -132,17 +132,21 @@ impl UnifiedAppState {
         self.cancel_tray_timer();
         println!("=== UNIFIED_STATE: Tray timer cancellation completed ===");
 
-        // CRITICAL: Capture recording_start_time BEFORE stop_mouse_tracking() resets it to None
-        // This fixes the race condition where background processing would see all events at time=0
-        let recording_start_time = {
+        let tracker_start_time = {
             let tracker = self.get_mouse_tracker();
             let guard = tracker.lock();
             println!(
-                "=== UNIFIED_STATE: Captured recording_start_time: {:?} ===",
+                "=== UNIFIED_STATE: Captured tracker start time: {:?} ===",
                 guard.recording_start_time
             );
             guard.recording_start_time
         };
+        let video_start_time = self.recording.video_start_time().await;
+        let timeline_start_time = video_start_time.or(tracker_start_time);
+        println!(
+            "=== UNIFIED_STATE: Video start: {:?}, timeline start: {:?} ===",
+            video_start_time, timeline_start_time
+        );
 
         // Stop mouse tracking to finalize event collection (this resets recording_start_time to None)
         if let Err(e) = self.stop_mouse_tracking().await {
@@ -152,7 +156,7 @@ impl UnifiedAppState {
         // Generate zoom analysis from collected mouse events
         // This creates .auto_zoom.json and .mouse.json sidecar files
         if let Err(e) = self
-            .generate_zoom_analysis(&temp_path, recording_start_time)
+            .generate_zoom_analysis(&temp_path, timeline_start_time)
             .await
         {
             println!("Warning: Failed to generate zoom analysis: {}", e);
@@ -163,7 +167,7 @@ impl UnifiedAppState {
         self.ui.set_tray_processing("Finalizing recording...");
 
         println!("Recording stop signaled through unified state");
-        Ok((temp_path, recording_start_time))
+        Ok((temp_path, timeline_start_time))
     }
 
     /// Wait for recording completion (background processing)

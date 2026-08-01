@@ -317,6 +317,52 @@ static CGFloat avc_preview_corner_radius(NSRect bounds, NSString* shape) {
 
 extern "C" {
 
+typedef void (*AVCDeviceCallback)(
+    void* context,
+    const char* device_id,
+    const char* device_name,
+    bool is_default
+);
+
+size_t avc_enumerate_video_devices(void* context, AVCDeviceCallback callback) {
+    if (!callback) return 0;
+
+    @autoreleasepool {
+        NSMutableArray<AVCaptureDeviceType>* deviceTypes = [NSMutableArray arrayWithObject:AVCaptureDeviceTypeBuiltInWideAngleCamera];
+        if (@available(macOS 14.0, *)) {
+            [deviceTypes addObject:AVCaptureDeviceTypeExternal];
+            [deviceTypes addObject:AVCaptureDeviceTypeContinuityCamera];
+        } else {
+            // The pre-macOS 14 name is deprecated in the current SDK, but its
+            // string value remains the discovery type on older systems.
+            [deviceTypes addObject:@"AVCaptureDeviceTypeExternalUnknown"];
+        }
+        if (@available(macOS 13.0, *)) {
+            [deviceTypes addObject:AVCaptureDeviceTypeDeskViewCamera];
+        }
+
+        AVCaptureDeviceDiscoverySession* discovery =
+            [AVCaptureDeviceDiscoverySession
+                discoverySessionWithDeviceTypes:deviceTypes
+                mediaType:AVMediaTypeVideo
+                position:AVCaptureDevicePositionUnspecified];
+        NSArray<AVCaptureDevice*>* devices = discovery.devices;
+        AVCaptureDevice* defaultDevice =
+            [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+
+        for (AVCaptureDevice* device in devices) {
+            callback(
+                context,
+                device.uniqueID.UTF8String,
+                device.localizedName.UTF8String,
+                defaultDevice && [device.uniqueID isEqualToString:defaultDevice.uniqueID]
+            );
+        }
+
+        return devices.count;
+    }
+}
+
 /// Start webcam capture with preview. Returns opaque session pointer or NULL.
 /// This starts the AVCaptureSession and shows a preview window.
 /// Frame callback is NOT active yet — call avc_start_recording() to begin encoding.

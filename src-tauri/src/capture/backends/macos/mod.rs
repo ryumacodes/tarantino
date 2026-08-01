@@ -239,6 +239,7 @@ impl NativeCaptureBackend for ScreenCaptureKitBackend {
                     pixel_format,
                     timestamp_us: frame.timestamp_us,
                     stride: frame.stride,
+                    captured_at: std::time::SystemTime::now(),
                 };
 
                 // Send frame to broadcast channel (ignore if no receivers)

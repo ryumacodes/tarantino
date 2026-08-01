@@ -18,6 +18,11 @@ interface NativeMenuChoice {
   name?: string;
 }
 
+interface CameraDevice extends NativeMenuChoice {
+  name: string;
+  is_default?: boolean;
+}
+
 interface CaptureWindowInfo {
   id: string;
   title?: string;
@@ -68,7 +73,7 @@ const CaptureBar: React.FC = () => {
   const [displays, setDisplays] = useState<any[]>([]);
   const [windows, setWindows] = useState<any[]>([]);
   const [windowsLoading, setWindowsLoading] = useState(true);
-  const [devices, setDevices] = useState<any[]>([]);
+  const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [audioDevices, setAudioDevices] = useState<any>({ microphones: [], system_sources: [] });
   const [selectedDisplay, setSelectedDisplay] = useState<any>(null);
   const [selectedWindow, setSelectedWindow] = useState<string | null>(null);
@@ -127,6 +132,14 @@ const CaptureBar: React.FC = () => {
       ]);
       setDisplays(displayList);
       setDevices(deviceList);
+      setSelectedCameraDevice((current) => {
+        if (current && deviceList.some((device: CameraDevice) => device.id === current)) {
+          return current;
+        }
+        return deviceList.find((device: CameraDevice) => device.is_default)?.id
+          ?? deviceList[0]?.id
+          ?? null;
+      });
       setAudioDevices(audioList);
       refreshWindows().catch((e) => console.error('Failed to refresh windows:', e));
 
@@ -207,6 +220,7 @@ const CaptureBar: React.FC = () => {
       await invoke('input_set_camera', {
         enabled,
         deviceId: selectedCameraDevice,
+        deviceName: devices.find((device) => device.id === selectedCameraDevice)?.name ?? null,
         shape: webcamShape
       });
 
@@ -217,6 +231,7 @@ const CaptureBar: React.FC = () => {
         invoke('input_set_camera', {
           enabled: false,
           deviceId: selectedCameraDevice,
+          deviceName: devices.find((device) => device.id === selectedCameraDevice)?.name ?? null,
           shape: webcamShape
         }).catch((disableError) => {
           console.error('Failed to roll back camera after error:', disableError);
@@ -235,7 +250,7 @@ const CaptureBar: React.FC = () => {
     }
   };
 
-  const handleCameraDeviceSelect = async (deviceId: string) => {
+  const handleCameraDeviceSelect = async (deviceId: string, deviceName?: string) => {
     const previousDeviceId = selectedCameraDevice;
     setSelectedCameraDevice(deviceId);
     if (cameraEnabled) {
@@ -244,6 +259,7 @@ const CaptureBar: React.FC = () => {
         await invoke('input_set_camera', {
           enabled: true,
           deviceId,
+          deviceName: deviceName ?? devices.find((device) => device.id === deviceId)?.name ?? null,
           shape: webcamShape
         });
       } catch (error) {
@@ -300,6 +316,7 @@ const CaptureBar: React.FC = () => {
         await invoke('input_set_camera', {
           enabled: true,
           deviceId: selectedCameraDevice,
+          deviceName: devices.find((device) => device.id === selectedCameraDevice)?.name ?? null,
           shape,
         });
       } catch (error) {
@@ -309,10 +326,18 @@ const CaptureBar: React.FC = () => {
     }
   };
   const showCameraMenu = async () => {
+    const cameraList = await invoke<CameraDevice[]>('get_devices');
+    setDevices(cameraList);
+    const currentSelection = selectedCameraDevice && cameraList.some((device) => device.id === selectedCameraDevice)
+      ? selectedCameraDevice
+      : cameraList.find((device) => device.is_default)?.id ?? cameraList[0]?.id ?? null;
+    if (currentSelection !== selectedCameraDevice) {
+      setSelectedCameraDevice(currentSelection);
+    }
     const cameraItems = await createSelectionItems(
-      devices,
-      selectedCameraDevice,
-      (device) => handleCameraDeviceSelect(device.id),
+      cameraList,
+      currentSelection,
+      (device) => handleCameraDeviceSelect(device.id, device.name),
     );
     const shapeItems = await Promise.all([
       MenuItem.new({ text: 'Webcam shape', enabled: false }),

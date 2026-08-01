@@ -56,6 +56,8 @@ pub struct ZoomBlock {
     pub zoom_in_speed: Option<String>,
     #[serde(default)]
     pub zoom_out_speed: Option<String>,
+    #[serde(default)]
+    pub timing_adjusted: bool,
 }
 
 fn default_kind() -> String {
@@ -273,6 +275,7 @@ impl ZoomProcessor {
                     kind: "click".to_string(),
                     zoom_in_speed: None,
                     zoom_out_speed: None,
+                    timing_adjusted: false,
                 });
             }
 

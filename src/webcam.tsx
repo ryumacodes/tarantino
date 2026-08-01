@@ -18,9 +18,15 @@ const bytesToBase64 = (bytes: Uint8Array) => {
   return btoa(binary);
 };
 
+interface WebcamDeviceSelection {
+  deviceId: string | null;
+  deviceName: string | null;
+}
+
 const WebcamApp: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const mediaReadyRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const outputPathRef = useRef<string | null>(null);
@@ -28,9 +34,13 @@ const WebcamApp: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
 
-  // Get device ID from URL params
+  // WebKit and AVFoundation can report different IDs for the same camera.
   const params = new URLSearchParams(window.location.search);
-  const deviceId = params.get('deviceId');
+  const [cameraSelection, setCameraSelection] = useState<WebcamDeviceSelection>({
+    deviceId: params.get('deviceId'),
+    deviceName: params.get('deviceName'),
+  });
+  const { deviceId, deviceName } = cameraSelection;
   const initialShape = params.get('shape') === 'roundrect' ? 'roundrect' : 'circle';
   const [shape, setShape] = useState<'circle' | 'roundrect'>(initialShape);
   const log = useCallback((level: string, message: string) => {
@@ -66,6 +76,7 @@ const WebcamApp: React.FC = () => {
       started = true;
 
       try {
+        setError(null);
         if (!navigator.mediaDevices?.getUserMedia) {
           throw new Error('navigator.mediaDevices.getUserMedia is unavailable');
         }
@@ -81,16 +92,39 @@ const WebcamApp: React.FC = () => {
           }
         }
 
+        let webkitDeviceId: string | null = null;
+        if (deviceId) {
+          const findSelectedDevice = (devices: MediaDeviceInfo[]) => devices.find((device) =>
+            device.kind === 'videoinput' && (
+              device.deviceId === deviceId
+              || (!!deviceName && device.label.trim().toLowerCase() === deviceName.trim().toLowerCase())
+            )
+          );
+
+          let selectedDevice = findSelectedDevice(await navigator.mediaDevices.enumerateDevices());
+          if (!selectedDevice && deviceName) {
+            // Labels may be unavailable until camera permission is granted.
+            const permissionStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            permissionStream.getTracks().forEach((track) => track.stop());
+            selectedDevice = findSelectedDevice(await navigator.mediaDevices.enumerateDevices());
+          }
+
+          if (!selectedDevice) {
+            throw new Error(`Selected camera is unavailable: ${deviceName ?? deviceId}`);
+          }
+          webkitDeviceId = selectedDevice.deviceId;
+        }
+
         const constraints: MediaStreamConstraints = {
           video: {
-            ...(deviceId ? { deviceId } : {}),
+            ...(webkitDeviceId ? { deviceId: { exact: webkitDeviceId } } : {}),
             width: { ideal: 1280 },
             height: { ideal: 720 },
             frameRate: { ideal: 30 },
           },
           audio: false,
         };
-        log('info', `Requesting camera stream device=${deviceId ?? 'default'}`);
+        log('info', `Requesting camera stream device=${deviceName ?? deviceId ?? 'default'}`);
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
@@ -112,13 +146,19 @@ const WebcamApp: React.FC = () => {
 
     const removeReadyListener = listen('webcam:ready-to-start', () => {
       log('info', 'Backend media delegate is ready');
+      mediaReadyRef.current = true;
       startCamera();
     });
 
-    fallbackTimer = setTimeout(() => {
-      log('info', 'Camera readiness fallback fired');
+    if (mediaReadyRef.current) {
       startCamera();
-    }, 2000);
+    } else {
+      fallbackTimer = setTimeout(() => {
+        log('info', 'Camera readiness fallback fired');
+        mediaReadyRef.current = true;
+        startCamera();
+      }, 2000);
+    }
 
     return () => {
       cancelled = true;
@@ -126,7 +166,7 @@ const WebcamApp: React.FC = () => {
       removeReadyListener.then((fn) => fn()).catch(() => {});
       stopCameraStream();
     };
-  }, [deviceId, log, stopCameraStream]);
+  }, [deviceId, deviceName, log, stopCameraStream]);
 
   const startRecording = useCallback(() => {
     const stream = streamRef.current;
@@ -245,6 +285,10 @@ const WebcamApp: React.FC = () => {
     listen<string>('webcam:set-shape', (event) => {
       const nextShape = event.payload === 'roundrect' ? 'roundrect' : 'circle';
       setShape(nextShape);
+    }).then((fn) => unlisteners.push(fn));
+
+    listen<WebcamDeviceSelection>('webcam:set-device', (event) => {
+      setCameraSelection(event.payload);
     }).then((fn) => unlisteners.push(fn));
 
     return () => {

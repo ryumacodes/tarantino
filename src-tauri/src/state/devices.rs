@@ -180,9 +180,25 @@ impl UnifiedAppState {
     /// Get all available capture devices (cameras, etc.)
     pub async fn get_capture_devices(&self) -> Result<Vec<AudioDevice>> {
         println!("=== UNIFIED_STATE: get_capture_devices called ===");
-        // TODO: Get capture devices (cameras, etc.)
-        println!("=== UNIFIED_STATE: Returning 0 capture devices (not implemented yet) ===");
-        Ok(vec![])
+
+        #[cfg(target_os = "macos")]
+        let devices = crate::camera::enumerate_camera_devices()
+            .into_iter()
+            .map(|device| AudioDevice {
+                id: device.id,
+                name: device.name,
+                is_default: device.is_default,
+            })
+            .collect::<Vec<_>>();
+
+        #[cfg(not(target_os = "macos"))]
+        let devices = Vec::new();
+
+        println!(
+            "=== UNIFIED_STATE: Returning {} capture devices ===",
+            devices.len()
+        );
+        Ok(devices)
     }
 
     /// Get all audio devices

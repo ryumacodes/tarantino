@@ -484,6 +484,7 @@ mod tests {
             kind: "click".to_string(),
             zoom_in_speed: None,
             zoom_out_speed: None,
+            timing_adjusted: false,
         }];
 
         let filter = processor

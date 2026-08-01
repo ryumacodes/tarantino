@@ -2,6 +2,7 @@ use anyhow::Result;
 use parking_lot::RwLock;
 use serde::Serialize;
 use std::sync::Arc;
+use std::time::SystemTime;
 use tokio::sync::Mutex;
 
 use crate::recording::types::RecordingConfig;
@@ -87,6 +88,10 @@ impl RecordingStateManager {
 
         println!("Recording stop signaled through state manager");
         Ok(temp_path)
+    }
+
+    pub async fn video_start_time(&self) -> Option<SystemTime> {
+        self.recording_api.lock().await.video_start_time()
     }
 
     /// Wait for recording completion and get final path

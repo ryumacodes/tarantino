@@ -149,27 +149,24 @@ impl UnifiedAppState {
         session.start_time = 0; // Normalized to 0
 
         // Convert MouseEvent to EnhancedMouseEvent with normalized timestamps (0-based)
-        session.mouse_events = events
-            .into_iter()
-            .map(|e| {
-                let mut normalized = e.clone();
-                // Normalize timestamp to be relative to recording start (video timeline compatible)
-                normalized.timestamp = e.timestamp.saturating_sub(start_time);
-                EnhancedMouseEvent {
+        session.mouse_events =
+            crate::input::normalize_mouse_events_for_timeline(&events, start_time)
+                .into_iter()
+                .map(|normalized| EnhancedMouseEvent {
                     base: normalized,
                     window_id: None,
                     app_name: None,
                     is_double_click: false,
                     cluster_id: None,
-                }
-            })
-            .collect();
+                })
+                .collect();
 
         // Normalize key event timestamps to 0-based (same as mouse events)
         let normalized_key_events: Vec<crate::input::KeyEvent> = key_events
             .into_iter()
+            .filter(|event| event.timestamp >= start_time)
             .map(|mut k| {
-                k.timestamp = k.timestamp.saturating_sub(start_time);
+                k.timestamp -= start_time;
                 k
             })
             .collect();

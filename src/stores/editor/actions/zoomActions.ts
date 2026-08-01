@@ -109,6 +109,10 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
     };
     Object.assign(state.zoomAnalysis.zoom_blocks[blockIndex], clampedUpdates);
 
+    if (updates.start_time !== undefined || updates.end_time !== undefined) {
+      state.zoomAnalysis.zoom_blocks[blockIndex].timing_adjusted = true;
+    }
+
     if (updates.center_x !== undefined || updates.center_y !== undefined) {
       state.zoomAnalysis.zoom_blocks[blockIndex].is_manual = true;
     }
@@ -175,11 +179,13 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
         end_time: originalEnd,
         centers: originalCenters.filter(center => center.time >= time),
         is_manual: true,
+        timing_adjusted: true,
       };
 
       block.end_time = time;
       block.centers = originalCenters.filter(center => center.time < time);
       block.is_manual = true;
+      block.timing_adjusted = true;
       state.zoomAnalysis!.zoom_blocks.push(secondBlock);
     });
 

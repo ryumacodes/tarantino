@@ -125,6 +125,7 @@ pub async fn export_video(
                     &raw_cursor_events,
                     &zoom_spring_config,
                     &cursor_spring_config,
+                    settings.animation_speed.as_deref().unwrap_or("mellow"),
                     target_fps as f64,
                     duration_ms,
                     is_window_mode,

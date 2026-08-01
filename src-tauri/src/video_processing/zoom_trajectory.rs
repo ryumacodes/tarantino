@@ -75,6 +75,7 @@ pub fn simulate_zoom_trajectory(
     cursor_events: &[CursorEvent],
     zoom_spring_config: &SpringConfig,
     cursor_spring_config: &SpringConfig,
+    zoom_speed_preset: &str,
     fps: f64,
     duration_ms: u64,
     window_mode: bool,
@@ -108,6 +109,7 @@ pub fn simulate_zoom_trajectory(
         let mut target_center_y = 0.5;
         let mut is_zooming = false;
         let mut is_follow_phase = false;
+        let mut is_adjusted_exit = false;
         // Default: use last block's out config for zoom-out after block ends, else global
         let mut active_zoom_config = last_block_out_config.unwrap_or(*zoom_spring_config);
 
@@ -175,9 +177,30 @@ pub fn simulate_zoom_trajectory(
             }
 
             last_block_out_config = Some(block_out_config);
+
+            let has_continuous_next_block = zoom_blocks
+                .get(block_idx + 1)
+                .is_some_and(|next| next.start_time_ms <= block.end_time_ms.saturating_add(1));
+            if block.timing_adjusted && !has_continuous_next_block {
+                let zoom_out_lead_ms =
+                    zoom_out_lead_ms(block.zoom_out_speed.as_deref().unwrap_or(zoom_speed_preset));
+                let zoom_out_start = block
+                    .end_time_ms
+                    .saturating_sub(zoom_out_lead_ms)
+                    .max(block.start_time_ms);
+                if time_ms >= zoom_out_start as f64 {
+                    is_zooming = false;
+                    is_follow_phase = false;
+                    is_adjusted_exit = true;
+                    target_scale = 1.0;
+                    target_center_x = 0.5;
+                    target_center_y = 0.5;
+                    active_zoom_config = block_out_config;
+                }
+            }
         }
 
-        if !is_zooming {
+        if !is_zooming && !is_adjusted_exit {
             target_center_x = 0.5;
             target_center_y = 0.5;
             prev_block_idx = None;
@@ -245,6 +268,15 @@ pub fn simulate_zoom_trajectory(
     }
 
     trajectory
+}
+
+fn zoom_out_lead_ms(preset: &str) -> u64 {
+    match preset {
+        "slow" => 400,
+        "quick" => 200,
+        "rapid" => 150,
+        _ => 300,
+    }
 }
 
 fn resolve_center_at_time(
@@ -339,6 +371,7 @@ mod tests {
             &[],
             &default_config,
             &default_config,
+            "mellow",
             60.0,
             1000,
             false,
@@ -362,6 +395,7 @@ mod tests {
             kind: None,
             zoom_in_speed: None,
             zoom_out_speed: None,
+            timing_adjusted: false,
             centers: vec![],
         }];
         let zoom_config = SpringConfig {
@@ -379,6 +413,7 @@ mod tests {
             &[],
             &zoom_config,
             &cursor_config,
+            "mellow",
             60.0,
             3000,
             false,
@@ -389,6 +424,39 @@ mod tests {
             mid.scale > 1.5,
             "scale should approach 2.0, got {}",
             mid.scale
+        );
+    }
+
+    #[test]
+    fn adjusted_block_starts_zooming_out_before_its_right_edge() {
+        let blocks = vec![ZoomBlock {
+            start_time_ms: 100,
+            end_time_ms: 2000,
+            zoom_level: 2.0,
+            center_x: 0.5,
+            center_y: 0.5,
+            kind: None,
+            zoom_in_speed: None,
+            zoom_out_speed: Some("mellow".to_string()),
+            timing_adjusted: true,
+            centers: vec![],
+        }];
+        let config = SpringConfig {
+            tension: 170.0,
+            friction: 30.0,
+            mass: 1.0,
+        };
+
+        let trajectory =
+            simulate_zoom_trajectory(&blocks, &[], &config, &config, "mellow", 60.0, 2400, false);
+
+        let before_exit = trajectory[99].scale;
+        let near_edge = trajectory[119].scale;
+        assert!(before_exit > 1.9);
+        assert!(near_edge < before_exit);
+        assert!(
+            near_edge < 1.25,
+            "zoom should be nearly out at the edge, got {near_edge}"
         );
     }
 }

@@ -12,6 +12,7 @@ pub struct CapturedFrame {
     pub pixel_format: String,
     pub timestamp_us: u64,
     pub stride: u32,
+    pub captured_at: std::time::SystemTime,
 }
 
 /// Raw audio packet produced by a native capture backend.

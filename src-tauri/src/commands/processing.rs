@@ -496,20 +496,17 @@ pub async fn process_recorded_file(
     );
 
     // Convert to enhanced events with normalized timestamps
-    let enhanced_events: Vec<EnhancedMouseEvent> = mouse_events
-        .iter()
-        .map(|e| {
-            let mut normalized = e.clone();
-            normalized.timestamp = e.timestamp.saturating_sub(start_ms);
-            EnhancedMouseEvent {
+    let enhanced_events: Vec<EnhancedMouseEvent> =
+        crate::input::normalize_mouse_events_for_timeline(&mouse_events, start_ms)
+            .into_iter()
+            .map(|normalized| EnhancedMouseEvent {
                 base: normalized,
                 window_id: None,
                 app_name: None,
                 is_double_click: false,
                 cluster_id: None,
-            }
-        })
-        .collect();
+            })
+            .collect();
 
     println!(
         "🔄 [PROCESS] Enhanced events created: {}",
@@ -518,9 +515,10 @@ pub async fn process_recorded_file(
 
     let normalized_key_events: Vec<crate::input::KeyEvent> = key_events
         .iter()
+        .filter(|event| event.timestamp >= start_ms)
         .map(|e| {
             let mut normalized = e.clone();
-            normalized.timestamp = e.timestamp.saturating_sub(start_ms);
+            normalized.timestamp -= start_ms;
             normalized
         })
         .collect();

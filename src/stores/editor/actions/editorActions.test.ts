@@ -138,6 +138,7 @@ describe('zoom block actions', () => {
       center_x: 0.75,
       end_time: 5_000,
       is_manual: true,
+      timing_adjusted: true,
     });
   });
 

@@ -122,6 +122,8 @@ pub struct ZoomBlock {
     #[serde(default)]
     pub zoom_out_speed: Option<String>,
     #[serde(default)]
+    pub timing_adjusted: bool,
+    #[serde(default)]
     pub centers: Vec<ZoomCenter>,
 }
 
@@ -248,6 +250,7 @@ pub fn load_zoom_blocks_from_sidecar(video_path: &std::path::Path) -> Option<Vec
                     kind: Some(b.kind),
                     zoom_in_speed: b.zoom_in_speed,
                     zoom_out_speed: b.zoom_out_speed,
+                    timing_adjusted: b.timing_adjusted,
                     centers: b
                         .centers
                         .into_iter()

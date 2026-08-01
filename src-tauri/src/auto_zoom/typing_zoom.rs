@@ -424,6 +424,7 @@ pub(super) fn create_typing_zoom_blocks(
                 kind: "typing".to_string(),
                 zoom_in_speed: None,
                 zoom_out_speed: None,
+                timing_adjusted: false,
             })
         })
         .collect()

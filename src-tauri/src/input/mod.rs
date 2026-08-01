@@ -48,6 +48,46 @@ pub enum MouseButton {
     Unknown,
 }
 
+pub fn normalize_mouse_events_for_timeline(
+    events: &[MouseEvent],
+    timeline_start_ms: u64,
+) -> Vec<MouseEvent> {
+    let initial_position = if events
+        .iter()
+        .any(|event| event.timestamp == timeline_start_ms)
+    {
+        None
+    } else {
+        events
+            .iter()
+            .filter(|event| event.timestamp < timeline_start_ms)
+            .max_by_key(|event| event.timestamp)
+            .map(|event| MouseEvent {
+                timestamp: 0,
+                x: event.x,
+                y: event.y,
+                event_type: MouseEventType::Move,
+                display_id: event.display_id.clone(),
+            })
+    };
+
+    let mut normalized = Vec::with_capacity(events.len() + usize::from(initial_position.is_some()));
+    if let Some(initial) = initial_position {
+        normalized.push(initial);
+    }
+    normalized.extend(
+        events
+            .iter()
+            .filter(|event| event.timestamp >= timeline_start_ms)
+            .cloned()
+            .map(|mut event| {
+                event.timestamp -= timeline_start_ms;
+                event
+            }),
+    );
+    normalized
+}
+
 impl From<Button> for MouseButton {
     fn from(button: Button) -> Self {
         match button {
@@ -355,6 +395,49 @@ impl MouseTracker {
     pub fn get_key_events(&self) -> Vec<KeyEvent> {
         let key_events = self.key_events.lock();
         key_events.iter().cloned().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn movement(timestamp: u64, x: f64, y: f64) -> MouseEvent {
+        MouseEvent {
+            timestamp,
+            x,
+            y,
+            event_type: MouseEventType::Move,
+            display_id: None,
+        }
+    }
+
+    #[test]
+    fn preserves_last_warmup_position_at_video_start() {
+        let events = vec![
+            movement(100, 10.0, 20.0),
+            movement(700, 30.0, 40.0),
+            movement(1500, 50.0, 60.0),
+        ];
+
+        let normalized = normalize_mouse_events_for_timeline(&events, 1000);
+
+        assert_eq!(normalized.len(), 2);
+        assert_eq!(normalized[0].timestamp, 0);
+        assert_eq!((normalized[0].x, normalized[0].y), (30.0, 40.0));
+        assert!(matches!(normalized[0].event_type, MouseEventType::Move));
+        assert_eq!(normalized[1].timestamp, 500);
+    }
+
+    #[test]
+    fn exact_start_event_takes_precedence_over_warmup_position() {
+        let events = vec![movement(700, 30.0, 40.0), movement(1000, 50.0, 60.0)];
+
+        let normalized = normalize_mouse_events_for_timeline(&events, 1000);
+
+        assert_eq!(normalized.len(), 1);
+        assert_eq!(normalized[0].timestamp, 0);
+        assert_eq!((normalized[0].x, normalized[0].y), (50.0, 60.0));
     }
 }
 

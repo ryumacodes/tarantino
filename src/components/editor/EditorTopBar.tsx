@@ -2,11 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   Settings,
   Download,
-  ChevronDown,
-  Wand2,
-  Square,
-  Sparkles,
-  Zap,
   Pencil,
   Check
 } from 'lucide-react';
@@ -30,8 +25,6 @@ const EditorTopBar: React.FC<EditorTopBarProps> = ({
   isExporting = false,
   exportProgress = 0
 }) => {
-  const [presetsOpen, setPresetsOpen] = useState(false);
-  const [selectedPreset, setSelectedPreset] = useState('Auto');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(projectName);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -71,39 +64,6 @@ const EditorTopBar: React.FC<EditorTopBarProps> = ({
       setIsEditingTitle(false);
     }
   };
-
-  const presets = [
-    {
-      id: 'auto',
-      name: 'Auto',
-      icon: Wand2,
-      description: 'Smart zooms + polish',
-      features: ['Auto-zoom', 'Cursor smooth', 'Background']
-    },
-    {
-      id: 'minimal',
-      name: 'Minimal',
-      icon: Square,
-      description: 'Clean recording only',
-      features: ['No effects', 'Raw quality']
-    },
-    {
-      id: 'enhanced',
-      name: 'Enhanced',
-      icon: Sparkles,
-      description: 'Professional polish',
-      features: ['Smart zoom', 'Motion blur', 'Background', 'Audio enhance']
-    },
-    {
-      id: 'presentation',
-      name: 'Presentation',
-      icon: Zap,
-      description: 'Perfect for demos',
-      features: ['Auto-zoom', 'Click highlights', 'Smooth cursor', 'Wallpaper']
-    }
-  ];
-
-  const currentPreset = presets.find(p => p.id === selectedPreset.toLowerCase()) || presets[0];
 
   return (
     <div className="editor-top-bar" data-tauri-drag-region>
@@ -151,65 +111,7 @@ const EditorTopBar: React.FC<EditorTopBarProps> = ({
       </div>
 
       <div className="top-bar-right">
-        <div className="presets-container">
-          <button
-            className={`presets-button ${presetsOpen ? 'active' : ''}`}
-            onClick={() => !isExporting && setPresetsOpen(!presetsOpen)}
-            disabled={isExporting}
-          >
-            <currentPreset.icon size={14} />
-            <span>{currentPreset.name}</span>
-            <ChevronDown size={12} className={`chevron ${presetsOpen ? 'rotated' : ''}`} />
-          </button>
-
-          {presetsOpen && (
-            <>
-              <div className="presets-backdrop" onClick={() => setPresetsOpen(false)} />
-              <div className="presets-dropdown">
-                <div className="presets-header">
-                  <h3>Export Presets</h3>
-                  <p>Choose how to process your recording</p>
-                </div>
-                <div className="presets-list">
-                  {presets.map((preset) => {
-                    const Icon = preset.icon;
-                    const isSelected = preset.id === selectedPreset.toLowerCase();
-                    return (
-                      <button
-                        key={preset.id}
-                        className={`preset-item ${isSelected ? 'selected' : ''}`}
-                        onClick={() => {
-                          setSelectedPreset(preset.name);
-                          setPresetsOpen(false);
-                        }}
-                        disabled={isExporting}
-                      >
-                        <div className="preset-icon">
-                          <Icon size={18} />
-                        </div>
-                        <div className="preset-content">
-                          <div className="preset-name">{preset.name}</div>
-                          <div className="preset-description">{preset.description}</div>
-                          <div className="preset-features">
-                            {preset.features.map((feature, index) => (
-                              <span key={index} className="feature-tag">{feature}</span>
-                            ))}
-                          </div>
-                        </div>
-                        {isSelected && (
-                          <div className="preset-selected-indicator">
-                            <div className="selected-dot" />
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
+        {/* TODO: Add functional export presets. */}
         <button className="editor-btn editor-btn--ghost editor-btn--icon" title="Settings">
           <Settings size={16} />
         </button>

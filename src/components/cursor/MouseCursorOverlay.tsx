@@ -101,6 +101,23 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
   // Use shake filter hook
   const filterShakes = useShakeFilter(removeCursorShakes);
 
+  // Initialize the spring at the first recorded cursor position.
+  useEffect(() => {
+    const initialEvent = mouseEvents.find((event) => 'Move' in event.event_type) ?? mouseEvents[0];
+    if (!initialEvent) return;
+
+    cursorSpring.current = {
+      x: { value: initialEvent.x, velocity: 0 },
+      y: { value: initialEvent.y, velocity: 0 },
+    };
+    targetCursor.current = {
+      x: initialEvent.x,
+      y: initialEvent.y,
+      isClicking: false,
+    };
+    lastXPosition.current = initialEvent.x;
+  }, [mouseEvents]);
+
   // Get mouse events from store as fallback
   const storeMouseEvents = useEditorStore((state) => state.mouseEvents);
 
@@ -314,7 +331,10 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
 
       // Update target
       if (!hasFrozenCursor.current) {
-        if (closestEvent && minTimeDiff < 500) {
+        const isBeforeFirstMove = Boolean(
+          firstMoveEvent.current && currentTime <= firstMoveEvent.current.timestamp
+        );
+        if (closestEvent && (minTimeDiff < 500 || isBeforeFirstMove)) {
           const newTarget = { x: targetX, y: targetY, isClicking };
           if (!targetCursor.current || targetCursor.current.x !== newTarget.x || targetCursor.current.y !== newTarget.y) {
             lastMoveTime.current = now;
