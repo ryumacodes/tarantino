@@ -129,7 +129,6 @@ fn verify_runtime_elements() -> Result<()> {
         "queue",
         "videoconvert",
         "capsfilter",
-        "x264enc",
         "h264parse",
         "mp4mux",
         "filesink",
@@ -138,6 +137,9 @@ fn verify_runtime_elements() -> Result<()> {
             anyhow::bail!("Required native GStreamer element is missing: {element}");
         }
     }
+    select_h264_encoder(|name| gst::ElementFactory::find(name).is_some()).context(
+        "A native H.264 encoder is required; install the x264enc or openh264enc GStreamer plugin",
+    )?;
     Ok(())
 }
 
@@ -166,13 +168,7 @@ fn build_pipeline(
         )
         .build()
         .context("Failed to create the raw-video format filter")?;
-    let encoder = gst::ElementFactory::make("x264enc")
-        .property("bitrate", bitrate_kbps)
-        .property("key-int-max", 120u32)
-        .build()
-        .context("Failed to create the native H.264 encoder")?;
-    encoder.set_property_from_str("speed-preset", speed_preset);
-    encoder.set_property_from_str("tune", "zerolatency");
+    let encoder = make_h264_encoder(bitrate_kbps, speed_preset)?;
     let parser = make_element("h264parse")?;
     let muxer = gst::ElementFactory::make("mp4mux")
         .property("faststart", true)
@@ -216,6 +212,48 @@ fn make_element(name: &str) -> Result<gst::Element> {
         .with_context(|| format!("Failed to create native GStreamer element: {name}"))
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum H264Encoder {
+    X264,
+    OpenH264,
+}
+
+fn select_h264_encoder(mut available: impl FnMut(&str) -> bool) -> Result<H264Encoder> {
+    if available("x264enc") {
+        return Ok(H264Encoder::X264);
+    }
+    if available("openh264enc") {
+        return Ok(H264Encoder::OpenH264);
+    }
+    anyhow::bail!("No supported native H.264 GStreamer encoder is installed")
+}
+
+fn make_h264_encoder(bitrate_kbps: u32, speed_preset: &str) -> Result<gst::Element> {
+    match select_h264_encoder(|name| gst::ElementFactory::find(name).is_some())? {
+        H264Encoder::X264 => {
+            let encoder = gst::ElementFactory::make("x264enc")
+                .property("bitrate", bitrate_kbps)
+                .property("key-int-max", 120u32)
+                .build()
+                .context("Failed to create the x264 H.264 encoder")?;
+            encoder.set_property_from_str("speed-preset", speed_preset);
+            encoder.set_property_from_str("tune", "zerolatency");
+            Ok(encoder)
+        }
+        H264Encoder::OpenH264 => {
+            let encoder = gst::ElementFactory::make("openh264enc")
+                .property("bitrate", bitrate_kbps.saturating_mul(1_000))
+                .property("gop-size", 120u32)
+                .property("enable-frame-skip", false)
+                .build()
+                .context("Failed to create the OpenH264 encoder")?;
+            encoder.set_property_from_str("rate-control", "bitrate");
+            encoder.set_property_from_str("usage-type", "screen");
+            Ok(encoder)
+        }
+    }
+}
+
 fn encoding_settings(quality: &QualityPreset) -> (u32, &'static str) {
     match quality {
         QualityPreset::Lossless => (32_000, "medium"),
@@ -257,5 +295,18 @@ mod tests {
     fn quality_presets_have_deterministic_native_encoder_settings() {
         assert_eq!(encoding_settings(&QualityPreset::High), (16_000, "fast"));
         assert_eq!(encoding_settings(&QualityPreset::Low), (4_000, "superfast"));
+    }
+
+    #[test]
+    fn encoder_selection_prefers_x264_and_falls_back_to_openh264() {
+        assert_eq!(
+            select_h264_encoder(|name| name == "x264enc").unwrap(),
+            H264Encoder::X264
+        );
+        assert_eq!(
+            select_h264_encoder(|name| name == "openh264enc").unwrap(),
+            H264Encoder::OpenH264
+        );
+        assert!(select_h264_encoder(|_| false).is_err());
     }
 }

@@ -39,6 +39,95 @@ jobs:
       - name: Build Debian package
         run: pnpm tauri build --bundles deb
 
+  debian:
+    name: Debian Stable
+    runs-on: ubuntu-24.04
+    container: debian:stable
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            build-essential curl file git wget pkg-config libssl-dev clang \
+            nodejs npm libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libasound2-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
+            libavdevice-dev libswscale-dev libswresample-dev ffmpeg \
+            gstreamer1.0-tools gstreamer1.0-pipewire \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
+          npm install --global pnpm@11.17.0
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain 1.88.0 --component rustfmt
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:linux
+      - name: Build Linux application
+        run: pnpm tauri build --no-bundle
+
+  fedora:
+    name: Fedora
+    runs-on: ubuntu-24.04
+    container: fedora:latest
+    steps:
+      - name: Install system dependencies
+        run: |
+          dnf install -y \
+            gcc gcc-c++ make curl file git wget pkgconf-pkg-config \
+            openssl-devel clang nodejs npm webkit2gtk4.1-devel \
+            libappindicator-gtk3-devel librsvg2-devel libxdo-devel \
+            alsa-lib-devel gstreamer1-devel gstreamer1-plugins-base-devel \
+            ffmpeg-free ffmpeg-free-devel gstreamer1-plugins-base-tools \
+            gstreamer1-plugins-good gstreamer1-plugins-bad-free \
+            gstreamer1-plugin-openh264 pipewire-gstreamer
+          npm install --global pnpm@11.17.0
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain 1.88.0 --component rustfmt
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:linux
+      - name: Build Linux application
+        run: pnpm tauri build --no-bundle
+
+  opensuse:
+    name: openSUSE Tumbleweed
+    runs-on: ubuntu-24.04
+    container: opensuse/tumbleweed:latest
+    steps:
+      - name: Install system dependencies
+        run: |
+          zypper --non-interactive refresh
+          zypper --non-interactive install --no-recommends \
+            gcc gcc-c++ make curl file git wget pkg-config clang \
+            nodejs22 npm22 libopenssl-devel webkit2gtk-4_1-devel \
+            libappindicator3-devel librsvg-devel libxdo-devel alsa-devel \
+            gstreamer-devel gstreamer-plugins-base-devel gstreamer-utils \
+            gstreamer-plugins-base gstreamer-plugins-good \
+            gstreamer-plugins-bad gstreamer-plugins-ugly \
+            gstreamer-plugin-pipewire ffmpeg-7 \
+            'pkgconfig(libavcodec)' 'pkgconfig(libavformat)' \
+            'pkgconfig(libavutil)' 'pkgconfig(libavfilter)' \
+            'pkgconfig(libavdevice)' 'pkgconfig(libswscale)' \
+            'pkgconfig(libswresample)'
+          npm install --global pnpm@11.17.0
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --default-toolchain 1.88.0 --component rustfmt
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:linux
+      - name: Build Linux application
+        run: pnpm tauri build --no-bundle
+
   arch:
     name: Arch Linux
     runs-on: ubuntu-24.04
@@ -87,3 +176,33 @@ jobs:
           run_nix nix develop --accept-flake-config --command pnpm install --frozen-lockfile
           run_nix nix develop --accept-flake-config --command pnpm test:linux
           run_nix nix develop --accept-flake-config --command pnpm tauri build --no-bundle
+
+  desktop-portals:
+    name: ${{ matrix.name }} ScreenCast portal
+    runs-on: ubuntu-24.04
+    container: debian:stable
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: GNOME
+            backend: gnome
+            package: xdg-desktop-portal-gnome
+          - name: KDE Plasma
+            backend: kde
+            package: xdg-desktop-portal-kde
+          - name: wlroots
+            backend: wlr
+            package: xdg-desktop-portal-wlr
+    steps:
+      - name: Install portal and PipeWire runtime
+        run: |
+          apt-get update
+          apt-get install -y \
+            dbus xdg-desktop-portal "${{ matrix.package }}" \
+            gstreamer1.0-tools gstreamer1.0-pipewire \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad
+      - uses: actions/checkout@v4
+      - name: Validate ScreenCast portal backend
+        run: sh scripts/check-linux-portal-backend.sh "${{ matrix.backend }}"

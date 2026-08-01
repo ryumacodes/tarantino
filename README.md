@@ -69,7 +69,7 @@ Use the regular development command unless you specifically need raw mode.
 
 Linux requires the normal Tauri dependencies plus FFmpeg, PipeWire, the desktop
 portal for your desktop environment, and these GStreamer elements:
-`pipewiresrc`, `x264enc`, `h264parse`, and `mp4mux`.
+`pipewiresrc`, `h264parse`, `mp4mux`, and either `x264enc` or `openh264enc`.
 
 Run the distro-independent verification suite with:
 
@@ -77,11 +77,16 @@ Run the distro-independent verification suite with:
 pnpm test:linux
 ```
 
-The automated Linux matrix runs this suite on Ubuntu 24.04 and current Arch
-Linux, with the same build also verified in the repository's Nix development
-environment. NixOS developers can enter that environment with `nix develop`.
-A final recording smoke test still requires a logged-in graphical session
-because the desktop portal deliberately requires user interaction.
+The automated Linux matrix runs this suite on Ubuntu 24.04, Debian Stable,
+Fedora, openSUSE Tumbleweed, and current Arch Linux, with the same build also
+verified in the repository's Nix development environment. Linux Mint 22 uses
+the Ubuntu 24.04 package base covered by the Ubuntu build; LMDE is represented
+by Debian Stable. NixOS developers can enter the environment with `nix develop`.
+
+CI also validates the GNOME, KDE Plasma, and wlroots ScreenCast portal
+descriptors and recording plugins. A final recording smoke test still requires
+a logged-in graphical session because the portal deliberately requires user
+interaction; follow [the Linux recording checklist](docs/linux-recording-smoke-test.md).
 
 ## Permissions
 
