@@ -5,6 +5,7 @@ import { Menu, MenuItem } from '@tauri-apps/api/menu';
 import DisplayPicker from './DisplayPicker';
 import CaptureSettings, { CaptureConfig } from './CaptureSettings';
 import CaptureShortcutOverlays from './CaptureShortcutOverlays';
+import PointerCaptureConsent from './PointerCaptureConsent';
 import PermissionStatus from './PermissionStatus';
 import { X, Monitor, Square, Camera, Mic, Volume2, Settings, ChevronDown, RotateCcw, AlertTriangle } from 'lucide-react';
 import { useRecordingStore } from '../stores/recording';
@@ -110,6 +111,7 @@ const CaptureBar: React.FC = () => {
   const [recordingCapabilities, setRecordingCapabilities] = useState<RecordingCapabilities | null>(
     isLinuxRuntime ? null : optimisticNativeCapabilities,
   );
+  const [showPointerConsent, setShowPointerConsent] = useState(false);
   const [checkingRecordingSupport, setCheckingRecordingSupport] = useState(false);
   const [captureConfig, setCaptureConfig] = useState<CaptureConfig>({
     includeCursor: true,
@@ -440,13 +442,15 @@ const CaptureBar: React.FC = () => {
     await popupNativeMenu(items);
   };
 
-  const startRecordingNow = async () => {
+  const startRecordingNow = async (capturePointerEvents?: boolean) => {
     if (!canRecord || startInFlightRef.current || stopInFlightRef.current || isRecording) return;
-    let capturePointerEvents = true;
-    if (recordingCapabilities?.usesSystemSourcePicker && recordingCapabilities.automaticZoomAvailable) {
-      capturePointerEvents = window.confirm(
-        'Allow Tarantino to observe mouse movement and clicks during this recording for automatic zoom?\n\nCancel records normally without automatic zoom.',
-      );
+    if (
+      capturePointerEvents === undefined
+      && recordingCapabilities?.usesSystemSourcePicker
+      && recordingCapabilities.automaticZoomAvailable
+    ) {
+      setShowPointerConsent(true);
+      return;
     }
     startInFlightRef.current = true;
     setRecordingState('prerecord');
@@ -464,7 +468,7 @@ const CaptureBar: React.FC = () => {
         includeCursor: captureConfig.includeCursor,
         includeMicrophone: micEnabled,
         includeSystemAudio: systemAudioEnabled,
-        capturePointerEvents,
+        capturePointerEvents: capturePointerEvents ?? true,
         webcamShape,
         outputPath: path });
       setRecordingState('recording');
@@ -761,6 +765,18 @@ const CaptureBar: React.FC = () => {
         onCloseShortcuts={() => setShowShortcuts(false)}
         onCloseSpeakerNotes={() => setShowSpeakerNotes(false)}
       />
+      {showPointerConsent && (
+        <PointerCaptureConsent
+          onEnable={() => {
+            setShowPointerConsent(false);
+            void startRecordingNow(true);
+          }}
+          onSkip={() => {
+            setShowPointerConsent(false);
+            void startRecordingNow(false);
+          }}
+        />
+      )}
     </div>
   );
 };
