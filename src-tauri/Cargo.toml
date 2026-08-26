@@ -45,9 +45,6 @@ rdev = { git = "https://github.com/fufesou/rdev" }
 uuid = { version = "1.24", features = ["v4"] }
 lazy_static = "1.5"
 
-# Video processing - Modern native bindings using ffmpeg-next
-ffmpeg-next = "8.1"
-
 # Screen capture and encoding
 bytes = "1.12"
 futures = "0.3"

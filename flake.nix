@@ -11,14 +11,13 @@
       devShells = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
-          gstPlugins = with pkgs.gst_all_1; [
-            gstreamer
-            gst-plugins-base
-            gst-plugins-good
-            gst-plugins-bad
-            gst-plugins-ugly
-            gst-plugin-pipewire
-          ];
+          gstPlugins = (with pkgs.gst_all_1; [
+              gstreamer
+              gst-plugins-base
+              gst-plugins-good
+              gst-plugins-bad
+              gst-plugins-ugly
+            ]) ++ [ pkgs.pipewire ];
           runtimeLibraries = with pkgs; [
             alsa-lib
             ffmpeg
