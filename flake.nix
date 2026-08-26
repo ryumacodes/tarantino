@@ -26,6 +26,7 @@
             openssl
             pipewire
             webkitgtk_4_1
+            libxtst
           ];
         in {
           default = pkgs.mkShell {
