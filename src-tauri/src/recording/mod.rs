@@ -255,7 +255,9 @@ impl RecordingAPI {
         {
             *self.stop_signal.lock().await = true;
             if let Some(recording) = &mut self.linux_recording {
-                recording.signal_stop()?;
+                if let Err(error) = recording.signal_stop() {
+                    eprintln!("Failed to signal Linux recording stop: {error:#}");
+                }
             }
         }
 
@@ -327,7 +329,10 @@ impl RecordingAPI {
         #[cfg(target_os = "linux")]
         {
             if let Some(recording) = self.linux_recording.take() {
-                recording.wait().await?;
+                if let Err(error) = recording.wait().await {
+                    self.current_state = RecordingState::Error;
+                    return Err(error);
+                }
             }
             if let Some(audio_handle) = self.audio_task.take() {
                 match audio_handle.await {

@@ -10,6 +10,7 @@ import { X, Monitor, Square, Camera, Mic, Volume2, Settings, ChevronDown, Rotate
 import { useRecordingStore } from '../stores/recording';
 import { cn } from '../utils/cn';
 import { useCaptureShortcuts } from '../hooks/useCaptureShortcuts';
+import { isLinuxRuntime } from '../utils/platform';
 type CaptureMode = 'display' | 'window' | 'area' | 'device';
 type WebcamShape = 'circle' | 'roundrect';
 
@@ -37,7 +38,6 @@ interface RecordingCapabilities {
   automaticZoomAvailable: boolean;
 }
 
-const isLinuxRuntime = navigator.userAgent.toLowerCase().includes('linux');
 const optimisticNativeCapabilities: RecordingCapabilities = {
   recordingAvailable: true,
   unavailableReason: null,

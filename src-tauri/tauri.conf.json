@@ -42,6 +42,8 @@
           "/Users/*/Movies/Tarantino/**",
           "/home/*/Videos/Tarantino/**",
           "/home/*/Movies/Tarantino/**",
+          "$HOME/Videos/Tarantino/**",
+          "$HOME/Movies/Tarantino/**",
           "/tmp/**",
           "/var/folders/**",
           "/private/tmp/**",

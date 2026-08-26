@@ -87,9 +87,6 @@ pub async fn record_start_new(
     let _start_guard = StartGuard;
     println!("Starting recording with new architecture");
 
-    #[cfg(target_os = "linux")]
-    crate::input::set_pointer_capture_consent(capture_pointer_events);
-
     #[cfg(not(target_os = "linux"))]
     let _ = capture_pointer_events;
 
@@ -180,7 +177,14 @@ pub async fn record_start_new(
         return Err(e);
     }
 
+    #[cfg(target_os = "linux")]
+    let previous_pointer_capture_consent = crate::input::pointer_capture_consented();
+    #[cfg(target_os = "linux")]
+    crate::input::set_pointer_capture_consent(capture_pointer_events);
+
     if let Err(e) = state.start_recording(recording_config).await {
+        #[cfg(target_os = "linux")]
+        crate::input::set_pointer_capture_consent(previous_pointer_capture_consent);
         println!("Recording failed during native start: {}", e);
         if state.is_camera_enabled() {
             let _ = crate::commands::input::stop_webview_webcam_recording(

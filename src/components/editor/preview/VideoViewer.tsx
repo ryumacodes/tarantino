@@ -7,6 +7,7 @@ import { useEditorStore, SPRING_PRESETS, ZOOM_SPEED_PRESETS } from '../../../sto
 import { VideoMaterial, VideoFallback, LinuxNativeVideoOverlay } from './VideoMaterial';
 import { BackgroundPlane } from './BackgroundPlane';
 import { VideoShadow } from './VideoShadow';
+import { isLinuxRuntime } from '../../../utils/platform';
 
 interface SpringConfig {
   tension: number;
@@ -147,6 +148,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
 
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [linuxNativeOverlayEnabled, setLinuxNativeOverlayEnabled] = useState(false);
 
   useEffect(() => {
     const loadVideo = async () => {
@@ -527,11 +529,15 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
             cornerRadius={visualSettings.cornerRadius}
             aspectRatio={planeWidth / planeHeight}
             cleanupWindowCorners={captureMode === 'window'}
+            suppressTimeUpdates={linuxNativeOverlayEnabled}
           />
         </Suspense>
-        {typeof navigator !== 'undefined'
-          && /Linux/i.test(`${navigator.platform} ${navigator.userAgent}`)
-          && <LinuxNativeVideoOverlay isPlaying={isPlaying} />}
+        {isLinuxRuntime && (
+          <LinuxNativeVideoOverlay
+            isPlaying={isPlaying}
+            onEnabledChange={setLinuxNativeOverlayEnabled}
+          />
+        )}
       </mesh>
     </group>
   );

@@ -3,6 +3,7 @@ import { useVideoTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../../stores/editor';
+import { isLinuxRuntime } from '../../../utils/platform';
 
 interface VideoMaterialProps {
   videoUrl: string;
@@ -10,6 +11,7 @@ interface VideoMaterialProps {
   cornerRadius?: number;
   aspectRatio?: number;
   cleanupWindowCorners?: boolean;
+  suppressTimeUpdates?: boolean;
 }
 
 // Compatibility fallback for recordings made before native window silhouette
@@ -43,7 +45,8 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
   isPlaying,
   cornerRadius = 0,
   aspectRatio = 16/9,
-  cleanupWindowCorners = false
+  cleanupWindowCorners = false,
+  suppressTimeUpdates = false,
 }) => {
   const texture = useVideoTexture(videoUrl, {
     unsuspend: 'loadedmetadata',
@@ -156,9 +159,7 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
   const videoElement = texture.image as HTMLVideoElement;
 
   useEffect(() => {
-    const isLinux = typeof navigator !== 'undefined'
-      && /Linux/i.test(`${navigator.platform} ${navigator.userAgent}`);
-    if (!isLinux || !videoElement) return;
+    if (!isLinuxRuntime || !videoElement) return;
 
     let announced = false;
     const announceUsableNativeFrame = () => {
@@ -252,7 +253,7 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
       };
 
       const handleTimeUpdate = () => {
-        if (!videoElement.paused && !videoElement.seeking) {
+        if (!suppressTimeUpdates && !videoElement.paused && !videoElement.seeking) {
           setCurrentTime(videoElement.currentTime * 1000);
         }
       };
@@ -269,7 +270,7 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
         videoElement.removeEventListener('timeupdate', handleTimeUpdate);
       };
     }
-  }, [videoElement, duration, setDuration, setCurrentTime]);
+  }, [videoElement, duration, setDuration, setCurrentTime, suppressTimeUpdates]);
 
   useEffect(() => {
     audioRefs.current.forEach((audio) => {
@@ -357,7 +358,15 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
   return <meshBasicMaterial map={texture} toneMapped={false} side={THREE.DoubleSide} />;
 };
 
-export const LinuxNativeVideoOverlay: React.FC<{ isPlaying: boolean }> = ({ isPlaying }) => {
+interface LinuxNativeVideoOverlayProps {
+  isPlaying: boolean;
+  onEnabledChange: (enabled: boolean) => void;
+}
+
+export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = ({
+  isPlaying,
+  onEnabledChange,
+}) => {
   const {
     currentTime,
     duration,
@@ -369,6 +378,11 @@ export const LinuxNativeVideoOverlay: React.FC<{ isPlaying: boolean }> = ({ isPl
   const [canvasTexture, setCanvasTexture] = useState<THREE.CanvasTexture | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const requestFrameRef = useRef<((timeMs: number) => void) | null>(null);
+
+  useEffect(() => {
+    onEnabledChange(enabled);
+    return () => onEnabledChange(false);
+  }, [enabled, onEnabledChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -531,7 +545,7 @@ export const LinuxNativeVideoOverlay: React.FC<{ isPlaying: boolean }> = ({ isPl
     } else {
       video.pause();
     }
-  }, [isPlaying, duration]);
+  }, [isPlaying, duration, enabled]);
 
   useEffect(() => {
     const video = videoRef.current;

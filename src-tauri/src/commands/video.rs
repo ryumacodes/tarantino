@@ -58,19 +58,33 @@ pub async fn extract_video_thumbnails(
 
     let thumbnail_sources: Result<Vec<String>, String> = thumbnails
         .into_iter()
-        .map(|path| {
-            std::fs::read(&path)
-                .map(|bytes| thumbnail_data_url(&bytes))
-                .map_err(|error| {
-                    format!(
-                        "Failed to read generated thumbnail {}: {error}",
-                        path.display()
-                    )
-                })
-        })
+        .map(|path| read_thumbnail_data_url(&path))
         .collect();
 
     thumbnail_sources
+}
+
+fn read_thumbnail_data_url(path: &Path) -> Result<String, String> {
+    let source = std::fs::read(path)
+        .map(|bytes| thumbnail_data_url(&bytes))
+        .map_err(|error| {
+            format!(
+                "Failed to read generated thumbnail {}: {error}",
+                path.display()
+            )
+        });
+    let cleanup = std::fs::remove_file(path).map_err(|error| {
+        format!(
+            "Failed to remove generated thumbnail {}: {error}",
+            path.display()
+        )
+    });
+
+    match (source, cleanup) {
+        (Ok(source), Ok(())) => Ok(source),
+        (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
+        (Err(read_error), Err(cleanup_error)) => Err(format!("{read_error}; {cleanup_error}")),
+    }
 }
 
 #[tauri::command]
@@ -185,7 +199,7 @@ pub fn linux_native_preview_required() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{split_jpeg_stream, thumbnail_data_url};
+    use super::{read_thumbnail_data_url, split_jpeg_stream, thumbnail_data_url};
 
     #[test]
     fn thumbnail_source_is_a_self_contained_jpeg_data_url() {
@@ -206,6 +220,20 @@ mod tests {
         assert_eq!(frames.len(), 2);
         assert_eq!(frames[0], [0xff, 0xd8, 0x01, 0xff, 0xd9]);
         assert_eq!(frames[1], [0xff, 0xd8, 0x02, 0x03, 0xff, 0xd9]);
+    }
+
+    #[test]
+    fn thumbnail_source_removes_temporary_file() {
+        let path = std::env::temp_dir().join(format!(
+            "tarantino-thumbnail-test-{}.jpg",
+            std::process::id()
+        ));
+        std::fs::write(&path, [0xff, 0xd8, 0xff]).unwrap();
+
+        let source = read_thumbnail_data_url(&path).unwrap();
+
+        assert_eq!(source, "data:image/jpeg;base64,/9j/");
+        assert!(!path.exists());
     }
 }
 

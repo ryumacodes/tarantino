@@ -21,6 +21,12 @@ struct AxisRange {
     maximum: i32,
 }
 
+#[derive(Clone, Copy, Default)]
+struct HighResolutionWheelAxes {
+    horizontal: bool,
+    vertical: bool,
+}
+
 impl AxisRange {
     fn map(self, value: i32, output_max: f64) -> f64 {
         let span = (self.maximum - self.minimum).max(1) as f64;
@@ -171,6 +177,7 @@ fn listen_position(
     coordinates: Arc<Mutex<(i32, i32, AxisRange, AxisRange)>>,
     include_buttons: bool,
 ) {
+    let wheel_axes = high_resolution_wheel_axes(&devices.position);
     loop {
         let events = match devices.position.fetch_events() {
             Ok(events) => events.collect::<Vec<_>>(),
@@ -202,7 +209,7 @@ fn listen_position(
                     }
                 }
                 EventSummary::RelativeAxis(_, axis, value) if is_tracking && include_buttons => {
-                    if let Some(event_type) = wheel_event(axis, value) {
+                    if let Some(event_type) = wheel_event(axis, value, wheel_axes) {
                         add_current_event(&tracker, &coordinates, event_type);
                     }
                 }
@@ -217,6 +224,7 @@ fn listen_buttons(
     tracker: Arc<Mutex<MouseTracker>>,
     coordinates: Arc<Mutex<(i32, i32, AxisRange, AxisRange)>>,
 ) {
+    let wheel_axes = high_resolution_wheel_axes(&device);
     loop {
         let events = match device.fetch_events() {
             Ok(events) => events.collect::<Vec<_>>(),
@@ -231,7 +239,7 @@ fn listen_buttons(
         for event in events {
             let event_type = match event.destructure() {
                 EventSummary::Key(_, code, value) => button_event(code, value),
-                EventSummary::RelativeAxis(_, axis, value) => wheel_event(axis, value),
+                EventSummary::RelativeAxis(_, axis, value) => wheel_event(axis, value, wheel_axes),
                 _ => None,
             };
             if let Some(event_type) = event_type {
@@ -255,10 +263,26 @@ fn button_event(code: KeyCode, value: i32) -> Option<MouseEventType> {
     }
 }
 
-fn wheel_event(axis: RelativeAxisCode, value: i32) -> Option<MouseEventType> {
+fn high_resolution_wheel_axes(device: &Device) -> HighResolutionWheelAxes {
+    let Some(axes) = device.supported_relative_axes() else {
+        return HighResolutionWheelAxes::default();
+    };
+    HighResolutionWheelAxes {
+        horizontal: axes.contains(RelativeAxisCode::REL_HWHEEL_HI_RES),
+        vertical: axes.contains(RelativeAxisCode::REL_WHEEL_HI_RES),
+    }
+}
+
+fn wheel_event(
+    axis: RelativeAxisCode,
+    value: i32,
+    high_resolution: HighResolutionWheelAxes,
+) -> Option<MouseEventType> {
     let (delta_x, delta_y) = match axis {
-        RelativeAxisCode::REL_HWHEEL | RelativeAxisCode::REL_HWHEEL_HI_RES => (value as i64, 0),
-        RelativeAxisCode::REL_WHEEL | RelativeAxisCode::REL_WHEEL_HI_RES => (0, value as i64),
+        RelativeAxisCode::REL_HWHEEL_HI_RES => (value as i64, 0),
+        RelativeAxisCode::REL_WHEEL_HI_RES => (0, value as i64),
+        RelativeAxisCode::REL_HWHEEL if !high_resolution.horizontal => (value as i64, 0),
+        RelativeAxisCode::REL_WHEEL if !high_resolution.vertical => (0, value as i64),
         _ => return None,
     };
     Some(MouseEventType::Wheel { delta_x, delta_y })
@@ -310,5 +334,22 @@ mod tests {
             })
         ));
         assert!(button_event(KeyCode::KEY_A, 1).is_none());
+    }
+
+    #[test]
+    fn prefers_high_resolution_wheel_events() {
+        let high_resolution = HighResolutionWheelAxes {
+            horizontal: true,
+            vertical: true,
+        };
+        assert!(wheel_event(RelativeAxisCode::REL_WHEEL, 1, high_resolution).is_none());
+        assert!(wheel_event(RelativeAxisCode::REL_HWHEEL, -1, high_resolution).is_none());
+        assert!(matches!(
+            wheel_event(RelativeAxisCode::REL_WHEEL_HI_RES, 120, high_resolution),
+            Some(MouseEventType::Wheel {
+                delta_x: 0,
+                delta_y: 120
+            })
+        ));
     }
 }

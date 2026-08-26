@@ -142,16 +142,27 @@ fn load_restore_token(source_key: &str) -> Option<String> {
 }
 
 fn save_restore_token(source_key: &str, token: &str) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+
     let path = restore_token_path(source_key)
         .context("Neither XDG_CONFIG_HOME nor HOME is available for portal persistence")?;
     let parent = path.parent().context("Portal token path has no parent")?;
     std::fs::create_dir_all(parent)
         .with_context(|| format!("Failed to create {}", parent.display()))?;
-    std::fs::write(&path, token).with_context(|| format!("Failed to write {}", path.display()))?;
-
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-        .with_context(|| format!("Failed to secure {}", path.display()))?;
+    if let Err(error) = std::fs::remove_file(&path)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(error).with_context(|| format!("Failed to replace {}", path.display()));
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .with_context(|| format!("Failed to create {}", path.display()))?;
+    file.write_all(token.as_bytes())
+        .with_context(|| format!("Failed to write {}", path.display()))?;
     Ok(())
 }
 
