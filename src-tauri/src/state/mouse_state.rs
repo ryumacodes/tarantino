@@ -113,6 +113,13 @@ impl UnifiedAppState {
         let (width, height, scale_factor, recording_area, screen_dims) = self
             .get_recording_info()
             .unwrap_or((1920, 1080, 1.0, None, None));
+
+        #[cfg(target_os = "linux")]
+        let (width, height) = if width == 0 || height == 0 {
+            crate::input::pointer_coordinate_space()
+        } else {
+            (width, height)
+        };
         println!(
             "=== ZOOM_ANALYSIS: Using display resolution {}x{}, scale_factor: {} ===",
             width, height, scale_factor

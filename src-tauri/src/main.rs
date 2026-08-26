@@ -29,6 +29,17 @@ use tauri::{Manager, tray::TrayIconBuilder};
 // Re-export CaptureMode from commands::capture for external use
 pub use commands::capture::CaptureMode;
 
+#[cfg(target_os = "linux")]
+fn configure_linux_desktop_runtime() {
+    if !commands::video::linux_native_preview_required() {
+        return;
+    }
+
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+    }
+}
+
 //=============================================================================
 // System Tray Setup
 //=============================================================================
@@ -104,8 +115,24 @@ fn setup_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
 // Main Entry Point
 //=============================================================================
 
+#[cfg(target_os = "linux")]
+fn main() {
+    configure_linux_desktop_runtime();
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to create async runtime")
+        .block_on(run());
+}
+
+#[cfg(not(target_os = "linux"))]
 #[tokio::main]
 async fn main() {
+    run().await;
+}
+
+async fn run() {
     tracing_subscriber::fmt::init();
 
     let app_state = Arc::new(UnifiedAppState::new().expect("Failed to create app state"));
@@ -145,6 +172,7 @@ async fn main() {
             recording_commands::record_stop_instant_new,
             recording_commands::record_restart_new,
             recording_commands::get_recording_status,
+            recording_commands::get_recording_capabilities,
             recording_commands::update_recording_duration,
             // Permission management
             permissions::check_permissions,
@@ -184,6 +212,8 @@ async fn main() {
             commands::video::get_video_info,
             commands::video::get_video_metadata,
             commands::video::extract_video_thumbnails,
+            commands::video::extract_video_preview_frames,
+            commands::video::linux_native_preview_required,
             commands::video::export_video,
             commands::video::extract_audio_waveform,
             commands::video::read_sidecar_file,
@@ -208,7 +238,7 @@ async fn main() {
             }
 
             #[cfg(debug_assertions)]
-            {
+            if std::env::var_os("TARANTINO_OPEN_DEVTOOLS").is_some() {
                 if let Some(window) = app.get_webview_window("capture-bar") {
                     window.open_devtools();
                 }

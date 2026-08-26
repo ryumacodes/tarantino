@@ -107,9 +107,12 @@ impl UnifiedAppState {
         // Start recording through recording state manager
         self.recording.start_recording(config).await?;
 
-        // Start mouse tracking best-effort so zoom analysis has events
-        if let Err(e) = self.start_mouse_tracking().await {
-            println!("Warning: Failed to start mouse tracking: {}", e);
+        if crate::input::pointer_capture_consented() {
+            if let Err(e) = self.start_mouse_tracking().await {
+                println!("Warning: Failed to start mouse tracking: {}", e);
+            }
+        } else {
+            println!("Mouse tracking skipped for this recording by user choice");
         }
 
         println!("Recording started through unified state");

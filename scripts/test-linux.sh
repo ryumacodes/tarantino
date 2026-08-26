@@ -42,14 +42,14 @@ for plugin in pipewiresrc h264parse mp4mux; do
 done
 
 encoder=""
-for candidate in x264enc openh264enc; do
+for candidate in nvh264enc vah264enc vaapih264enc x264enc openh264enc; do
   if gst-inspect-1.0 "$candidate" >/dev/null 2>&1; then
     encoder=$candidate
     break
   fi
 done
 if [ -z "$encoder" ]; then
-  echo "error: install a supported GStreamer H.264 encoder: x264enc or openh264enc" >&2
+  echo "error: install a supported GStreamer H.264 encoder: VA-API, NVIDIA, x264, or OpenH264" >&2
   exit 1
 fi
 

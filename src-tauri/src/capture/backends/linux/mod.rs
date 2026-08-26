@@ -33,7 +33,7 @@ impl NativeCaptureBackend for PipeWireBackend {
         Ok(vec![
             CaptureSourceInfo {
                 id: 1,
-                name: "Choose a screen when recording starts".to_string(),
+                name: "Current display".to_string(),
                 source_type: CaptureSourceType::Display,
                 width: 0,
                 height: 0,
@@ -45,7 +45,7 @@ impl NativeCaptureBackend for PipeWireBackend {
             },
             CaptureSourceInfo {
                 id: 2,
-                name: "Choose a window when recording starts".to_string(),
+                name: "Choose a window…".to_string(),
                 source_type: CaptureSourceType::Window,
                 width: 0,
                 height: 0,
@@ -104,5 +104,8 @@ mod tests {
         assert_eq!(sources.len(), 2);
         assert!(matches!(sources[0].source_type, CaptureSourceType::Display));
         assert!(matches!(sources[1].source_type, CaptureSourceType::Window));
+        assert_eq!(sources[0].name, "Current display");
+        assert!(sources[0].is_primary);
+        assert_eq!(sources[1].name, "Choose a window…");
     }
 }

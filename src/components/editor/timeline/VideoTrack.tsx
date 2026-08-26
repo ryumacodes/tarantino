@@ -1,5 +1,4 @@
 import React from 'react';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import { Film, Eye } from 'lucide-react';
 
 interface Clip {
@@ -67,18 +66,17 @@ const VideoTrack: React.FC<VideoTrackProps> = ({
               <div className="editor-spinner" />
             </div>
           ) : (
-            thumbnails.map((thumbnailPath, index) => {
+            thumbnails.map((thumbnailSource, index) => {
               const thumbnailWidth = timelineWidth / thumbnails.length;
               const thumbnailLeft = index * thumbnailWidth;
-
               return (
                 <img
                   key={index}
-                  src={convertFileSrc(thumbnailPath)}
+                  src={thumbnailSource}
                   alt={`Frame ${index}`}
                   className="video-thumbnail"
                   onError={(e) => {
-                    console.error(`Failed to load thumbnail ${index}:`, thumbnailPath);
+                    console.error(`Failed to load thumbnail ${index}`);
                     e.currentTarget.style.opacity = '0.3';
                   }}
                   style={{

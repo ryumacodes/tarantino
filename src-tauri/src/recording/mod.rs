@@ -4,7 +4,7 @@ pub mod types;
 mod encoder_loop;
 mod finalization;
 #[cfg(target_os = "linux")]
-mod linux;
+pub(crate) mod linux;
 
 use anyhow::Result;
 use std::path::PathBuf;

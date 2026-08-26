@@ -139,6 +139,11 @@ pub enum KeyMotion {
 #[allow(unsafe_op_in_unsafe_fn)]
 mod macos;
 
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::pointer_coordinate_space;
+
 #[cfg(not(target_os = "macos"))]
 mod macos {
     pub fn focused_caret_position() -> Option<(f64, f64)> {
@@ -151,6 +156,15 @@ mod macos {
 static CMD_HELD: AtomicBool = AtomicBool::new(false);
 static CTRL_HELD: AtomicBool = AtomicBool::new(false);
 static ALT_HELD: AtomicBool = AtomicBool::new(false);
+static POINTER_CAPTURE_CONSENT: AtomicBool = AtomicBool::new(true);
+
+pub fn set_pointer_capture_consent(granted: bool) {
+    POINTER_CAPTURE_CONSENT.store(granted, Ordering::Release);
+}
+
+pub fn pointer_capture_consented() -> bool {
+    POINTER_CAPTURE_CONSENT.load(Ordering::Acquire)
+}
 
 /// Classify an rdev key: returns (is_command_modifier, is_character_key)
 fn classify_key(key: &Key) -> (bool, bool) {
@@ -442,6 +456,7 @@ mod tests {
 }
 
 /// Global mouse listener function with permission validation
+#[cfg(not(target_os = "linux"))]
 pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
     // Check permissions before starting the listener
     if let Err(permission_error) = crate::permissions::validate_mouse_tracking_permissions() {
@@ -452,6 +467,7 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
     }
 
     std::thread::spawn(move || {
+        let listener_state = tracker.clone();
         let callback = move |event: Event| {
             // Check if tracking is enabled FIRST to avoid unnecessary work
             let tracker_guard = tracker.lock();
@@ -615,15 +631,34 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
 
         // Start the rdev listener - this blocks the thread
         if let Err(error) = listen(callback) {
+            listener_state.lock().is_tracking = false;
             eprintln!("🚨 Mouse tracking error: {:?}", error);
-            eprintln!("This is likely due to missing Accessibility permissions.");
-            eprintln!(
-                "Please enable Accessibility permissions in System Preferences and restart Tarantino."
-            );
+            #[cfg(target_os = "macos")]
+            {
+                eprintln!("This is likely due to missing Accessibility permissions.");
+                eprintln!(
+                    "Please enable Accessibility permissions in System Preferences and restart Tarantino."
+                );
+            }
         }
     });
 
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
+    linux::create_mouse_listener(tracker)
+}
+
+#[cfg(target_os = "linux")]
+pub fn raw_pointer_tracking_available() -> bool {
+    linux::raw_pointer_tracking_available()
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn raw_pointer_tracking_available() -> bool {
+    true
 }
 
 /// Statistics about recorded mouse events

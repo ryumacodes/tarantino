@@ -87,6 +87,7 @@ windows = { version = "0.62", features = [
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { version = "0.13.13", default-features = false, features = ["screencast", "tokio"] }
 gst = { package = "gstreamer", version = "0.24" }
+evdev = "0.13.2"
 
 [features]
 default = ["custom-protocol"]

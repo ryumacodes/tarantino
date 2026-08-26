@@ -6,7 +6,7 @@ import DisplayPicker from './DisplayPicker';
 import CaptureSettings, { CaptureConfig } from './CaptureSettings';
 import CaptureShortcutOverlays from './CaptureShortcutOverlays';
 import PermissionStatus from './PermissionStatus';
-import { X, Monitor, Square, Camera, Mic, Volume2, Settings, ChevronDown, RotateCcw } from 'lucide-react';
+import { X, Monitor, Square, Camera, Mic, Volume2, Settings, ChevronDown, RotateCcw, AlertTriangle } from 'lucide-react';
 import { useRecordingStore } from '../stores/recording';
 import { cn } from '../utils/cn';
 import { useCaptureShortcuts } from '../hooks/useCaptureShortcuts';
@@ -28,6 +28,23 @@ interface CaptureWindowInfo {
   title?: string;
   app_name?: string;
 }
+
+interface RecordingCapabilities {
+  recordingAvailable: boolean;
+  unavailableReason: string | null;
+  usesSystemSourcePicker: boolean;
+  displayPreviewAvailable: boolean;
+  automaticZoomAvailable: boolean;
+}
+
+const isLinuxRuntime = navigator.userAgent.toLowerCase().includes('linux');
+const optimisticNativeCapabilities: RecordingCapabilities = {
+  recordingAvailable: true,
+  unavailableReason: null,
+  usesSystemSourcePicker: false,
+  displayPreviewAvailable: true,
+  automaticZoomAvailable: true,
+};
 
 const isRecordableWindow = (windowInfo: CaptureWindowInfo) => {
   const appName = (windowInfo.app_name || '').toLowerCase();
@@ -54,7 +71,12 @@ const popupNativeMenu = async (items: Awaited<ReturnType<typeof MenuItem.new>>[]
 
 const handleCaptureBarDrag = async (event: React.MouseEvent) => {
   const target = event.target as HTMLElement;
-  if (target.tagName === 'BUTTON' || target.closest('button') || target.closest('.capture-bar__input')) return;
+  if (
+    target.tagName === 'BUTTON'
+    || target.closest('button')
+    || target.closest('.capture-bar__record')
+    || target.closest('.capture-bar__input')
+  ) return;
 
   try {
     await Window.getCurrent().startDragging();
@@ -85,6 +107,10 @@ const CaptureBar: React.FC = () => {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showSpeakerNotes, setShowSpeakerNotes] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [recordingCapabilities, setRecordingCapabilities] = useState<RecordingCapabilities | null>(
+    isLinuxRuntime ? null : optimisticNativeCapabilities,
+  );
+  const [checkingRecordingSupport, setCheckingRecordingSupport] = useState(false);
   const [captureConfig, setCaptureConfig] = useState<CaptureConfig>({
     includeCursor: true,
     cursorSize: 'normal',
@@ -106,9 +132,29 @@ const CaptureBar: React.FC = () => {
     : captureMode === 'display'
       ? selectedDisplay !== null
       : selectedDevice !== null;
-  const canRecord = !startInFlightRef.current && !stopInFlightRef.current && !isStarting && (isRecording || selectedTargetReady);
+  const recordingAvailable = recordingCapabilities?.recordingAvailable === true;
+  const canRecord = recordingAvailable && !startInFlightRef.current && !stopInFlightRef.current && !isStarting && (isRecording || selectedTargetReady);
+
+  const checkRecordingSupport = async () => {
+    setCheckingRecordingSupport(true);
+    try {
+      setRecordingCapabilities(await invoke<RecordingCapabilities>('get_recording_capabilities'));
+    } catch (error) {
+      setRecordingCapabilities({
+        recordingAvailable: false,
+        unavailableReason: `Could not verify recording support: ${String(error)}`,
+        usesSystemSourcePicker: false,
+        displayPreviewAvailable: false,
+        automaticZoomAvailable: false,
+      });
+    } finally {
+      setCheckingRecordingSupport(false);
+    }
+  };
+
   useEffect(() => {
     loadDevices();
+    checkRecordingSupport();
   }, []);
 
   useEffect(() => {
@@ -396,6 +442,12 @@ const CaptureBar: React.FC = () => {
 
   const startRecordingNow = async () => {
     if (!canRecord || startInFlightRef.current || stopInFlightRef.current || isRecording) return;
+    let capturePointerEvents = true;
+    if (recordingCapabilities?.usesSystemSourcePicker && recordingCapabilities.automaticZoomAvailable) {
+      capturePointerEvents = window.confirm(
+        'Allow Tarantino to observe mouse movement and clicks during this recording for automatic zoom?\n\nCancel records normally without automatic zoom.',
+      );
+    }
     startInFlightRef.current = true;
     setRecordingState('prerecord');
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
@@ -412,6 +464,7 @@ const CaptureBar: React.FC = () => {
         includeCursor: captureConfig.includeCursor,
         includeMicrophone: micEnabled,
         includeSystemAudio: systemAudioEnabled,
+        capturePointerEvents,
         webcamShape,
         outputPath: path });
       setRecordingState('recording');
@@ -492,6 +545,7 @@ const CaptureBar: React.FC = () => {
       <div
         className={cn('capture-bar__record', { recording: isRecording || isStarting, disabled: !canRecord })}
         onClick={handleRecord}
+        title={recordingCapabilities?.unavailableReason ?? (recordingCapabilities ? 'Start recording' : 'Checking recording support')}
       >
         <div className="record-dot" />
       </div>
@@ -507,18 +561,29 @@ const CaptureBar: React.FC = () => {
         </button>
       )}
 
-      <div className="capture-bar__modes">
+      {!recordingAvailable && recordingCapabilities ? (
+        <button
+          className="capture-bar__runtime-warning"
+          onClick={() => setShowSettings(true)}
+          title={recordingCapabilities.unavailableReason ?? 'Recording is unavailable'}
+        >
+          <AlertTriangle size={16} />
+          <span>Recording unavailable</span>
+        </button>
+      ) : <div className="capture-bar__modes">
         <button
           className={cn('capture-bar__mode', { active: captureMode === 'display' })}
           disabled={isStarting || isRecording}
           onClick={() => {
             if (isStarting || isRecording) return;
             handleModeChange('display');
-            setShowDisplayPicker(!showDisplayPicker);
+            if (!recordingCapabilities?.usesSystemSourcePicker) {
+              setShowDisplayPicker(!showDisplayPicker);
+            }
           }}
           onMouseEnter={async () => {
             if (isStarting || isRecording) return;
-            if (selectedDisplay) {
+            if (selectedDisplay && recordingCapabilities?.displayPreviewAvailable) {
               try {
                 await invoke('show_display_preview', { displayId: selectedDisplay.id });
               } catch (error) {
@@ -533,7 +598,7 @@ const CaptureBar: React.FC = () => {
               console.error('Failed to hide display preview:', error);
             }
           }}
-          title="Capture Display"
+          title={recordingCapabilities?.usesSystemSourcePicker ? 'Capture the current display; your desktop confirms screen access when recording starts' : 'Capture Display'}
         >
           <Monitor size={16} />
           <span>{selectedDisplay ? selectedDisplay.name : 'Display'}</span>
@@ -545,13 +610,19 @@ const CaptureBar: React.FC = () => {
             if (!windowModeReady || isStarting || isRecording) return;
             captureMode === 'window' ? showWindowMenu() : handleModeChange('window');
           }}
-          title={windowsLoading ? 'Loading windows' : windowModeReady ? 'Capture Window' : 'No windows available'}
+          title={windowsLoading
+            ? 'Loading windows'
+            : windowModeReady
+              ? recordingCapabilities?.usesSystemSourcePicker
+                ? 'Choose Window, then press Record to open the secure system window picker'
+                : 'Capture Window'
+              : 'No windows available'}
         >
           <Square size={16} />
           <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{captureMode === 'window' && selectedWindow ? (windows.find((w: any) => w.id === selectedWindow)?.title || 'Window') : windowsLoading ? 'Loading...' : 'Window'}</span>
           {captureMode === 'window' && <ChevronDown size={12} />}
         </button>
-      </div>
+      </div>}
 
       <div className="capture-bar__inputs">
         <div className="capture-bar__input">
@@ -641,7 +712,35 @@ const CaptureBar: React.FC = () => {
       {showSettings && (
         <div className="capture-bar__dropdown capture-bar__dropdown--settings">
           <div className="space-y-4">
-            <PermissionStatus className="mb-4" />
+            {recordingCapabilities?.unavailableReason && (
+              <div className="capture-bar__runtime-detail" role="alert">
+                <AlertTriangle size={16} />
+                <div>
+                  <strong>Recording unavailable</strong>
+                  <span>{recordingCapabilities.unavailableReason}</span>
+                  <button
+                    className="capture-bar__runtime-retry"
+                    disabled={checkingRecordingSupport}
+                    onClick={checkRecordingSupport}
+                  >
+                    {checkingRecordingSupport ? 'Checking…' : 'Check again'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {recordingCapabilities?.usesSystemSourcePicker ? (
+              <div className="capture-bar__portal-notice">
+                Display capture defaults to the display containing Tarantino. For Window capture,
+                choose the window option first; Record then opens your desktop's secure window picker.
+                {!recordingCapabilities.automaticZoomAvailable && (
+                  <span className="capture-bar__portal-limit">
+                    Automatic click zoom needs permission to read a compatible mouse device. Recording
+                    and manual zoom editing remain available.
+                  </span>
+                )}
+              </div>
+            ) : <PermissionStatus className="mb-4" />}
             
             <CaptureSettings
               compact

@@ -1,7 +1,7 @@
 //! In-process Linux recording through the XDG ScreenCast portal and PipeWire.
 
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use ashpd::desktop::{
@@ -28,8 +28,7 @@ impl LinuxRecording {
             );
         }
 
-        gst::init().context("Failed to initialize the native GStreamer runtime")?;
-        verify_runtime_elements()?;
+        runtime_preflight()?;
 
         let portal = Screencast::new()
             .await
@@ -39,9 +38,9 @@ impl LinuxRecording {
             .await
             .context("Failed to create a desktop-portal screen-cast session")?;
 
-        let source_type = match config.target {
-            RecordingTarget::Desktop { .. } => SourceType::Monitor,
-            RecordingTarget::Window { .. } => SourceType::Window,
+        let (source_type, source_key) = match config.target {
+            RecordingTarget::Desktop { .. } => (SourceType::Monitor, "display"),
+            RecordingTarget::Window { .. } => (SourceType::Window, "window"),
             RecordingTarget::Device { .. } => {
                 anyhow::bail!("Device capture is not supported on Linux yet")
             }
@@ -52,16 +51,18 @@ impl LinuxRecording {
             CursorMode::Hidden
         };
 
+        let restore_token = load_restore_token(source_key);
+        let mut source_options = SelectSourcesOptions::default()
+            .set_cursor_mode(cursor_mode)
+            .set_sources(Some(source_type.into()))
+            .set_multiple(false)
+            .set_persist_mode(PersistMode::ExplicitlyRevoked);
+        if let Some(token) = restore_token.as_deref() {
+            source_options = source_options.set_restore_token(Some(token));
+        }
+
         portal
-            .select_sources(
-                &session,
-                SelectSourcesOptions::default()
-                    .set_cursor_mode(cursor_mode)
-                    .set_sources(Some(source_type.into()))
-                    .set_multiple(false)
-                    .set_restore_token(None)
-                    .set_persist_mode(PersistMode::DoNot),
-            )
+            .select_sources(&session, source_options)
             .await
             .context("Failed to configure the desktop-portal source picker")?;
 
@@ -71,6 +72,11 @@ impl LinuxRecording {
             .context("Failed to open the desktop-portal source picker")?
             .response()
             .context("Screen or window selection was cancelled")?;
+        if let Some(token) = response.restore_token()
+            && let Err(error) = save_restore_token(source_key, token)
+        {
+            eprintln!("Failed to save Linux portal source choice: {error:#}");
+        }
         let stream = response
             .streams()
             .first()
@@ -117,10 +123,47 @@ impl LinuxRecording {
     }
 }
 
+fn restore_token_path(source_key: &str) -> Option<PathBuf> {
+    let config_root = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
+    Some(
+        config_root
+            .join("tarantino")
+            .join(format!("linux-screencast-{source_key}.token")),
+    )
+}
+
+fn load_restore_token(source_key: &str) -> Option<String> {
+    let token = std::fs::read_to_string(restore_token_path(source_key)?).ok()?;
+    let token = token.trim();
+    (!token.is_empty()).then(|| token.to_string())
+}
+
+fn save_restore_token(source_key: &str, token: &str) -> Result<()> {
+    let path = restore_token_path(source_key)
+        .context("Neither XDG_CONFIG_HOME nor HOME is available for portal persistence")?;
+    let parent = path.parent().context("Portal token path has no parent")?;
+    std::fs::create_dir_all(parent)
+        .with_context(|| format!("Failed to create {}", parent.display()))?;
+    std::fs::write(&path, token).with_context(|| format!("Failed to write {}", path.display()))?;
+
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+        .with_context(|| format!("Failed to secure {}", path.display()))?;
+    Ok(())
+}
+
 impl Drop for LinuxRecording {
     fn drop(&mut self) {
         let _ = self.pipeline.set_state(gst::State::Null);
     }
+}
+
+pub(crate) fn runtime_preflight() -> Result<()> {
+    gst::init().context("Failed to initialize the native GStreamer runtime")?;
+    verify_runtime_elements()
 }
 
 fn verify_runtime_elements() -> Result<()> {
@@ -137,8 +180,14 @@ fn verify_runtime_elements() -> Result<()> {
             anyhow::bail!("Required native GStreamer element is missing: {element}");
         }
     }
-    select_h264_encoder(|name| gst::ElementFactory::find(name).is_some()).context(
-        "A native H.264 encoder is required; install the x264enc or openh264enc GStreamer plugin",
+    let (nvidia_device, va_device) = hardware_encoder_devices();
+    select_h264_encoder(
+        |name| gst::ElementFactory::find(name).is_some(),
+        nvidia_device,
+        va_device,
+    )
+    .context(
+        "A native H.264 encoder is required; install a VA-API, NVIDIA, x264, or OpenH264 GStreamer plugin",
     )?;
     Ok(())
 }
@@ -150,6 +199,17 @@ fn build_pipeline(
     pipewire_fd: i32,
 ) -> Result<gst::Pipeline> {
     let (bitrate_kbps, speed_preset) = encoding_settings(&config.quality);
+
+    let (nvidia_device, va_device) = hardware_encoder_devices();
+    let encoder_kind = select_h264_encoder(
+        |name| gst::ElementFactory::find(name).is_some(),
+        nvidia_device,
+        va_device,
+    )?;
+    println!(
+        "Linux recording encoder selected: {}",
+        encoder_kind.factory_name()
+    );
 
     let source = gst::ElementFactory::make("pipewiresrc")
         .property("fd", pipewire_fd)
@@ -163,12 +223,12 @@ fn build_pipeline(
         .property(
             "caps",
             gst::Caps::builder("video/x-raw")
-                .field("format", "I420")
+                .field("format", encoder_kind.raw_format())
                 .build(),
         )
         .build()
         .context("Failed to create the raw-video format filter")?;
-    let encoder = make_h264_encoder(bitrate_kbps, speed_preset)?;
+    let encoder = make_h264_encoder(encoder_kind, bitrate_kbps, speed_preset)?;
     let parser = make_element("h264parse")?;
     let muxer = gst::ElementFactory::make("mp4mux")
         .property("faststart", true)
@@ -214,11 +274,46 @@ fn make_element(name: &str) -> Result<gst::Element> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum H264Encoder {
+    Nvidia,
+    Va,
+    Vaapi,
     X264,
     OpenH264,
 }
 
-fn select_h264_encoder(mut available: impl FnMut(&str) -> bool) -> Result<H264Encoder> {
+impl H264Encoder {
+    fn factory_name(self) -> &'static str {
+        match self {
+            Self::Nvidia => "nvh264enc",
+            Self::Va => "vah264enc",
+            Self::Vaapi => "vaapih264enc",
+            Self::X264 => "x264enc",
+            Self::OpenH264 => "openh264enc",
+        }
+    }
+
+    fn raw_format(self) -> &'static str {
+        match self {
+            Self::Va | Self::Vaapi => "NV12",
+            Self::Nvidia | Self::X264 | Self::OpenH264 => "I420",
+        }
+    }
+}
+
+fn select_h264_encoder(
+    mut available: impl FnMut(&str) -> bool,
+    nvidia_device: bool,
+    va_device: bool,
+) -> Result<H264Encoder> {
+    if nvidia_device && available("nvh264enc") {
+        return Ok(H264Encoder::Nvidia);
+    }
+    if va_device && available("vah264enc") {
+        return Ok(H264Encoder::Va);
+    }
+    if va_device && available("vaapih264enc") {
+        return Ok(H264Encoder::Vaapi);
+    }
     if available("x264enc") {
         return Ok(H264Encoder::X264);
     }
@@ -228,8 +323,56 @@ fn select_h264_encoder(mut available: impl FnMut(&str) -> bool) -> Result<H264En
     anyhow::bail!("No supported native H.264 GStreamer encoder is installed")
 }
 
-fn make_h264_encoder(bitrate_kbps: u32, speed_preset: &str) -> Result<gst::Element> {
-    match select_h264_encoder(|name| gst::ElementFactory::find(name).is_some())? {
+fn hardware_encoder_devices() -> (bool, bool) {
+    let virtual_machine = [
+        "/sys/class/dmi/id/product_name",
+        "/sys/class/dmi/id/sys_vendor",
+        "/sys/class/dmi/id/board_vendor",
+    ]
+    .into_iter()
+    .filter_map(|path| std::fs::read_to_string(path).ok())
+    .collect::<Vec<_>>()
+    .join(" ")
+    .to_ascii_lowercase();
+    if ["vmware", "virtualbox", "qemu", "kvm", "hyper-v"]
+        .iter()
+        .any(|vendor| virtual_machine.contains(vendor))
+    {
+        return (false, false);
+    }
+
+    let nvidia = Path::new("/dev/nvidia0").exists();
+    let va = std::fs::read_dir("/dev/dri")
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok())
+        .any(|entry| entry.file_name().to_string_lossy().starts_with("renderD"));
+    (nvidia, va)
+}
+
+fn make_h264_encoder(
+    encoder_kind: H264Encoder,
+    bitrate_kbps: u32,
+    speed_preset: &str,
+) -> Result<gst::Element> {
+    match encoder_kind {
+        H264Encoder::Nvidia | H264Encoder::Va | H264Encoder::Vaapi => {
+            let encoder = make_element(encoder_kind.factory_name())?;
+            if encoder.find_property("bitrate").is_some() {
+                encoder.set_property_from_str("bitrate", &bitrate_kbps.to_string());
+            }
+            if encoder.find_property("gop-size").is_some() {
+                encoder.set_property_from_str("gop-size", "120");
+            }
+            if encoder.find_property("keyframe-period").is_some() {
+                encoder.set_property_from_str("keyframe-period", "120");
+            }
+            if encoder.find_property("zerolatency").is_some() {
+                encoder.set_property("zerolatency", true);
+            }
+            Ok(encoder)
+        }
         H264Encoder::X264 => {
             let encoder = gst::ElementFactory::make("x264enc")
                 .property("bitrate", bitrate_kbps)
@@ -298,15 +441,25 @@ mod tests {
     }
 
     #[test]
-    fn encoder_selection_prefers_x264_and_falls_back_to_openh264() {
+    fn encoder_selection_prefers_available_hardware_then_software() {
         assert_eq!(
-            select_h264_encoder(|name| name == "x264enc").unwrap(),
+            select_h264_encoder(|name| name == "nvh264enc" || name == "x264enc", true, false)
+                .unwrap(),
+            H264Encoder::Nvidia
+        );
+        assert_eq!(
+            select_h264_encoder(|name| name == "vah264enc" || name == "x264enc", false, true)
+                .unwrap(),
+            H264Encoder::Va
+        );
+        assert_eq!(
+            select_h264_encoder(|name| name == "x264enc", false, false).unwrap(),
             H264Encoder::X264
         );
         assert_eq!(
-            select_h264_encoder(|name| name == "openh264enc").unwrap(),
+            select_h264_encoder(|name| name == "openh264enc", false, false).unwrap(),
             H264Encoder::OpenH264
         );
-        assert!(select_h264_encoder(|_| false).is_err());
+        assert!(select_h264_encoder(|_| false, true, true).is_err());
     }
 }

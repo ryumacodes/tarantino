@@ -4,7 +4,7 @@ import { Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useEditorStore, SPRING_PRESETS, ZOOM_SPEED_PRESETS } from '../../../stores/editor';
-import { VideoMaterial, VideoFallback } from './VideoMaterial';
+import { VideoMaterial, VideoFallback, LinuxNativeVideoOverlay } from './VideoMaterial';
 import { BackgroundPlane } from './BackgroundPlane';
 import { VideoShadow } from './VideoShadow';
 
@@ -529,6 +529,9 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
             cleanupWindowCorners={captureMode === 'window'}
           />
         </Suspense>
+        {typeof navigator !== 'undefined'
+          && /Linux/i.test(`${navigator.platform} ${navigator.userAgent}`)
+          && <LinuxNativeVideoOverlay isPlaying={isPlaying} />}
       </mesh>
     </group>
   );

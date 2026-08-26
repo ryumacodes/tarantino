@@ -13,6 +13,8 @@ use crate::auto_zoom::ZoomProcessor;
 use crate::event_capture::{CaptureSession, EnhancedMouseEvent};
 use crate::state::UnifiedAppState;
 
+use super::editor_ready::notify_editor_ready;
+
 async fn wait_for_webcam_sidecar(temp_path: &str, max_wait: tokio::time::Duration) -> bool {
     let artifacts = crate::recording::artifacts::RecordingArtifacts::new(temp_path);
     let candidates = [artifacts.webcam_mp4(), artifacts.webcam_webm()];
@@ -147,7 +149,7 @@ pub async fn open_editor(
     }
 
     #[cfg(debug_assertions)]
-    {
+    if std::env::var_os("TARANTINO_OPEN_DEVTOOLS").is_some() {
         win.open_devtools();
     }
 
@@ -226,38 +228,6 @@ pub async fn update_editor_status(app: &tauri::AppHandle, status: &str) -> Resul
     if let Some(editor) = app.get_webview_window("editor") {
         editor
             .emit("processing-status", status)
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
-    }
-    Ok(())
-}
-
-/// Notify the editor that the recording is ready
-pub async fn notify_editor_ready(
-    app: &tauri::AppHandle,
-    final_path: &str,
-    has_webcam: bool,
-    has_mic: bool,
-    has_system_audio: bool,
-    webcam_shape: &str,
-    webcam_x: f32,
-    webcam_y: f32,
-    webcam_size: f32,
-) -> Result<()> {
-    if let Some(editor) = app.get_webview_window("editor") {
-        editor
-            .emit(
-                "recording-ready",
-                serde_json::json!({
-                    "path": final_path,
-                    "has_webcam": has_webcam,
-                    "has_mic": has_mic,
-                    "has_system_audio": has_system_audio,
-                    "webcam_shape": webcam_shape,
-                    "webcam_x": webcam_x,
-                    "webcam_y": webcam_y,
-                    "webcam_size": webcam_size,
-                }),
-            )
             .map_err(|e| anyhow::anyhow!("{}", e))?;
     }
     Ok(())

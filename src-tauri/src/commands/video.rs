@@ -2,9 +2,12 @@
 
 use crate::state::UnifiedAppState;
 use crate::video_processing::{ExportSettings, ProcessingProgress, VideoInfo, VideoProcessor};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
+
+const LINUX_PREVIEW_FPS: f64 = 30.0;
 use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
@@ -53,12 +56,157 @@ pub async fn extract_video_thumbnails(
         .await
         .map_err(|e| e.to_string())?;
 
-    let thumbnail_paths: Vec<String> = thumbnails
+    let thumbnail_sources: Result<Vec<String>, String> = thumbnails
         .into_iter()
-        .map(|p| p.to_string_lossy().to_string())
+        .map(|path| {
+            std::fs::read(&path)
+                .map(|bytes| thumbnail_data_url(&bytes))
+                .map_err(|error| {
+                    format!(
+                        "Failed to read generated thumbnail {}: {error}",
+                        path.display()
+                    )
+                })
+        })
         .collect();
 
-    Ok(thumbnail_paths)
+    thumbnail_sources
+}
+
+#[tauri::command]
+pub async fn extract_video_preview_frames(
+    video_path: String,
+    start_bucket: u64,
+    frame_count: u32,
+    preview_width: u32,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let width = preview_width.clamp(320, 1920);
+        let count = frame_count.clamp(1, 60);
+        let seek = start_bucket as f64 / LINUX_PREVIEW_FPS;
+        let output = Command::new("ffmpeg")
+            .args([
+                "-v",
+                "error",
+                "-hwaccel",
+                "none",
+                "-ss",
+                &format!("{seek:.3}"),
+                "-i",
+                &video_path,
+                "-vf",
+                &format!("fps=30,scale={width}:-2:flags=fast_bilinear"),
+                "-frames:v",
+                &count.to_string(),
+                "-c:v",
+                "mjpeg",
+                "-q:v",
+                "4",
+                "-f",
+                "image2pipe",
+                "pipe:1",
+            ])
+            .output()
+            .map_err(|error| format!("Failed to start Linux preview decoder: {error}"))?;
+
+        if !output.status.success() {
+            return Err(format!(
+                "Linux preview decoder failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+
+        let frames = split_jpeg_stream(&output.stdout);
+        if frames.is_empty() {
+            return Err("Linux preview decoder produced an invalid JPEG stream".to_string());
+        }
+
+        Ok(frames.into_iter().map(thumbnail_data_url).collect())
+    })
+    .await
+    .map_err(|error| format!("Linux preview decoder task failed: {error}"))?
+}
+
+fn split_jpeg_stream(bytes: &[u8]) -> Vec<&[u8]> {
+    let mut frames = Vec::new();
+    let mut cursor = 0;
+    while cursor + 1 < bytes.len() {
+        let Some(start_offset) = bytes[cursor..]
+            .windows(2)
+            .position(|marker| marker == [0xff, 0xd8])
+        else {
+            break;
+        };
+        let start = cursor + start_offset;
+        let Some(end_offset) = bytes[start + 2..]
+            .windows(2)
+            .position(|marker| marker == [0xff, 0xd9])
+        else {
+            break;
+        };
+        let end = start + 2 + end_offset + 2;
+        frames.push(&bytes[start..end]);
+        cursor = end;
+    }
+    frames
+}
+
+fn thumbnail_data_url(bytes: &[u8]) -> String {
+    format!("data:image/jpeg;base64,{}", STANDARD.encode(bytes))
+}
+
+#[tauri::command]
+pub fn linux_native_preview_required() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("TARANTINO_FORCE_NATIVE_PREVIEW").is_some() {
+            return true;
+        }
+
+        let virtual_machine = [
+            "/sys/class/dmi/id/product_name",
+            "/sys/class/dmi/id/sys_vendor",
+            "/sys/class/dmi/id/board_vendor",
+        ]
+        .into_iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+
+        return ["vmware", "virtualbox", "qemu", "kvm", "hyper-v"]
+            .iter()
+            .any(|vendor| virtual_machine.contains(vendor));
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{split_jpeg_stream, thumbnail_data_url};
+
+    #[test]
+    fn thumbnail_source_is_a_self_contained_jpeg_data_url() {
+        assert_eq!(
+            thumbnail_data_url(&[0xff, 0xd8, 0xff]),
+            "data:image/jpeg;base64,/9j/"
+        );
+    }
+
+    #[test]
+    fn splits_concatenated_preview_jpegs() {
+        let stream = [
+            &[0x00, 0xff, 0xd8, 0x01, 0xff, 0xd9][..],
+            &[0xff, 0xd8, 0x02, 0x03, 0xff, 0xd9, 0x00][..],
+        ]
+        .concat();
+        let frames = split_jpeg_stream(&stream);
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0], [0xff, 0xd8, 0x01, 0xff, 0xd9]);
+        assert_eq!(frames[1], [0xff, 0xd8, 0x02, 0x03, 0xff, 0xd9]);
+    }
 }
 
 #[tauri::command]

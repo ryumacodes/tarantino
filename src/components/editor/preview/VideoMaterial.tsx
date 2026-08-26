@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useVideoTexture } from '@react-three/drei';
 import * as THREE from 'three';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../../stores/editor';
 
 interface VideoMaterialProps {
@@ -15,6 +15,28 @@ interface VideoMaterialProps {
 // Compatibility fallback for recordings made before native window silhouette
 // sidecars were introduced.
 const MACOS_WINDOW_CORNER_RADIUS_RATIO = 0.022;
+const LINUX_NATIVE_VIDEO_READY_EVENT = 'tarantino-linux-native-video-ready';
+const LINUX_PREVIEW_FPS = 30;
+const LINUX_PREVIEW_BATCH_SIZE = 60;
+
+const nativeVideoFrameHasPixels = (video: HTMLVideoElement): boolean => {
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth === 0) return false;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 18;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return false;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index] > 2 || pixels[index + 1] > 2 || pixels[index + 2] > 2) return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+};
 
 export const VideoMaterial: React.FC<VideoMaterialProps> = ({
   videoUrl,
@@ -24,7 +46,7 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
   cleanupWindowCorners = false
 }) => {
   const texture = useVideoTexture(videoUrl, {
-    unsuspend: 'loadeddata',
+    unsuspend: 'loadedmetadata',
     muted: true,
     loop: true,
     playsInline: true,
@@ -133,9 +155,30 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
 
   const videoElement = texture.image as HTMLVideoElement;
 
-  // WKWebView can leave a paused HTML video as a permanently black GPU
-  // texture if it is paused before WebKit has submitted its first frame.
-  // Briefly play through one frame before applying the editor's play state.
+  useEffect(() => {
+    const isLinux = typeof navigator !== 'undefined'
+      && /Linux/i.test(`${navigator.platform} ${navigator.userAgent}`);
+    if (!isLinux || !videoElement) return;
+
+    let announced = false;
+    const announceUsableNativeFrame = () => {
+      if (announced || !nativeVideoFrameHasPixels(videoElement)) return;
+      announced = true;
+      window.dispatchEvent(new Event(LINUX_NATIVE_VIDEO_READY_EVENT));
+    };
+
+    videoElement.addEventListener('loadeddata', announceUsableNativeFrame);
+    videoElement.addEventListener('seeked', announceUsableNativeFrame);
+    videoElement.addEventListener('timeupdate', announceUsableNativeFrame);
+    announceUsableNativeFrame();
+
+    return () => {
+      videoElement.removeEventListener('loadeddata', announceUsableNativeFrame);
+      videoElement.removeEventListener('seeked', announceUsableNativeFrame);
+      videoElement.removeEventListener('timeupdate', announceUsableNativeFrame);
+    };
+  }, [videoElement]);
+
   useEffect(() => {
     if (!videoElement) return;
 
@@ -156,8 +199,6 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
         await videoElement.play();
         await waitForVideoFrame();
       } catch (error) {
-        // Playback can still be rejected by WebKit in unusual system states;
-        // allow normal playback controls to retry instead of blocking them.
         console.warn('Video texture warm-up failed:', error);
       }
 
@@ -314,6 +355,199 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
     );
   }
   return <meshBasicMaterial map={texture} toneMapped={false} side={THREE.DoubleSide} />;
+};
+
+export const LinuxNativeVideoOverlay: React.FC<{ isPlaying: boolean }> = ({ isPlaying }) => {
+  const {
+    currentTime,
+    duration,
+    videoFilePath,
+    setCurrentTime,
+    setIsPlaying,
+  } = useEditorStore();
+  const [enabled, setEnabled] = useState(false);
+  const [canvasTexture, setCanvasTexture] = useState<THREE.CanvasTexture | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const requestFrameRef = useRef<((timeMs: number) => void) | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let nativeReady = false;
+    let vmFallbackRequired = false;
+    let watchdog: number | undefined;
+
+    const handleNativeReady = () => {
+      nativeReady = true;
+      if (!vmFallbackRequired) setEnabled(false);
+    };
+    const armFallback = () => {
+      watchdog = window.setTimeout(() => {
+        if (!cancelled && !nativeReady) setEnabled(true);
+      }, 2000);
+    };
+    window.addEventListener(LINUX_NATIVE_VIDEO_READY_EVENT, handleNativeReady);
+
+    void invoke<boolean>('linux_native_preview_required')
+      .then((required) => {
+        if (cancelled) return;
+        vmFallbackRequired = required;
+        if (required) {
+          setEnabled(true);
+          return;
+        }
+        armFallback();
+      })
+      .catch(armFallback);
+    return () => {
+      cancelled = true;
+      if (watchdog !== undefined) window.clearTimeout(watchdog);
+      window.removeEventListener(LINUX_NATIVE_VIDEO_READY_EVENT, handleNativeReady);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!enabled || !videoFilePath) return;
+
+    let cancelled = false;
+    let animationFrameId = 0;
+    let inFlight = false;
+    let queuedBucket: number | null = null;
+    let lastRequestedBucket = -1;
+    let drawRequest = 0;
+    const frameCache = new Map<number, string>();
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 2;
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) return;
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    setCanvasTexture(texture);
+
+    const video = document.createElement('video');
+    video.src = convertFileSrc(videoFilePath);
+    video.muted = true;
+    video.preload = 'metadata';
+    video.playsInline = true;
+    videoRef.current = video;
+
+    const drawFrame = (dataUrl: string) => {
+      const request = ++drawRequest;
+      const image = new Image();
+      image.onload = () => {
+        if (cancelled || request !== drawRequest) return;
+        canvas.width = Math.max(2, image.naturalWidth);
+        canvas.height = Math.max(2, image.naturalHeight);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        texture.needsUpdate = true;
+      };
+      image.src = dataUrl;
+    };
+
+    const requestBucket = async (bucket: number) => {
+      if (cancelled || bucket === lastRequestedBucket) return;
+      if (inFlight) {
+        queuedBucket = bucket;
+        return;
+      }
+      lastRequestedBucket = bucket;
+      const cached = frameCache.get(bucket);
+      if (cached) {
+        drawFrame(cached);
+        return;
+      }
+      inFlight = true;
+      try {
+        const batchStart = Math.floor(bucket / LINUX_PREVIEW_BATCH_SIZE) * LINUX_PREVIEW_BATCH_SIZE;
+        const dataUrls = await invoke<string[]>('extract_video_preview_frames', {
+          videoPath: videoFilePath,
+          startBucket: batchStart,
+          frameCount: LINUX_PREVIEW_BATCH_SIZE,
+          previewWidth: 1280,
+        });
+        if (!cancelled) {
+          dataUrls.forEach((dataUrl, index) => frameCache.set(batchStart + index, dataUrl));
+          while (frameCache.size > 120) {
+            const [oldestBucket] = frameCache.keys();
+            frameCache.delete(oldestBucket);
+          }
+          const requestedFrame = frameCache.get(bucket);
+          if (requestedFrame) drawFrame(requestedFrame);
+        }
+      } catch (error) {
+        console.error('Linux native preview frame failed:', error);
+      } finally {
+        inFlight = false;
+        if (queuedBucket !== null) {
+          const nextBucket = queuedBucket;
+          queuedBucket = null;
+          void requestBucket(nextBucket);
+        }
+      }
+    };
+
+    requestFrameRef.current = (timeMs) => {
+      void requestBucket(Math.max(0, Math.round(timeMs * LINUX_PREVIEW_FPS / 1000)));
+    };
+    requestFrameRef.current(currentTime);
+
+    const playbackLoop = () => {
+      if (cancelled) return;
+      if (!video.paused) {
+        const timeMs = video.currentTime * 1000;
+        setCurrentTime(timeMs);
+        requestFrameRef.current?.(timeMs);
+      }
+      animationFrameId = requestAnimationFrame(playbackLoop);
+    };
+    playbackLoop();
+
+    const handleEnded = () => setIsPlaying(false);
+    video.addEventListener('ended', handleEnded);
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(animationFrameId);
+      video.removeEventListener('ended', handleEnded);
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      videoRef.current = null;
+      requestFrameRef.current = null;
+      texture.dispose();
+      setCanvasTexture(null);
+    };
+  }, [enabled, videoFilePath, setCurrentTime, setIsPlaying]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (isPlaying) {
+      video.currentTime = Math.min(currentTime / 1000, duration / 1000);
+      video.play().catch((error) => console.error('Linux preview playback failed:', error));
+    } else {
+      video.pause();
+    }
+  }, [isPlaying, duration]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && video.paused && Math.abs(video.currentTime * 1000 - currentTime) > 50) {
+      video.currentTime = currentTime / 1000;
+    }
+    if (!isPlaying) requestFrameRef.current?.(currentTime);
+  }, [currentTime, isPlaying]);
+
+  if (!enabled || !canvasTexture) return null;
+  return (
+    <mesh position={[0, 0, 0.001]}>
+      <planeGeometry args={[1, 1]} />
+      <meshBasicMaterial map={canvasTexture} toneMapped={false} side={THREE.DoubleSide} />
+    </mesh>
+  );
 };
 
 export const VideoFallback: React.FC = () => (
