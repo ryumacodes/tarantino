@@ -71,13 +71,22 @@ Linux requires the normal Tauri dependencies plus FFmpeg, PipeWire, the desktop
 portal for your desktop environment, and these GStreamer elements:
 `pipewiresrc`, `h264parse`, `mp4mux`, and either `x264enc` or `openh264enc`.
 
-On immutable SteamOS systems, prepare the container once and then use the same
-development command as macOS. The launcher detects Linux automatically:
+The setup command detects the host from `/etc/os-release` and installs the
+correct native packages on Arch/Manjaro, Debian/Ubuntu/Mint, Fedora/RHEL, and
+openSUSE. Immutable SteamOS uses an Arch Distrobox so the read-only host remains
+untouched. After setup, the same development command works on macOS and Linux:
 
 ```bash
 pnpm setup:linux
 pnpm tauri:dev
 ```
+
+The capture implementation itself is distro-independent: XDG Desktop Portal
+selects displays and windows, PipeWire supplies frames, and GStreamer chooses
+an encoder available on that machine. Desktop-specific behavior is kept at the
+edges—for example, only KDE Wayland uses the XWayland keep-above workaround.
+Install the matching portal backend for the active desktop (`gnome`, `kde`, or
+`wlr`); most desktop distributions include it by default.
 
 Run the distro-independent verification suite with:
 

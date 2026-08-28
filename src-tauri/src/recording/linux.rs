@@ -221,6 +221,7 @@ fn verify_runtime_elements() -> Result<()> {
     for element in [
         "pipewiresrc",
         "queue",
+        "videorate",
         "videoconvert",
         "capsfilter",
         "h264parse",
@@ -250,6 +251,7 @@ fn build_pipeline(
     pipewire_fd: i32,
 ) -> Result<gst::Pipeline> {
     let (bitrate_kbps, speed_preset) = encoding_settings(&config.quality);
+    let fps = recording_fps(&config.quality);
 
     let (nvidia_device, va_device) = hardware_encoder_devices();
     let encoder_kind = select_h264_encoder(
@@ -258,8 +260,9 @@ fn build_pipeline(
         va_device,
     )?;
     println!(
-        "Linux recording encoder selected: {}",
-        encoder_kind.factory_name()
+        "Linux recording encoder selected: {} at {} fps",
+        encoder_kind.factory_name(),
+        fps
     );
 
     let source = gst::ElementFactory::make("pipewiresrc")
@@ -269,12 +272,21 @@ fn build_pipeline(
         .build()
         .context("Failed to create the PipeWire source")?;
     let queue = make_element("queue")?;
+    queue.set_property("max-size-buffers", 4u32);
+    queue.set_property("max-size-bytes", 0u32);
+    queue.set_property("max-size-time", 0u64);
+    queue.set_property_from_str("leaky", "downstream");
+    let rate = gst::ElementFactory::make("videorate")
+        .property("drop-only", true)
+        .build()
+        .context("Failed to create the Linux frame-rate limiter")?;
     let convert = make_element("videoconvert")?;
     let caps_filter = gst::ElementFactory::make("capsfilter")
         .property(
             "caps",
             gst::Caps::builder("video/x-raw")
                 .field("format", encoder_kind.raw_format())
+                .field("framerate", gst::Fraction::new(fps as i32, 1))
                 .build(),
         )
         .build()
@@ -295,6 +307,7 @@ fn build_pipeline(
         .add_many([
             &source,
             &queue,
+            &rate,
             &convert,
             &caps_filter,
             &encoder,
@@ -306,6 +319,7 @@ fn build_pipeline(
     gst::Element::link_many([
         &source,
         &queue,
+        &rate,
         &convert,
         &caps_filter,
         &encoder,
@@ -457,6 +471,13 @@ fn encoding_settings(quality: &QualityPreset) -> (u32, &'static str) {
     }
 }
 
+fn recording_fps(quality: &QualityPreset) -> u32 {
+    match quality {
+        QualityPreset::Low | QualityPreset::Medium => 30,
+        QualityPreset::High | QualityPreset::Lossless => 60,
+    }
+}
+
 fn wait_for_pipeline(pipeline: &gst::Pipeline) -> Result<()> {
     let bus = pipeline
         .bus()
@@ -489,6 +510,10 @@ mod tests {
     fn quality_presets_have_deterministic_native_encoder_settings() {
         assert_eq!(encoding_settings(&QualityPreset::High), (16_000, "fast"));
         assert_eq!(encoding_settings(&QualityPreset::Low), (4_000, "superfast"));
+        assert_eq!(recording_fps(&QualityPreset::Low), 30);
+        assert_eq!(recording_fps(&QualityPreset::Medium), 30);
+        assert_eq!(recording_fps(&QualityPreset::High), 60);
+        assert_eq!(recording_fps(&QualityPreset::Lossless), 60);
     }
 
     #[test]

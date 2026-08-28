@@ -2,7 +2,7 @@ name: Linux
 
 on:
   push:
-    branches: [linux-support]
+    branches: [linux-support, linux-native-parity]
   pull_request:
 
 jobs:

@@ -34,7 +34,7 @@ for command in pnpm cargo gst-inspect-1.0 ffmpeg ffprobe; do
   fi
 done
 
-for plugin in pipewiresrc h264parse mp4mux; do
+for plugin in pipewiresrc videorate h264parse mp4mux; do
   if ! gst-inspect-1.0 "$plugin" >/dev/null 2>&1; then
     echo "error: required GStreamer plugin is missing: $plugin" >&2
     exit 1
@@ -72,6 +72,6 @@ echo "[6/7] Rust and Linux native compile check"
 run_cargo cargo check --locked --all-targets --manifest-path src-tauri/Cargo.toml
 
 echo "[7/7] Linux capture runtime plugins"
-gst-inspect-1.0 pipewiresrc "$encoder" h264parse mp4mux >/dev/null
+gst-inspect-1.0 pipewiresrc videorate "$encoder" h264parse mp4mux >/dev/null
 
 echo "Linux verification passed with $encoder. A logged-in graphical session is still required for the portal recording smoke test."

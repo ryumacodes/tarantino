@@ -2,10 +2,16 @@
 set -eu
 
 # KDE Wayland intentionally ignores application-controlled keep-above and
-# activation requests for ordinary Wayland surfaces. The capture bar needs
-# those window-manager semantics, so run only Tarantino's GTK shell through
-# XWayland. Capture and encoding remain native PipeWire/VA-API.
-export GDK_BACKEND=x11
+# activation requests for ordinary Wayland surfaces. Use XWayland for the GTK
+# shell only on that combination. Other desktops retain their native backend.
+desktop=${XDG_CURRENT_DESKTOP:-${DESKTOP_SESSION:-}}
+case "$desktop" in
+  *KDE*|*kde*|*Plasma*|*plasma*)
+    if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+      export GDK_BACKEND=x11
+    fi
+    ;;
+esac
 
 # A previous development run may have left the Vite interface available after
 # the native process exited. Reuse that live server instead of failing because
