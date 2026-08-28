@@ -119,6 +119,7 @@ async fn main() {
         .invoke_handler(tauri::generate_handler![
             // Capture configuration (from commands module)
             commands::capture::capture_set_mode,
+            commands::capture::capture_prepare_window,
             commands::capture::capture_select_display,
             commands::capture::capture_select_window,
             commands::capture::capture_select_area,
@@ -202,15 +203,16 @@ async fn main() {
                 eprintln!("Failed to setup system tray: {}", e);
             }
 
-            if let Some(capture_bar) = app.get_webview_window("capture-bar") {
-                capture_bar.show().ok();
-                capture_bar.set_focus().ok();
+            if let Err(error) = commands::misc::bring_capture_bar_to_front(app.handle()) {
+                eprintln!("Failed to show capture bar in front: {error}");
             }
 
             #[cfg(debug_assertions)]
             {
-                if let Some(window) = app.get_webview_window("capture-bar") {
-                    window.open_devtools();
+                if std::env::var("TARANTINO_OPEN_DEVTOOLS").ok().as_deref() == Some("1") {
+                    if let Some(window) = app.get_webview_window("capture-bar") {
+                        window.open_devtools();
+                    }
                 }
             }
 

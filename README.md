@@ -1,6 +1,6 @@
 # Tarantino
 
-A macOS screen recorder and editor for polished product demos.
+A native macOS and Linux screen recorder and editor for polished product demos.
 
 > Early-stage software — under active development. Expect bugs and breaking changes.
 
@@ -18,12 +18,13 @@ A macOS screen recorder and editor for polished product demos.
 - [Tauri](https://tauri.app/) and Rust — desktop shell and native application code
 - React and Zustand — editor interface and state management
 - ScreenCaptureKit and VideoToolbox — macOS capture and hardware video encoding
-- wgpu and Metal — preview and export rendering
+- xdg-desktop-portal, PipeWire, and VA-API — Wayland capture and hardware video encoding on Linux
+- wgpu, Metal, and Vulkan — preview and export rendering
 - FFmpeg — media inspection and processing
 
 ## Platform Support
 
-Tarantino currently supports macOS. Windows and Linux capture backends are not ready yet.
+Tarantino supports macOS 12.3+ and modern Linux desktops with xdg-desktop-portal and PipeWire. Linux media processing works with both FFmpeg 8 and FFmpeg 9. Windows capture is not ready yet.
 
 ## Installation
 
@@ -51,6 +52,10 @@ pnpm test:macos      # Run the complete macOS verification suite
 pnpm tauri:build     # Build the packaged app
 ```
 
+The standard `pnpm tauri:dev` command detects the host platform: macOS runs
+the native macOS toolchain, while Linux and SteamOS run through the native
+Linux Distrobox environment.
+
 For permission debugging, Tarantino can also run as a raw binary. In this mode, macOS associates capture permissions with the terminal that launched it:
 
 ```bash
@@ -58,6 +63,20 @@ pnpm tauri:dev:raw
 ```
 
 Use the regular development command unless you specifically need raw mode.
+
+### Linux / SteamOS
+
+SteamOS is immutable and does not ship development headers. Tarantino uses a Distrobox environment for compilation while the app, GPU, PipeWire, desktop portal, camera, and audio remain connected directly to the host session.
+
+```bash
+pnpm setup:linux       # one-time setup
+pnpm tauri:dev         # build and run the native Linux app
+pnpm test:linux        # complete Linux verification
+```
+
+`pnpm tauri:dev:linux` remains available as an explicit Linux-only alias.
+
+When recording starts, KDE's native sharing dialog asks which display or window to capture. This is required by Wayland's security model.
 
 ## Permissions
 
@@ -68,7 +87,7 @@ Tarantino needs macOS permission for the sources you choose to record:
 - Camera for webcam overlays
 - Accessibility for native cursor and keyboard event tracking
 
-Grant only the permissions needed for the recording you are making.
+On Linux, screen/window access is granted through the desktop portal picker. Camera and microphone permission prompts are provided by WebKit and PipeWire. Grant only the permissions needed for the recording you are making.
 
 ## License
 

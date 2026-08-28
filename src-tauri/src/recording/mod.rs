@@ -3,11 +3,16 @@ pub mod types;
 
 mod encoder_loop;
 mod finalization;
+#[cfg(target_os = "linux")]
+pub(crate) mod linux;
 
 use anyhow::Result;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::SystemTime;
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+use std::sync::Arc;
+#[cfg(target_os = "macos")]
 use tokio::sync::Mutex;
 
 pub use types::*;
@@ -21,8 +26,10 @@ use crate::capture::backends::{
 pub struct RecordingAPI {
     current_state: RecordingState,
     temp_path: Option<PathBuf>,
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     child: Option<tokio::process::Child>,
+    #[cfg(target_os = "linux")]
+    linux_pipeline: Option<linux::LinuxRecordingPipeline>,
     #[cfg(target_os = "macos")]
     capture_backend: Option<Box<dyn NativeCaptureBackend>>,
     #[cfg(target_os = "macos")]
@@ -31,7 +38,7 @@ pub struct RecordingAPI {
     audio_task: Option<tokio::task::JoinHandle<Result<(), String>>>,
     #[cfg(target_os = "macos")]
     stop_signal: Arc<Mutex<bool>>,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     video_start_time: Arc<parking_lot::Mutex<Option<SystemTime>>>,
 }
 
@@ -40,8 +47,10 @@ impl RecordingAPI {
         Ok(Self {
             current_state: RecordingState::Idle,
             temp_path: None,
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "windows")]
             child: None,
+            #[cfg(target_os = "linux")]
+            linux_pipeline: None,
             #[cfg(target_os = "macos")]
             capture_backend: None,
             #[cfg(target_os = "macos")]
@@ -50,7 +59,7 @@ impl RecordingAPI {
             audio_task: None,
             #[cfg(target_os = "macos")]
             stop_signal: Arc::new(Mutex::new(false)),
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             video_start_time: Arc::new(parking_lot::Mutex::new(None)),
         })
     }
@@ -162,46 +171,32 @@ impl RecordingAPI {
             ));
         }
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
         {
-            // Fallback to ffmpeg for other platforms
+            // Windows fallback pending the native Media Foundation pipeline.
             use tokio::process::Command;
             let mut cmd = Command::new("ffmpeg");
-
-            #[cfg(target_os = "windows")]
-            {
-                cmd.arg("-y")
-                    .arg("-f")
-                    .arg("gdigrab")
-                    .arg("-i")
-                    .arg("desktop")
-                    .arg("-c:v")
-                    .arg("libx264")
-                    .arg("-preset")
-                    .arg("veryfast")
-                    .arg("-crf")
-                    .arg("20")
-                    .arg(out_path.to_string_lossy().to_string());
-            }
-
-            #[cfg(target_os = "linux")]
-            {
-                cmd.arg("-y")
-                    .arg("-f")
-                    .arg("x11grab")
-                    .arg("-i")
-                    .arg(":0.0")
-                    .arg("-c:v")
-                    .arg("libx264")
-                    .arg("-preset")
-                    .arg("veryfast")
-                    .arg("-crf")
-                    .arg("20")
-                    .arg(out_path.to_string_lossy().to_string());
-            }
+            cmd.arg("-y")
+                .arg("-f")
+                .arg("gdigrab")
+                .arg("-i")
+                .arg("desktop")
+                .arg("-c:v")
+                .arg("libx264")
+                .arg("-preset")
+                .arg("veryfast")
+                .arg("-crf")
+                .arg("20")
+                .arg(out_path.to_string_lossy().to_string());
 
             let child = cmd.spawn()?;
             self.child = Some(child);
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            self.linux_pipeline = Some(linux::LinuxRecordingPipeline::start(&config).await?);
+            *self.video_start_time.lock() = Some(SystemTime::now());
         }
 
         self.current_state = RecordingState::Recording;
@@ -215,9 +210,14 @@ impl RecordingAPI {
             return *self.video_start_time.lock();
         }
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
         {
             None
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            *self.video_start_time.lock()
         }
     }
 
@@ -240,7 +240,7 @@ impl RecordingAPI {
             }
         }
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
         {
             // Try to gracefully terminate the ffmpeg recorder
             if let Some(child) = &mut self.child {
@@ -254,6 +254,11 @@ impl RecordingAPI {
                     }
                 }
             }
+        }
+
+        #[cfg(target_os = "linux")]
+        if let Some(pipeline) = &mut self.linux_pipeline {
+            pipeline.signal_stop();
         }
 
         self.current_state = RecordingState::Stopping;
@@ -306,7 +311,7 @@ impl RecordingAPI {
         }
 
         // Join ffmpeg child on other platforms
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
         if let Some(mut child) = self.child.take() {
             match child.wait().await {
                 Ok(status) if !status.success() => {
@@ -323,6 +328,11 @@ impl RecordingAPI {
                 }
                 _ => {}
             }
+        }
+
+        #[cfg(target_os = "linux")]
+        if let Some(pipeline) = self.linux_pipeline.take() {
+            pipeline.wait().await?;
         }
 
         let path = self
@@ -346,12 +356,19 @@ impl RecordingAPI {
     }
 
     pub async fn pause(&mut self) -> Result<()> {
-        // State-only pause for now; native pause can be integrated later
+        #[cfg(target_os = "linux")]
+        if let Some(pipeline) = &self.linux_pipeline {
+            pipeline.pause();
+        }
         self.current_state = RecordingState::Paused;
         Ok(())
     }
 
     pub async fn resume(&mut self) -> Result<()> {
+        #[cfg(target_os = "linux")]
+        if let Some(pipeline) = &self.linux_pipeline {
+            pipeline.resume();
+        }
         self.current_state = RecordingState::Recording;
         Ok(())
     }

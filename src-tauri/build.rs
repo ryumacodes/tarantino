@@ -85,8 +85,9 @@ fn build_windows_backend() {
 
 #[cfg(target_os = "linux")]
 fn build_linux_backend() {
-    // Linux PipeWire backend
-    // Link PipeWire libraries
-    println!("cargo:rustc-link-lib=pipewire-0.3");
-    println!("cargo:rustc-link-lib=spa-0.2");
+    // Linux capture is obtained from xdg-desktop-portal and handed to the
+    // installed GStreamer PipeWire plugin.  Do not link PipeWire here: doing
+    // so needlessly requires development headers on immutable distributions
+    // such as SteamOS even though the application only needs the runtime.
+    println!("cargo:rerun-if-changed=src/recording/linux.rs");
 }

@@ -24,9 +24,8 @@ pub(super) async fn hide_ui_elements(app: &AppHandle) -> Result<(), String> {
 }
 
 pub(super) async fn restore_ui_elements(app: &AppHandle) {
-    if let Some(bar) = app.get_webview_window("capture-bar") {
-        let _ = bar.show();
-        let _ = bar.set_focus();
+    if let Err(error) = crate::commands::misc::bring_capture_bar_to_front(app) {
+        eprintln!("Failed to restore capture bar in front: {error}");
     }
 
     if let Some(preview) = app.get_webview_window("display-preview") {

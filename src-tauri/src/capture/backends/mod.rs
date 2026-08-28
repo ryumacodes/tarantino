@@ -128,13 +128,13 @@ impl CaptureBackendFactory {
     /// Check if PipeWire is available on Linux
     #[cfg(target_os = "linux")]
     fn is_pipewire_available() -> bool {
-        // Check if PipeWire is running
-        use std::process::Command;
-
-        Command::new("pw-cli")
-            .arg("info")
+        // A direct pw-cli probe is both racy and rejected by sandboxed apps.
+        // The portal performs the authoritative availability/permission check
+        // when recording starts.  Here we only verify the required runtime.
+        std::process::Command::new("gst-inspect-1.0")
+            .arg("pipewiresrc")
             .output()
-            .map(|o| o.status.success())
+            .map(|output| output.status.success())
             .unwrap_or(false)
     }
 }

@@ -73,6 +73,7 @@ const CaptureBar: React.FC = () => {
   const [displays, setDisplays] = useState<any[]>([]);
   const [windows, setWindows] = useState<any[]>([]);
   const [windowsLoading, setWindowsLoading] = useState(true);
+  const [windowPreparing, setWindowPreparing] = useState(false);
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [audioDevices, setAudioDevices] = useState<any>({ microphones: [], system_sources: [] });
   const [selectedDisplay, setSelectedDisplay] = useState<any>(null);
@@ -101,12 +102,13 @@ const CaptureBar: React.FC = () => {
   const isRecording = state === 'recording', isStarting = state === 'prerecord';
   const appWindows = windows.filter(isRecordableWindow);
   const windowModeReady = !windowsLoading && appWindows.length > 0;
+  const portalWindow = appWindows.length === 1 && appWindows[0].id === '10000';
   const selectedTargetReady = captureMode === 'window'
     ? windowModeReady && selectedWindow !== null
     : captureMode === 'display'
       ? selectedDisplay !== null
       : selectedDevice !== null;
-  const canRecord = !startInFlightRef.current && !stopInFlightRef.current && !isStarting && (isRecording || selectedTargetReady);
+  const canRecord = !startInFlightRef.current && !stopInFlightRef.current && !isStarting && !windowPreparing && (isRecording || selectedTargetReady);
   useEffect(() => {
     loadDevices();
   }, []);
@@ -183,9 +185,30 @@ const CaptureBar: React.FC = () => {
     return windowRefreshRef.current;
   };
 
+  const preparePortalWindow = async () => {
+    if (!portalWindow || windowPreparing || isStarting || isRecording) return;
+    const pickerWindow = appWindows[0];
+    setWindowPreparing(true);
+    try {
+      await invoke('capture_prepare_window');
+      setCaptureMode('window');
+      await invoke('capture_set_mode', { mode: 'window' });
+      await selectWindow(pickerWindow.id);
+    } catch (error) {
+      console.error('Failed to choose a window:', error);
+      setSelectedWindow(null);
+    } finally {
+      setWindowPreparing(false);
+    }
+  };
+
   const handleModeChange = async (mode: CaptureMode) => {
     if (isStarting || isRecording) return;
     if (mode === 'window' && !windowModeReady) return;
+    if (mode === 'window' && portalWindow) {
+      await preparePortalWindow();
+      return;
+    }
     setCaptureMode(mode);
     const backendMode = mode === 'display' ? 'desktop' : mode;
     await invoke('capture_set_mode', { mode: backendMode });
@@ -540,15 +563,19 @@ const CaptureBar: React.FC = () => {
         </button>
         <button
           className={cn('capture-bar__mode', { active: captureMode === 'window' })}
-          disabled={!windowModeReady || isStarting || isRecording}
+          disabled={!windowModeReady || windowPreparing || isStarting || isRecording}
           onClick={() => {
-            if (!windowModeReady || isStarting || isRecording) return;
-            captureMode === 'window' ? showWindowMenu() : handleModeChange('window');
+            if (!windowModeReady || windowPreparing || isStarting || isRecording) return;
+            if (portalWindow) {
+              preparePortalWindow();
+            } else {
+              captureMode === 'window' ? showWindowMenu() : handleModeChange('window');
+            }
           }}
-          title={windowsLoading ? 'Loading windows' : windowModeReady ? 'Capture Window' : 'No windows available'}
+          title={windowPreparing ? 'Choosing window' : windowsLoading ? 'Loading windows' : windowModeReady ? 'Choose Window' : 'No windows available'}
         >
           <Square size={16} />
-          <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{captureMode === 'window' && selectedWindow ? (windows.find((w: any) => w.id === selectedWindow)?.title || 'Window') : windowsLoading ? 'Loading...' : 'Window'}</span>
+          <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{windowPreparing ? 'Choosing...' : captureMode === 'window' && selectedWindow ? (portalWindow ? 'Selected window' : (windows.find((w: any) => w.id === selectedWindow)?.title || 'Window')) : windowsLoading ? 'Loading...' : 'Window'}</span>
           {captureMode === 'window' && <ChevronDown size={12} />}
         </button>
       </div>

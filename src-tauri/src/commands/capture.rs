@@ -25,6 +25,22 @@ pub async fn capture_set_mode(
         .map_err(|e| e.to_string())
 }
 
+/// On Wayland, window identities are private until the user approves one in
+/// the desktop portal. Open that chooser now so recording can start from the
+/// already-approved source later.
+#[tauri::command]
+pub async fn capture_prepare_window() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        crate::recording::linux::prepare_window_source()
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn capture_select_display(
     id: String,

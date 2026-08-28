@@ -47,6 +47,25 @@ fn test_zoom_block_separate_when_far_apart() {
 }
 
 #[test]
+fn early_first_click_survives_preview_sidecar_round_trip() {
+    let session = create_test_session(vec![create_test_mouse_event(100, 750.0, 250.0)], 5000);
+    let analysis = ZoomProcessor::with_default_config()
+        .analyze_session(&session, &[])
+        .unwrap();
+
+    assert_eq!(analysis.total_clicks, 1);
+    assert_eq!(analysis.zoom_blocks.len(), 1);
+    assert_eq!(analysis.zoom_blocks[0].start_time, 0);
+    assert!((analysis.zoom_blocks[0].center_x - 0.75).abs() < 0.001);
+    assert!((analysis.zoom_blocks[0].center_y - 0.25).abs() < 0.001);
+
+    let json = serde_json::to_string(&analysis).unwrap();
+    let reloaded: ZoomAnalysis = serde_json::from_str(&json).unwrap();
+    assert_eq!(reloaded.zoom_blocks.len(), 1);
+    assert!(reloaded.zoom_blocks[0].end_time > reloaded.zoom_blocks[0].start_time + 500);
+}
+
+#[test]
 fn test_typing_session_detection() {
     // Simulate typing: 10 keys over 2 seconds, then a 6s gap, then 5 more keys
     let key_events: Vec<KeyEvent> = vec![
