@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Maximize2 } from 'lucide-react';
 import { useEditorStore } from '../../../stores/editor';
 import { useTimelineDrag, useZoomBlockDrag } from './hooks/useTimelineDrag';
@@ -8,6 +8,7 @@ import ZoomTrack from './ZoomTrack';
 import WebcamTrack from './WebcamTrack';
 import AudioTrack from './AudioTrack';
 import Playhead from './Playhead';
+import { calculateTimelineLayout } from './utils';
 import './timeline.css';
 
 interface ProfessionalTimelineProps {
@@ -31,6 +32,7 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
 }) => {
   const timelineRef = useRef<HTMLDivElement>(null);
   const [timelineZoom, setTimelineZoom] = useState(1);
+  const [timelineViewportWidth, setTimelineViewportWidth] = useState(0);
   const [visibleTracks, setVisibleTracks] = useState<VisibleTracks>({
     video: true,
     smartZoom: true,
@@ -93,10 +95,33 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
     hasWebcam,
   } = store;
 
-  const pixelsPerMs = 0.1 * timelineZoom;
-  const timelineWidth = duration * pixelsPerMs;
   const trackHeaderWidth = 140;
+  const timelineLayout = calculateTimelineLayout(
+    duration,
+    timelineViewportWidth,
+    trackHeaderWidth,
+    timelineZoom,
+  );
+  const availableTimelineWidth = timelineLayout.availableWidth;
+  const pixelsPerMs = timelineLayout.pixelsPerMs;
+  const timelineWidth = timelineLayout.mediaWidth;
+  const timelineTracksWidth = timelineLayout.tracksWidth;
   const audioBasePath = videoFilePath?.replace(/\.[^/.]+$/, '') ?? null;
+
+  useLayoutEffect(() => {
+    const timeline = timelineRef.current;
+    if (!timeline) return;
+
+    const updateViewportWidth = () => {
+      const width = timeline.clientWidth;
+      setTimelineViewportWidth((current) => current === width ? current : width);
+    };
+
+    updateViewportWidth();
+    const observer = new ResizeObserver(updateViewportWidth);
+    observer.observe(timeline);
+    return () => observer.disconnect();
+  }, []);
 
   const getVideoElement = useCallback((): HTMLVideoElement | null => {
     return window.__TARANTINO_VIDEO_ELEMENT || null;
@@ -314,6 +339,14 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
     });
   };
 
+  const fitTimeline = () => {
+    if (duration <= 0 || availableTimelineWidth <= 0) {
+      setTimelineZoom(1);
+      return;
+    }
+    setTimelineZoom(Math.max(0.1, Math.min(10, availableTimelineWidth / duration / 0.1)));
+  };
+
   const toggleTrackVisibility = (track: keyof VisibleTracks) => {
     if (isExporting) return;
     setVisibleTracks(prev => ({ ...prev, [track]: !prev[track] }));
@@ -355,7 +388,7 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
         setSnappingEnabled={setSnappingEnabled}
         onZoomIn={() => setTimelineZoom(prev => Math.min(prev * 1.5, 10))}
         onZoomOut={() => setTimelineZoom(prev => Math.max(prev / 1.5, 0.1))}
-        onFitTimeline={() => setTimelineZoom(1)}
+        onFitTimeline={fitTimeline}
         onToggleCollapse={onToggleCollapse}
         onAddZoomBlock={handleAddZoomBlock}
         onSplitAtPlayhead={() => splitAtTime(currentTime)}
@@ -367,7 +400,7 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
         ref={timelineRef}
         onClick={handleTimelineClick}
       >
-        <div className="timeline-tracks" style={{ width: `${Math.max(timelineWidth, 100)}px` }}>
+        <div className="timeline-tracks" style={{ width: `${Math.max(timelineTracksWidth, 100)}px` }}>
           {visibleTracks.video && (
             <VideoTrack
               timelineWidth={timelineWidth}

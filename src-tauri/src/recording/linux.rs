@@ -12,6 +12,46 @@ use gst::prelude::*;
 
 use super::{QualityPreset, RecordingConfig, RecordingTarget};
 
+/// Open the compositor's real window chooser before recording and persist the
+/// approved source for the recording session that follows.
+pub(crate) async fn prepare_window_source() -> Result<()> {
+    let portal = Screencast::new()
+        .await
+        .context("Failed to connect to xdg-desktop-portal ScreenCast")?;
+    let session = portal
+        .create_session(Default::default())
+        .await
+        .context("Failed to create a desktop-portal screen-cast session")?;
+
+    portal
+        .select_sources(
+            &session,
+            SelectSourcesOptions::default()
+                .set_cursor_mode(CursorMode::Embedded)
+                .set_sources(Some(SourceType::Window.into()))
+                .set_multiple(false)
+                .set_persist_mode(PersistMode::ExplicitlyRevoked),
+        )
+        .await
+        .context("Failed to configure the desktop-portal window picker")?;
+
+    let response = portal
+        .start(&session, None, Default::default())
+        .await
+        .context("Failed to open the desktop-portal window picker")?
+        .response()
+        .context("Window selection was cancelled")?;
+    if response.streams().is_empty() {
+        anyhow::bail!("The desktop portal returned no window stream");
+    }
+    let token = response
+        .restore_token()
+        .context("The desktop portal did not return a reusable window selection")?;
+    save_restore_token("window", token)
+        .context("Failed to save the selected desktop-portal window")?;
+    Ok(())
+}
+
 pub struct LinuxRecording {
     pipeline: gst::Pipeline,
     // Portal ownership grants access to the PipeWire node for the recording lifetime.

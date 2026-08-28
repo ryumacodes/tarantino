@@ -44,18 +44,18 @@ mod other_platforms {
         true
     }
 
-    pub fn request_accessibility_permission() -> Result<bool> {
+    pub fn request_accessibility_permission() -> std::result::Result<bool, PermissionError> {
         // On other platforms, no permission request needed
         Ok(true)
     }
 
-    pub fn open_accessibility_preferences() -> Result<()> {
+    pub fn open_accessibility_preferences() -> std::result::Result<(), PermissionError> {
         // On other platforms, no preferences to open
-        Err(PermissionError::NotSupported.into())
+        Err(PermissionError::NotSupported)
     }
 
-    pub fn open_camera_preferences() -> Result<()> {
-        Err(PermissionError::NotSupported.into())
+    pub fn open_camera_preferences() -> std::result::Result<(), PermissionError> {
+        Err(PermissionError::NotSupported)
     }
 
     pub fn check_screen_recording_permission() -> bool {

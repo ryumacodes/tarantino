@@ -53,3 +53,22 @@ export const getSmartTrackVisibility = () => ({
 export const clamp = (value: number, min: number, max: number): number => {
   return Math.max(min, Math.min(max, value));
 };
+
+export const calculateTimelineLayout = (
+  duration: number,
+  viewportWidth: number,
+  trackHeaderWidth: number,
+  zoom: number,
+) => {
+  const availableWidth = Math.max(0, viewportWidth - trackHeaderWidth);
+  const fitPixelsPerMs = duration > 0 ? availableWidth / duration : 0;
+  const pixelsPerMs = Math.max(0.1 * zoom, fitPixelsPerMs);
+  const mediaWidth = Math.max(duration * pixelsPerMs, availableWidth);
+
+  return {
+    availableWidth,
+    pixelsPerMs,
+    mediaWidth,
+    tracksWidth: trackHeaderWidth + mediaWidth,
+  };
+};

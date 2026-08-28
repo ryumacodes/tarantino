@@ -212,7 +212,7 @@ impl ZoomProcessor {
         session: &CaptureSession,
     ) -> Result<Vec<ZoomBlock>> {
         let mut zoom_blocks: Vec<ZoomBlock> = Vec::new();
-        let mut last_zoom_time = 0u64;
+        let mut last_zoom_time: Option<u64> = None;
 
         // Timing constants
         let zoom_in_duration = 1000u64; // 1 second to zoom in before click
@@ -221,7 +221,9 @@ impl ZoomProcessor {
 
         for (i, event) in click_events.iter().enumerate() {
             // Skip clicks that are too close in time to the previous zoom
-            if event.base.timestamp.saturating_sub(last_zoom_time) < self.config.min_click_spacing {
+            if last_zoom_time.is_some_and(|previous| {
+                event.base.timestamp.saturating_sub(previous) < self.config.min_click_spacing
+            }) {
                 continue;
             }
 
@@ -279,7 +281,7 @@ impl ZoomProcessor {
                 });
             }
 
-            last_zoom_time = event.base.timestamp;
+            last_zoom_time = Some(event.base.timestamp);
         }
 
         validate_zoom_blocks(&mut zoom_blocks, session_duration);

@@ -71,6 +71,14 @@ Linux requires the normal Tauri dependencies plus FFmpeg, PipeWire, the desktop
 portal for your desktop environment, and these GStreamer elements:
 `pipewiresrc`, `h264parse`, `mp4mux`, and either `x264enc` or `openh264enc`.
 
+On immutable SteamOS systems, prepare the container once and then use the same
+development command as macOS. The launcher detects Linux automatically:
+
+```bash
+pnpm setup:linux
+pnpm tauri:dev
+```
+
 Run the distro-independent verification suite with:
 
 ```bash

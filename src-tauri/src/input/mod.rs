@@ -3,6 +3,7 @@
 use anyhow::Result;
 use parking_lot::Mutex;
 use rdev::{Button, Event, EventType, Key, listen};
+
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -465,6 +466,12 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
             permission_error
         ));
     }
+
+    // Wayland does not expose global mouse buttons through XWayland/rdev.
+    // Read the session-authorized evdev mouse devices for button events while
+    // rdev continues to supply the compositor cursor position.
+    #[cfg(target_os = "linux")]
+    linux::create_button_listener(tracker.clone());
 
     std::thread::spawn(move || {
         let listener_state = tracker.clone();

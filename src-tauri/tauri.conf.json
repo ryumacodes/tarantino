@@ -21,11 +21,9 @@
         "shadow": false,
         "alwaysOnTop": true,
         "skipTaskbar": false,
-        "center": false,
+        "center": true,
         "resizable": false,
-        "visible": false,
-        "x": 200,
-        "y": 200
+        "visible": true
       }
     ],
     "security": {
