@@ -280,15 +280,35 @@ fn build_pipeline(
         .property("drop-only", true)
         .build()
         .context("Failed to create the Linux frame-rate limiter")?;
-    let convert = make_element("videoconvert")?;
+    let gpu_conversion =
+        encoder_kind.uses_va_memory() && gst::ElementFactory::find("vapostproc").is_some();
+    let convert = make_element(if gpu_conversion {
+        "vapostproc"
+    } else {
+        "videoconvert"
+    })?;
+    let raw_caps = if gpu_conversion {
+        gst::Caps::builder("video/x-raw")
+            .features(["memory:VAMemory"])
+            .field("format", encoder_kind.raw_format())
+            .field("framerate", gst::Fraction::new(fps as i32, 1))
+            .build()
+    } else {
+        gst::Caps::builder("video/x-raw")
+            .field("format", encoder_kind.raw_format())
+            .field("framerate", gst::Fraction::new(fps as i32, 1))
+            .build()
+    };
+    println!(
+        "Linux recording conversion: {}",
+        if gpu_conversion {
+            "VA surface path"
+        } else {
+            "system-memory fallback"
+        }
+    );
     let caps_filter = gst::ElementFactory::make("capsfilter")
-        .property(
-            "caps",
-            gst::Caps::builder("video/x-raw")
-                .field("format", encoder_kind.raw_format())
-                .field("framerate", gst::Fraction::new(fps as i32, 1))
-                .build(),
-        )
+        .property("caps", raw_caps)
         .build()
         .context("Failed to create the raw-video format filter")?;
     let encoder = make_h264_encoder(encoder_kind, bitrate_kbps, speed_preset)?;
@@ -363,6 +383,10 @@ impl H264Encoder {
             Self::Nvidia | Self::X264 | Self::OpenH264 => "I420",
         }
     }
+
+    fn uses_va_memory(self) -> bool {
+        matches!(self, Self::Va)
+    }
 }
 
 fn select_h264_encoder(
@@ -435,6 +459,9 @@ fn make_h264_encoder(
             }
             if encoder.find_property("zerolatency").is_some() {
                 encoder.set_property("zerolatency", true);
+            }
+            if encoder.find_property("target-usage").is_some() {
+                encoder.set_property_from_str("target-usage", "7");
             }
             Ok(encoder)
         }
