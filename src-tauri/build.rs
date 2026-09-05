@@ -13,6 +13,7 @@ fn main() {
     {
         println!("cargo:rerun-if-changed=src/recording/linux_cursor.c");
         let pipewire = pkg_config::Config::new()
+            .cargo_metadata(false)
             .probe("libpipewire-0.3")
             .expect("Linux cursor capture requires PipeWire development headers");
         let mut build = cc::Build::new();
@@ -22,6 +23,10 @@ fn main() {
         build
             .file("src/recording/linux_cursor.c")
             .compile("linux_cursor");
+        // With GNU ld --as-needed, dependencies must follow the static archive
+        // that references them. Emit PipeWire's link flags after linux_cursor.
+        pkg_config::probe_library("libpipewire-0.3")
+            .expect("Linux cursor capture requires PipeWire development headers");
     }
 }
 
