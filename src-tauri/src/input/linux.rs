@@ -5,14 +5,63 @@ use anyhow::{Context, Result, anyhow};
 use evdev::{AbsoluteAxisCode, Device, EventSummary, KeyCode, RelativeAxisCode};
 use parking_lot::Mutex;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CANONICAL_WIDTH: f64 = 1920.0;
 const CANONICAL_HEIGHT: f64 = 1080.0;
 
-pub const fn pointer_coordinate_space() -> (u32, u32) {
-    (CANONICAL_WIDTH as u32, CANONICAL_HEIGHT as u32)
+#[derive(Default)]
+struct StreamPointer {
+    enabled: bool,
+    dimensions: Option<(u32, u32)>,
+    position: Option<(f64, f64)>,
+    tracker: Weak<Mutex<MouseTracker>>,
+}
+
+static STREAM_POINTER: LazyLock<Mutex<StreamPointer>> = LazyLock::new(Default::default);
+
+pub fn pointer_coordinate_space() -> (u32, u32) {
+    STREAM_POINTER
+        .lock()
+        .dimensions
+        .unwrap_or((CANONICAL_WIDTH as u32, CANONICAL_HEIGHT as u32))
+}
+
+pub(crate) fn configure_stream_pointer(enabled: bool) {
+    let mut pointer = STREAM_POINTER.lock();
+    pointer.enabled = enabled;
+    pointer.dimensions = None;
+    pointer.position = None;
+}
+
+pub(crate) fn stream_pointer_enabled() -> bool {
+    STREAM_POINTER.lock().enabled
+}
+
+pub(crate) fn observe_stream_pointer(width: u32, height: u32, position: Option<(u32, u32)>) {
+    let mut pointer = STREAM_POINTER.lock();
+    if !pointer.enabled || width == 0 || height == 0 {
+        return;
+    }
+    pointer.dimensions = Some((width, height));
+    let Some((x, y)) = position else {
+        return;
+    };
+    let position = stream_position(width, height, x, y);
+    if pointer.position == position {
+        return;
+    }
+    pointer.position = position;
+    let tracker = pointer.tracker.upgrade();
+    drop(pointer);
+    if let (Some(tracker), Some((x, y))) = (tracker, position) {
+        push_pointer_event(&tracker, x, y, MouseEventType::Move);
+    }
+}
+
+fn stream_position(width: u32, height: u32, x: u32, y: u32) -> Option<(f64, f64)> {
+    (x < width && y < height).then_some((x as f64, y as f64))
 }
 
 #[derive(Clone, Copy)]
@@ -128,10 +177,32 @@ fn open_pointer_devices() -> Result<PointerDevices> {
 }
 
 pub fn raw_pointer_tracking_available() -> bool {
-    open_pointer_devices().is_ok()
+    !open_button_devices().is_empty()
 }
 
 pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
+    STREAM_POINTER.lock().tracker = Arc::downgrade(&tracker);
+    if stream_pointer_enabled() {
+        let buttons = open_button_devices();
+        anyhow::ensure!(
+            !buttons.is_empty(),
+            "No readable mouse button device was found"
+        );
+        for (device, path) in buttons {
+            println!(
+                "Linux compositor pointer listening to buttons: {}",
+                path.display()
+            );
+            let tracker = tracker.clone();
+            let range = AxisRange {
+                minimum: 0,
+                maximum: 1,
+            };
+            let coordinates = Arc::new(Mutex::new((0, 0, range, range)));
+            std::thread::spawn(move || listen_buttons(device, tracker, coordinates));
+        }
+        return Ok(());
+    }
     let mut devices = open_pointer_devices()?;
     println!(
         "Linux automatic zoom listening to pointer position: {}",
@@ -161,6 +232,20 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
         listen_position(devices, tracker, coordinates, !buttons_are_separate)
     });
     Ok(())
+}
+
+fn open_button_devices() -> Vec<(Device, PathBuf)> {
+    input_event_paths()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|path| {
+            let device = Device::open(&path).ok()?;
+            device
+                .supported_keys()
+                .is_some_and(|keys| keys.contains(KeyCode::BTN_LEFT))
+                .then_some((device, path))
+        })
+        .collect()
 }
 
 fn current_axis_value(device: &Device, wanted: AbsoluteAxisCode) -> Option<i32> {
@@ -293,9 +378,28 @@ fn add_current_event(
     coordinates: &Arc<Mutex<(i32, i32, AxisRange, AxisRange)>>,
     event_type: MouseEventType,
 ) {
+    let pointer = STREAM_POINTER.lock();
+    if pointer.enabled {
+        let position = pointer.position;
+        drop(pointer);
+        if let Some((x, y)) = position {
+            push_pointer_event(tracker, x, y, event_type);
+        }
+        return;
+    }
+    drop(pointer);
     let (raw_x, raw_y, x_range, y_range) = *coordinates.lock();
     let x = x_range.map(raw_x, CANONICAL_WIDTH);
     let y = y_range.map(raw_y, CANONICAL_HEIGHT);
+    push_pointer_event(tracker, x, y, event_type);
+}
+
+fn push_pointer_event(
+    tracker: &Arc<Mutex<MouseTracker>>,
+    x: f64,
+    y: f64,
+    event_type: MouseEventType,
+) {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -312,6 +416,14 @@ fn add_current_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compositor_coordinates_stay_relative_to_the_captured_window() {
+        assert_eq!(stream_position(1378, 1137, 200, 800), Some((200.0, 800.0)));
+        assert_eq!(stream_position(1378, 1137, u32::MAX, u32::MAX), None);
+        assert_eq!(stream_position(1378, 1137, 1378, 200), None);
+        assert_eq!(stream_position(0, 0, 0, 0), None);
+    }
 
     #[test]
     fn maps_absolute_device_range_to_canonical_canvas() {

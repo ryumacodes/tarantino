@@ -11,6 +11,13 @@ const LINUX_PREVIEW_FPS: f64 = 30.0;
 use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
+pub fn get_video_output_directory() -> String {
+    crate::video_processing::visual_effects::default_video_output_directory()
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[tauri::command]
 pub async fn get_video_info(video_path: String) -> Result<VideoInfo, String> {
     let processor = VideoProcessor::new().map_err(|e| e.to_string())?;
     processor
@@ -240,6 +247,7 @@ mod tests {
 #[tauri::command]
 pub async fn export_video(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     state: State<'_, Arc<UnifiedAppState>>,
     input_path: String,
     settings: ExportSettings,
@@ -248,7 +256,12 @@ pub async fn export_video(
         return Err("Finish the active recording before exporting.".to_string());
     }
 
-    crate::commands::lifecycle::release_recording_surfaces(&app, Some(state.inner()), "export");
+    crate::commands::lifecycle::release_recording_surfaces_except(
+        &app,
+        Some(state.inner()),
+        "export",
+        Some(window.label()),
+    );
 
     let (progress_tx, progress_rx) = std::sync::mpsc::channel::<ProcessingProgress>();
     let (result_tx, result_rx) = std::sync::mpsc::channel::<Result<std::path::PathBuf, String>>();

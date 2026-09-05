@@ -8,6 +8,21 @@ fn main() {
 
     #[cfg(target_os = "windows")]
     build_windows_backend();
+
+    #[cfg(target_os = "linux")]
+    {
+        println!("cargo:rerun-if-changed=src/recording/linux_cursor.c");
+        let pipewire = pkg_config::Config::new()
+            .probe("libpipewire-0.3")
+            .expect("Linux cursor capture requires PipeWire development headers");
+        let mut build = cc::Build::new();
+        for path in pipewire.include_paths {
+            build.include(path);
+        }
+        build
+            .file("src/recording/linux_cursor.c")
+            .compile("linux_cursor");
+    }
 }
 
 #[cfg(target_os = "macos")]

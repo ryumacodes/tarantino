@@ -144,6 +144,8 @@ mod macos;
 mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::pointer_coordinate_space;
+#[cfg(target_os = "linux")]
+pub(crate) use linux::{configure_stream_pointer, observe_stream_pointer, stream_pointer_enabled};
 
 #[cfg(not(target_os = "macos"))]
 mod macos {

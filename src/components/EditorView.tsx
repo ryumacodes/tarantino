@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import EditorTopBar from './editor/EditorTopBar';
 import VideoPreviewPanel from './editor/VideoPreviewPanel';
 import PropertiesPanel from './editor/PropertiesPanel';
@@ -14,6 +14,7 @@ interface EditorViewProps {
 const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
   const [showMouseOverlay, setShowMouseOverlay] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
+  const exportInFlight = useRef(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [timelineCollapsed, setTimelineCollapsed] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -49,11 +50,17 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
   };
 
   const handleExport = async () => {
-    if (!videoFilePath) return;
+    if (!videoFilePath || exportInFlight.current) return;
 
+    exportInFlight.current = true;
+    setIsPlaying(false);
+    setCommandOpen(false);
+    setShortcutsOpen(false);
+    setNotesOpen(false);
     setIsExporting(true);
     setExportProgress(0);
 
+    let unlisten: (() => void) | undefined;
     try {
       const { invoke } = await import('@tauri-apps/api/core');
 
@@ -169,7 +176,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
       };
 
       const { listen } = await import('@tauri-apps/api/event');
-      const unlisten = await listen<{ current: number; total: number; percentage: number }>('export:progress', (event) => {
+      unlisten = await listen<{ current: number; total: number; percentage: number }>('export:progress', (event) => {
         setExportProgress(Math.round(event.payload.percentage));
       });
 
@@ -179,21 +186,29 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
       });
 
       setExportProgress(100);
-      unlisten();
-
-      setTimeout(() => {
-        setIsExporting(false);
-        setExportProgress(0);
-        alert(`Export completed successfully!\nSaved to: ${outputPath}`);
-      }, 1000);
+      alert(`Export completed successfully!\nSaved to: ${outputPath}`);
     } catch (error: unknown) {
       console.error('[Export] Export failed:', error);
-      setIsExporting(false);
-      setExportProgress(0);
       const message = error instanceof Error ? error.message : String(error);
       alert(`Export failed: ${message}`);
+    } finally {
+      unlisten?.();
+      exportInFlight.current = false;
+      setIsExporting(false);
+      setExportProgress(0);
     }
   };
+
+  useEffect(() => {
+    if (!isExporting) return;
+    // Inert blocks pointer/focus interaction; document shortcuts need a guard too.
+    const blockEditingKeys = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    document.addEventListener('keydown', blockEditingKeys, true);
+    return () => document.removeEventListener('keydown', blockEditingKeys, true);
+  }, [isExporting]);
 
   const handleShowMouseOverlay = (show: boolean) => {
     setShowMouseOverlay(show);
@@ -293,7 +308,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
     : 'Unknown';
 
   return (
-    <div className="editor-view">
+    <div className="editor-view" aria-busy={isExporting}>
       {/* Top Bar */}
       <EditorTopBar
         projectName={projectTitle}
@@ -305,7 +320,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
       />
 
       {/* Main Content Area */}
-      <div className="editor-main-content">
+      <div className="editor-main-content" inert={isExporting}>
         {/* Video Preview Panel - Left */}
         <div className="editor-video-section">
           <VideoPreviewPanel
@@ -327,7 +342,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
       </div>
 
       {/* Timeline - Bottom */}
-      <div className="editor-timeline-section">
+      <div className="editor-timeline-section" inert={isExporting}>
         <ProfessionalTimeline
           isCollapsed={timelineCollapsed}
           onToggleCollapse={handleToggleTimelineCollapse}

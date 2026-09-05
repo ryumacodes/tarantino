@@ -3,6 +3,10 @@ import { Camera } from 'lucide-react';
 import { useEditorStore } from '../../../stores/editor';
 import { StyleSettings } from './StyleSettings';
 import { BehaviorSettings } from './BehaviorSettings';
+import { isLinuxRuntime } from '../../../utils/platform';
+
+// Packaged Linux CSP blocks styles inserted by React at runtime.
+if (isLinuxRuntime) void import('./cursor-settings.linux.css');
 
 const webcamCorners = [
   { id: 'top-left' as const, label: 'TL' },
@@ -161,7 +165,7 @@ export const CursorSettingsPanel: React.FC<CursorSettingsPanelProps> = ({
         </>
       )}
 
-      <style>{`
+      {!isLinuxRuntime && <style>{`
         .cursor-settings-panel {
           display: flex;
           flex-direction: column;
@@ -492,7 +496,7 @@ export const CursorSettingsPanel: React.FC<CursorSettingsPanelProps> = ({
           word-wrap: break-word;
           overflow-wrap: break-word;
         }
-      `}</style>
+      `}</style>}
     </div>
   );
 };

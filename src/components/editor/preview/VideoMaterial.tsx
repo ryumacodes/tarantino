@@ -435,11 +435,9 @@ export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = (
     const context = canvas.getContext('2d', { alpha: false });
     if (!context) return;
 
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.minFilter = THREE.LinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    setCanvasTexture(texture);
+    // GPU texture storage cannot grow after its first upload. Wait for the
+    // first decoded frame instead of allocating a 2x2 placeholder texture.
+    let texture: THREE.CanvasTexture | null = null;
 
     const video = document.createElement('video');
     video.src = convertFileSrc(videoFilePath);
@@ -453,26 +451,50 @@ export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = (
       const image = new Image();
       image.onload = () => {
         if (cancelled || request !== drawRequest) return;
-        canvas.width = Math.max(2, image.naturalWidth);
-        canvas.height = Math.max(2, image.naturalHeight);
+        const width = Math.max(2, image.naturalWidth);
+        const height = Math.max(2, image.naturalHeight);
+        const resized = canvas.width !== width || canvas.height !== height;
+        if (resized) {
+          canvas.width = width;
+          canvas.height = height;
+        }
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        if (!texture || resized) {
+          texture?.dispose();
+          texture = new THREE.CanvasTexture(canvas);
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.minFilter = THREE.LinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+          setCanvasTexture(texture);
+        }
         texture.needsUpdate = true;
       };
       image.src = dataUrl;
     };
 
-    const requestBucket = async (bucket: number) => {
-      if (cancelled || bucket === lastRequestedBucket) return;
-      if (inFlight) {
-        queuedBucket = bucket;
-        return;
-      }
-      lastRequestedBucket = bucket;
+    const requestBucket = async (bucket: number, prefetchOnly = false) => {
+      if (cancelled || (!prefetchOnly && bucket === lastRequestedBucket)) return;
       const cached = frameCache.get(bucket);
       if (cached) {
-        drawFrame(cached);
+        if (!prefetchOnly) {
+          lastRequestedBucket = bucket;
+          drawFrame(cached);
+          // Decode ahead while cached frames continue to render. Waiting for
+          // a cache miss creates a visible pause at every batch boundary.
+          const nextBatch = (Math.floor(bucket / LINUX_PREVIEW_BATCH_SIZE) + 1) * LINUX_PREVIEW_BATCH_SIZE;
+          if (useEditorStore.getState().isPlaying && !inFlight
+              && nextBatch < Math.ceil(duration * LINUX_PREVIEW_FPS / 1000)
+              && !frameCache.has(nextBatch)) {
+            void requestBucket(nextBatch, true);
+          }
+        }
         return;
       }
+      if (inFlight) {
+        if (!prefetchOnly) queuedBucket = bucket;
+        return;
+      }
+      if (!prefetchOnly) lastRequestedBucket = bucket;
       inFlight = true;
       try {
         const batchStart = Math.floor(bucket / LINUX_PREVIEW_BATCH_SIZE) * LINUX_PREVIEW_BATCH_SIZE;
@@ -489,7 +511,7 @@ export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = (
             frameCache.delete(oldestBucket);
           }
           const requestedFrame = frameCache.get(bucket);
-          if (requestedFrame) drawFrame(requestedFrame);
+          if (requestedFrame && !prefetchOnly) drawFrame(requestedFrame);
         }
       } catch (error) {
         console.error('Linux native preview frame failed:', error);
@@ -504,7 +526,8 @@ export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = (
     };
 
     requestFrameRef.current = (timeMs) => {
-      void requestBucket(Math.max(0, Math.round(timeMs * LINUX_PREVIEW_FPS / 1000)));
+      const lastBucket = Math.max(0, Math.ceil(duration * LINUX_PREVIEW_FPS / 1000) - 1);
+      void requestBucket(Math.min(lastBucket, Math.max(0, Math.round(timeMs * LINUX_PREVIEW_FPS / 1000))));
     };
     requestFrameRef.current(currentTime);
 
@@ -531,10 +554,10 @@ export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = (
       video.load();
       videoRef.current = null;
       requestFrameRef.current = null;
-      texture.dispose();
+      texture?.dispose();
       setCanvasTexture(null);
     };
-  }, [enabled, videoFilePath, setCurrentTime, setIsPlaying]);
+  }, [enabled, videoFilePath, duration, setCurrentTime, setIsPlaying]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -552,7 +575,9 @@ export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = (
     if (video && video.paused && Math.abs(video.currentTime * 1000 - currentTime) > 50) {
       video.currentTime = currentTime / 1000;
     }
-    if (!isPlaying) requestFrameRef.current?.(currentTime);
+    // The editor supplies a wall clock when WebKit cannot decode this video.
+    // Follow it during playback too; the fallback video element may stay paused.
+    requestFrameRef.current?.(currentTime);
   }, [currentTime, isPlaying]);
 
   if (!enabled || !canvasTexture) return null;

@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { Menu, MenuItem } from '@tauri-apps/api/menu';
 import DisplayPicker from './DisplayPicker';
 import CaptureSettings, { CaptureConfig } from './CaptureSettings';
+import VideoOutputLocation from './VideoOutputLocation';
 import CaptureShortcutOverlays from './CaptureShortcutOverlays';
 import PointerCaptureConsent from './PointerCaptureConsent';
 import PermissionStatus from './PermissionStatus';
@@ -14,23 +15,19 @@ import { useCaptureShortcuts } from '../hooks/useCaptureShortcuts';
 import { isLinuxRuntime } from '../utils/platform';
 type CaptureMode = 'display' | 'window' | 'area' | 'device';
 type WebcamShape = 'circle' | 'roundrect';
-
 interface NativeMenuChoice {
   id: string;
   name?: string;
 }
-
 interface CameraDevice extends NativeMenuChoice {
   name: string;
   is_default?: boolean;
 }
-
 interface CaptureWindowInfo {
   id: string;
   title?: string;
   app_name?: string;
 }
-
 interface RecordingCapabilities {
   recordingAvailable: boolean;
   unavailableReason: string | null;
@@ -38,7 +35,6 @@ interface RecordingCapabilities {
   displayPreviewAvailable: boolean;
   automaticZoomAvailable: boolean;
 }
-
 const optimisticNativeCapabilities: RecordingCapabilities = {
   recordingAvailable: true,
   unavailableReason: null,
@@ -46,13 +42,11 @@ const optimisticNativeCapabilities: RecordingCapabilities = {
   displayPreviewAvailable: true,
   automaticZoomAvailable: true,
 };
-
 const isRecordableWindow = (windowInfo: CaptureWindowInfo) => {
   const appName = (windowInfo.app_name || '').toLowerCase();
   const title = (windowInfo.title || '').toLowerCase();
   return appName !== 'tarantino' && title !== 'tarantino' && !title.includes('web inspector');
 };
-
 const createSelectionItems = <T extends NativeMenuChoice>(
   choices: T[],
   selectedId: string | null,
@@ -64,12 +58,10 @@ const createSelectionItems = <T extends NativeMenuChoice>(
     action: () => onSelect(choice),
   })),
 );
-
 const popupNativeMenu = async (items: Awaited<ReturnType<typeof MenuItem.new>>[]) => {
   const menu = await Menu.new({ items });
   await menu.popup();
 };
-
 const handleCaptureBarDrag = async (event: React.MouseEvent) => {
   const target = event.target as HTMLElement;
   if (
@@ -78,7 +70,6 @@ const handleCaptureBarDrag = async (event: React.MouseEvent) => {
     || target.closest('.capture-bar__record')
     || target.closest('.capture-bar__input')
   ) return;
-
   try {
     await Window.getCurrent().startDragging();
   } catch (error) {
@@ -138,7 +129,6 @@ const CaptureBar: React.FC = () => {
       : selectedDevice !== null;
   const recordingAvailable = recordingCapabilities?.recordingAvailable === true;
   const canRecord = recordingAvailable && !startInFlightRef.current && !stopInFlightRef.current && !isStarting && !windowPreparing && (isRecording || selectedTargetReady);
-
   const checkRecordingSupport = async () => {
     setCheckingRecordingSupport(true);
     try {
@@ -155,24 +145,20 @@ const CaptureBar: React.FC = () => {
       setCheckingRecordingSupport(false);
     }
   };
-
   useEffect(() => {
     loadDevices();
     checkRecordingSupport();
   }, []);
-
   useEffect(() => {
     const unlisten = listen<string>('recording-stopped', async (event) => {
       if (event.payload) {
         await stopRecording(event.payload);
       }
     });
-
     return () => {
       unlisten.then(fn => fn());
     };
   }, [stopRecording]);
-
   const loadDevices = async () => {
     try {
       const [displayList, deviceList, audioList] = await Promise.all([
@@ -745,6 +731,7 @@ const CaptureBar: React.FC = () => {
       {showSettings && (
         <div className="capture-bar__dropdown capture-bar__dropdown--settings">
           <div className="space-y-4">
+            <VideoOutputLocation />
             {recordingCapabilities?.unavailableReason && (
               <div className="capture-bar__runtime-detail" role="alert">
                 <AlertTriangle size={16} />

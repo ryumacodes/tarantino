@@ -211,6 +211,7 @@ async fn run() {
             commands::mouse::get_mouse_tracking_stats,
             // Video processing
             commands::video::get_video_info,
+            commands::video::get_video_output_directory,
             commands::video::get_video_metadata,
             commands::video::extract_video_thumbnails,
             commands::video::extract_video_preview_frames,
@@ -231,6 +232,16 @@ async fn run() {
         .setup(|app| {
             if let Err(e) = setup_tray(app.handle()) {
                 eprintln!("Failed to setup system tray: {}", e);
+            }
+
+            #[cfg(target_os = "linux")]
+            if let Some(bar) = app.get_webview_window("capture-bar") {
+                // WebKitGTK otherwise imposes a 200px minimum on the 60px bar.
+                let _ = bar.with_webview(|webview| {
+                    use gtk::prelude::WidgetExt;
+                    webview.inner().set_size_request(1, 1);
+                });
+                let _ = bar.set_size(tauri::LogicalSize::new(710.0, 60.0));
             }
 
             if let Err(error) = commands::misc::bring_capture_bar_to_front(app.handle()) {

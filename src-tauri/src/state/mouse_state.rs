@@ -243,6 +243,13 @@ impl UnifiedAppState {
         Option<crate::recording::types::RecordingArea>,
         Option<(u32, u32)>,
     )> {
+        #[cfg(target_os = "linux")]
+        if crate::input::stream_pointer_enabled() {
+            let (width, height) = crate::input::pointer_coordinate_space();
+            // PipeWire cursor metadata is already relative to the selected
+            // stream. Portal window placeholders have no desktop geometry.
+            return Some((width, height, 1.0, None, None));
+        }
         if let Some(config) = self.recording.get_current_config() {
             match &config.target {
                 crate::recording::types::RecordingTarget::Desktop { display_id, area } => {

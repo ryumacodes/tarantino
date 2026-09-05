@@ -67,7 +67,8 @@ Use the regular development command unless you specifically need raw mode.
 
 ### Linux development
 
-Linux requires the normal Tauri dependencies plus FFmpeg, PipeWire, the desktop
+Linux requires the normal Tauri dependencies plus FFmpeg, PipeWire (including
+development headers for its cursor metadata reader), the desktop
 portal for your desktop environment, and these GStreamer elements:
 `pipewiresrc`, `h264parse`, `mp4mux`, and either `x264enc` or `openh264enc`.
 

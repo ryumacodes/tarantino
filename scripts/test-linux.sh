@@ -27,12 +27,17 @@ if [ "$(uname -s)" != "Linux" ]; then
   exit 1
 fi
 
-for command in pnpm cargo gst-inspect-1.0 ffmpeg ffprobe; do
+for command in pnpm cargo pkg-config gst-inspect-1.0 ffmpeg ffprobe; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "error: required command is missing: $command" >&2
     exit 1
   fi
 done
+
+if ! pkg-config --exists libpipewire-0.3; then
+  echo "error: PipeWire development headers are missing; run pnpm setup:linux" >&2
+  exit 1
+fi
 
 for plugin in pipewiresrc videorate h264parse mp4mux; do
   if ! gst-inspect-1.0 "$plugin" >/dev/null 2>&1; then
@@ -73,5 +78,6 @@ run_cargo cargo check --locked --all-targets --manifest-path src-tauri/Cargo.tom
 
 echo "[7/7] Linux capture runtime plugins"
 gst-inspect-1.0 pipewiresrc videorate "$encoder" h264parse mp4mux >/dev/null
+run_cargo cargo test --locked --manifest-path src-tauri/Cargo.toml linux_recording_runtime_smoke -- --ignored --nocapture
 
-echo "Linux verification passed with $encoder. A logged-in graphical session is still required for the portal recording smoke test."
+echo "Linux verification passed. The runtime test reports the usable encoder. A logged-in graphical session is still required for the portal recording smoke test."

@@ -12,6 +12,9 @@ use gst::prelude::*;
 
 use super::{QualityPreset, RecordingConfig, RecordingTarget};
 
+#[path = "linux_cursor.rs"]
+mod cursor;
+
 /// Open the compositor's real window chooser before recording and persist the
 /// approved source for the recording session that follows.
 pub(crate) async fn prepare_window_source() -> Result<()> {
@@ -54,6 +57,7 @@ pub(crate) async fn prepare_window_source() -> Result<()> {
 
 pub struct LinuxRecording {
     pipeline: gst::Pipeline,
+    _cursor_reader: Option<cursor::CursorReader>,
     // Portal ownership grants access to the PipeWire node for the recording lifetime.
     _portal: Screencast,
     _session: Session<Screencast>,
@@ -85,7 +89,17 @@ impl LinuxRecording {
                 anyhow::bail!("Device capture is not supported on Linux yet")
             }
         };
-        let cursor_mode = if config.include_cursor {
+        let cursor_metadata = crate::input::pointer_capture_consented()
+            && portal
+                .available_cursor_modes()
+                .await
+                .is_ok_and(|modes| modes.contains(CursorMode::Metadata));
+        crate::input::configure_stream_pointer(cursor_metadata);
+        // With click tracking, the editor/export cursor is driven by the
+        // compositor's stream-local coordinates instead of an unrelated HID.
+        let cursor_mode = if cursor_metadata {
+            CursorMode::Metadata
+        } else if config.include_cursor {
             CursorMode::Embedded
         } else {
             CursorMode::Hidden
@@ -126,6 +140,21 @@ impl LinuxRecording {
             .await
             .context("Failed to open the portal PipeWire remote")?;
 
+        let cursor_reader = if cursor_metadata {
+            // Each consumer needs its own portal connection. Duplicating the
+            // recorder socket would make two clients read one protocol stream.
+            let remote = portal
+                .open_pipe_wire_remote(&session, Default::default())
+                .await
+                .context("Failed to open the cursor metadata remote")?;
+            Some(cursor::CursorReader::start(
+                &remote,
+                stream.pipe_wire_node_id(),
+            )?)
+        } else {
+            None
+        };
+
         let pipeline = build_pipeline(
             config,
             output_path,
@@ -138,6 +167,7 @@ impl LinuxRecording {
 
         Ok(Self {
             pipeline,
+            _cursor_reader: cursor_reader,
             _portal: portal,
             _session: session,
             _pipewire_fd: pipewire_fd,
@@ -220,6 +250,8 @@ pub(crate) fn runtime_preflight() -> Result<()> {
 fn verify_runtime_elements() -> Result<()> {
     for element in [
         "pipewiresrc",
+        "videotestsrc",
+        "fakesink",
         "queue",
         "videorate",
         "videoconvert",
@@ -232,11 +264,10 @@ fn verify_runtime_elements() -> Result<()> {
             anyhow::bail!("Required native GStreamer element is missing: {element}");
         }
     }
-    let (nvidia_device, va_device) = hardware_encoder_devices();
     select_h264_encoder(
         |name| gst::ElementFactory::find(name).is_some(),
-        nvidia_device,
-        va_device,
+        true,
+        true,
     )
     .context(
         "A native H.264 encoder is required; install a VA-API, NVIDIA, x264, or OpenH264 GStreamer plugin",
@@ -250,27 +281,59 @@ fn build_pipeline(
     node_id: u32,
     pipewire_fd: i32,
 ) -> Result<gst::Pipeline> {
-    let (bitrate_kbps, speed_preset) = encoding_settings(&config.quality);
-    let fps = recording_fps(&config.quality);
-
-    let (nvidia_device, va_device) = hardware_encoder_devices();
-    let encoder_kind = select_h264_encoder(
-        |name| gst::ElementFactory::find(name).is_some(),
-        nvidia_device,
-        va_device,
-    )?;
+    let (encoder_kind, gpu_conversion) = select_working_encoder(config)?;
     println!(
         "Linux recording encoder selected: {} at {} fps",
         encoder_kind.factory_name(),
-        fps
+        recording_fps(&config.quality)
     );
 
     let source = gst::ElementFactory::make("pipewiresrc")
         .property("fd", pipewire_fd)
         .property("path", node_id.to_string())
         .property("do-timestamp", true)
+        // Wayland may send no new pixels for a static window. Preserve its
+        // elapsed duration and the final hold instead of saving one frame.
+        .property("keepalive-time", 100i32)
+        .property("resend-last", true)
         .build()
         .context("Failed to create the PipeWire source")?;
+    // Some compositors reuse the image's original PTS for static/cursor-only
+    // updates. A live recording must follow elapsed time, not that stale PTS.
+    // Make only the buffer header writable; pixel memory remains shared.
+    let first_frame = std::sync::OnceLock::<std::time::Instant>::new();
+    source
+        .static_pad("src")
+        .context("PipeWire source has no output pad")?
+        .add_probe(gst::PadProbeType::BUFFER, move |_, info| {
+            if let Some(buffer) = info.buffer_mut() {
+                let elapsed = first_frame.get_or_init(std::time::Instant::now).elapsed();
+                let time =
+                    gst::ClockTime::from_nseconds(elapsed.as_nanos().min(u64::MAX as u128) as u64);
+                let buffer = buffer.make_mut();
+                buffer.set_pts(time);
+                buffer.set_dts(time);
+            }
+            gst::PadProbeReturn::Ok
+        });
+    let sink = gst::ElementFactory::make("filesink")
+        .property("location", output_path.to_string_lossy().as_ref())
+        .build()
+        .context("Failed to create the recording file sink")?;
+    build_pipeline_with_source(config, source, sink, encoder_kind, gpu_conversion)
+}
+
+// Production and runtime probes use the same conversion, rate control, encoder,
+// parser and muxer. Only the frame source and output sink differ.
+fn build_pipeline_with_source(
+    config: &RecordingConfig,
+    source: gst::Element,
+    sink: gst::Element,
+    encoder_kind: H264Encoder,
+    gpu_conversion: bool,
+) -> Result<gst::Pipeline> {
+    let (bitrate_kbps, speed_preset) = encoding_settings(&config.quality);
+    let fps = recording_fps(&config.quality);
     let queue = make_element("queue")?;
     queue.set_property("max-size-buffers", 4u32);
     queue.set_property("max-size-bytes", 0u32);
@@ -280,8 +343,6 @@ fn build_pipeline(
         .property("drop-only", true)
         .build()
         .context("Failed to create the Linux frame-rate limiter")?;
-    let gpu_conversion =
-        encoder_kind.uses_va_memory() && gst::ElementFactory::find("vapostproc").is_some();
     let convert = make_element(if gpu_conversion {
         "vapostproc"
     } else {
@@ -317,11 +378,6 @@ fn build_pipeline(
         .property("faststart", true)
         .build()
         .context("Failed to create the MP4 muxer")?;
-    let sink = gst::ElementFactory::make("filesink")
-        .property("location", output_path.to_string_lossy().as_ref())
-        .build()
-        .context("Failed to create the recording file sink")?;
-
     let pipeline = gst::Pipeline::new();
     pipeline
         .add_many([
@@ -409,35 +465,75 @@ fn select_h264_encoder(
     if available("openh264enc") {
         return Ok(H264Encoder::OpenH264);
     }
-    anyhow::bail!("No supported native H.264 GStreamer encoder is installed")
+    anyhow::bail!(
+        "No usable native H.264 GStreamer encoder was found (missing plugin or failed encoder probe)"
+    )
 }
 
-fn hardware_encoder_devices() -> (bool, bool) {
-    let virtual_machine = [
-        "/sys/class/dmi/id/product_name",
-        "/sys/class/dmi/id/sys_vendor",
-        "/sys/class/dmi/id/board_vendor",
-    ]
-    .into_iter()
-    .filter_map(|path| std::fs::read_to_string(path).ok())
-    .collect::<Vec<_>>()
-    .join(" ")
-    .to_ascii_lowercase();
-    if ["vmware", "virtualbox", "qemu", "kvm", "hyper-v"]
-        .iter()
-        .any(|vendor| virtual_machine.contains(vendor))
-    {
-        return (false, false);
-    }
+// A device node or VM vendor string does not prove encoder support. Probe
+// registered factories instead, including GPUs passed through to a VM/container.
+fn select_working_encoder(config: &RecordingConfig) -> Result<(H264Encoder, bool)> {
+    let mut gpu_conversion = false;
+    let encoder = select_h264_encoder(
+        |name| {
+            let kind = match name {
+                "nvh264enc" => H264Encoder::Nvidia,
+                "vah264enc" => H264Encoder::Va,
+                "vaapih264enc" => H264Encoder::Vaapi,
+                "x264enc" => H264Encoder::X264,
+                _ => H264Encoder::OpenH264,
+            };
+            if gst::ElementFactory::find(name).is_none() {
+                return false;
+            }
+            if kind.uses_va_memory()
+                && gst::ElementFactory::find("vapostproc").is_some()
+                && probe_encoder(config, kind, true).is_ok()
+            {
+                gpu_conversion = true;
+                return true;
+            }
+            match probe_encoder(config, kind, false) {
+                Ok(()) => {
+                    gpu_conversion = false;
+                    true
+                }
+                Err(error) => {
+                    eprintln!("Linux encoder {name} is installed but unusable: {error:#}");
+                    false
+                }
+            }
+        },
+        true,
+        true,
+    )?;
+    Ok((encoder, gpu_conversion))
+}
 
-    let nvidia = Path::new("/dev/nvidia0").exists();
-    let va = std::fs::read_dir("/dev/dri")
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| entry.ok())
-        .any(|entry| entry.file_name().to_string_lossy().starts_with("renderD"));
-    (nvidia, va)
+fn probe_encoder(config: &RecordingConfig, kind: H264Encoder, gpu: bool) -> Result<()> {
+    let source = gst::ElementFactory::make("videotestsrc")
+        .property("num-buffers", 3i32)
+        .build()
+        .context("Failed to create encoder probe source")?;
+    let sink = make_element("fakesink")?;
+    let pipeline = build_pipeline_with_source(config, source, sink, kind, gpu)?;
+    let result = (|| {
+        pipeline.set_state(gst::State::Playing)?;
+        let bus = pipeline.bus().context("Encoder probe has no bus")?;
+        let message = bus
+            .timed_pop_filtered(
+                gst::ClockTime::from_seconds(3),
+                &[gst::MessageType::Eos, gst::MessageType::Error],
+            )
+            .context("Encoder probe timed out")?;
+        match message.view() {
+            gst::MessageView::Eos(..) => Ok(()),
+            gst::MessageView::Error(error) => anyhow::bail!("{}", error.error()),
+            _ => unreachable!(),
+        }
+    })();
+    let _ = pipeline.set_state(gst::State::Null);
+    result
 }
 
 fn make_h264_encoder(
@@ -566,3 +662,7 @@ mod tests {
         assert!(select_h264_encoder(|_| false, true, true).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "linux_tests.rs"]
+mod runtime_tests;

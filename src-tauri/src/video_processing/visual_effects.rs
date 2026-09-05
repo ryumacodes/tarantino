@@ -67,13 +67,18 @@ pub fn get_cursor_config(settings: &ExportSettings) -> CursorSettings {
         })
 }
 
+/// Default folder shared by export and the capture settings display.
+pub fn default_video_output_directory() -> PathBuf {
+    let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    PathBuf::from(format!("{}/Movies/Tarantino", home_dir))
+}
+
 /// Determine output path for export
 pub fn determine_output_path(settings: &ExportSettings, input_path: &Path) -> Result<PathBuf> {
     if let Some(ref path) = settings.output_path {
         Ok(PathBuf::from(path))
     } else {
-        let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        let movies_dir = PathBuf::from(format!("{}/Movies/Tarantino", home_dir));
+        let movies_dir = default_video_output_directory();
         std::fs::create_dir_all(&movies_dir)?;
 
         let format = settings.format.as_deref().unwrap_or("mp4");

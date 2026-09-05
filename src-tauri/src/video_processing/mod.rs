@@ -13,6 +13,9 @@ pub mod types;
 pub mod visual_effects;
 pub mod zoom_trajectory;
 
+#[cfg(test)]
+mod performance_tests;
+
 // Re-export types used by other modules
 pub use types::{CursorSettings, ExportSettings, ProcessingProgress, VideoInfo};
 

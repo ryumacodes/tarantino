@@ -482,7 +482,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
           <planeGeometry args={[1, 1]} />
           <meshBasicMaterial color="#1a1a1a" toneMapped={false} />
         </mesh>
-        <Text
+        {!isLinuxRuntime && <Text
           position={[0, 0, 0.1]}
           fontSize={0.3}
           color="#ff5555"
@@ -490,7 +490,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
           anchorY="middle"
         >
           {videoError}
-        </Text>
+        </Text>}
       </group>
     );
   }
@@ -503,7 +503,9 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
           <planeGeometry args={[1, 1]} />
           <meshBasicMaterial color="#1a1a1a" toneMapped={false} />
         </mesh>
-        <Text
+        {/* A font-backed loading label can suspend the entire Linux canvas
+            before loadVideo runs when packaged CSP blocks the font worker. */}
+        {!isLinuxRuntime && <Text
           position={[0, 0, 0.1]}
           fontSize={0.4}
           color="#6272a4"
@@ -511,7 +513,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
           anchorY="middle"
         >
           Loading video...
-        </Text>
+        </Text>}
       </group>
     );
   }

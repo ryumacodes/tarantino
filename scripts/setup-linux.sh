@@ -67,7 +67,7 @@ elif is_family debian || [ "$distro_id" = "ubuntu" ] || [ "$distro_id" = "linuxm
     build-essential git curl wget file pkg-config libssl-dev clang nodejs npm \
     libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
     libxdo-dev libasound2-dev libgstreamer1.0-dev \
-    libgstreamer-plugins-base1.0-dev libavcodec-dev libavformat-dev \
+    libgstreamer-plugins-base1.0-dev libpipewire-0.3-dev libavcodec-dev libavformat-dev \
     libavutil-dev libavfilter-dev libavdevice-dev libswscale-dev \
     libswresample-dev ffmpeg gstreamer1.0-tools gstreamer1.0-pipewire \
     gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
@@ -81,7 +81,7 @@ elif is_family fedora || [ "$distro_id" = "rhel" ]; then
     gstreamer1-plugins-base-devel ffmpeg-free ffmpeg-free-devel \
     gstreamer1-plugins-base-tools gstreamer1-plugins-good \
     gstreamer1-plugins-bad-free gstreamer1-plugin-openh264 \
-    gstreamer1-vaapi libva-utils pipewire-gstreamer pipewire \
+    gstreamer1-vaapi libva-utils pipewire-gstreamer pipewire-devel pipewire \
     xdg-desktop-portal
 elif is_family suse || [ "$distro_id" = "opensuse-tumbleweed" ] || [ "$distro_id" = "opensuse-leap" ]; then
   run_as_root zypper --non-interactive refresh
@@ -91,7 +91,7 @@ elif is_family suse || [ "$distro_id" = "opensuse-tumbleweed" ] || [ "$distro_id
     librsvg-devel xdotool alsa-devel gstreamer-devel \
     gstreamer-plugins-base-devel gstreamer-utils gstreamer-plugins-base \
     gstreamer-plugins-good gstreamer-plugins-bad gstreamer-plugins-ugly \
-    gstreamer-plugin-pipewire ffmpeg-7 'pkgconfig(libavcodec)' \
+    gstreamer-plugin-pipewire 'pkgconfig(libpipewire-0.3)' ffmpeg-7 'pkgconfig(libavcodec)' \
     'pkgconfig(libavformat)' 'pkgconfig(libavutil)' 'pkgconfig(libavfilter)' \
     'pkgconfig(libavdevice)' 'pkgconfig(libswscale)' \
     'pkgconfig(libswresample)' gstreamer-plugins-vaapi libva-utils \

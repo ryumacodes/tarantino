@@ -168,7 +168,9 @@ fn verify_linux_encoder(acceleration: &ExportAcceleration, codec: &str) -> bool 
         "-f".to_string(),
         "lavfi".to_string(),
         "-i".to_string(),
-        "color=size=64x64:rate=1".to_string(),
+        // AMD VA-API requires at least 128x128. A 64x64 probe rejects a
+        // working encoder and silently sends all exports through software.
+        "color=size=320x240:rate=1".to_string(),
         "-frames:v".to_string(),
         "1".to_string(),
     ]);

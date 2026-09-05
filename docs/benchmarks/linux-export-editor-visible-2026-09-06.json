@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "checks": [
+    "Native window stays visible during export",
+    "Playback pauses",
+    "Editor and timeline inert, Export disabled",
+    "Space/Delete cannot modify editor during export",
+    "Export succeeds; window remains visible and editing unlocks"
+  ],
+  "export": "Export completed successfully!\nSaved to: /home/deck/Movies/Tarantino/tarantino-export-editor-visible.mp4",
+  "date": "2026-09-06",
+  "runtime": "Packaged Linux native Tauri editor"
+}
