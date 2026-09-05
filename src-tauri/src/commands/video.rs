@@ -63,12 +63,17 @@ pub async fn extract_video_thumbnails(
         .await
         .map_err(|e| e.to_string())?;
 
-    let thumbnail_sources: Result<Vec<String>, String> = thumbnails
-        .into_iter()
-        .map(|path| read_thumbnail_data_url(&path))
-        .collect();
+    read_thumbnail_data_urls(thumbnails)
+}
 
-    thumbnail_sources
+fn read_thumbnail_data_urls(paths: Vec<std::path::PathBuf>) -> Result<Vec<String>, String> {
+    // Process every path even if an earlier read fails, so later temporary
+    // files are cleaned up too. Preserve the first reported error.
+    let results: Vec<_> = paths
+        .iter()
+        .map(|path| read_thumbnail_data_url(path))
+        .collect();
+    results.into_iter().collect()
 }
 
 fn read_thumbnail_data_url(path: &Path) -> Result<String, String> {
@@ -206,7 +211,22 @@ pub fn linux_native_preview_required() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_thumbnail_data_url, split_jpeg_stream, thumbnail_data_url};
+    use super::{
+        read_thumbnail_data_url, read_thumbnail_data_urls, split_jpeg_stream, thumbnail_data_url,
+    };
+
+    #[test]
+    fn thumbnail_failure_still_cleans_up_later_files() {
+        let root = std::env::temp_dir().join(format!("thumbnail-cleanup-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let missing = root.join("missing.jpg");
+        let valid = root.join("valid.jpg");
+        std::fs::write(&valid, [0xff, 0xd8, 0xff]).unwrap();
+        let error = read_thumbnail_data_urls(vec![missing, valid.clone()]).unwrap_err();
+        assert!(error.contains("Failed to read generated thumbnail"));
+        assert!(!valid.exists());
+        std::fs::remove_dir(root).unwrap();
+    }
 
     #[test]
     fn thumbnail_source_is_a_self_contained_jpeg_data_url() {

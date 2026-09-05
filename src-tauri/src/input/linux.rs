@@ -19,6 +19,8 @@ struct StreamPointer {
     tracker: Weak<Mutex<MouseTracker>>,
 }
 
+static LISTENER_MODES: Mutex<[bool; 2]> = Mutex::new([false; 2]);
+
 static STREAM_POINTER: LazyLock<Mutex<StreamPointer>> = LazyLock::new(Default::default);
 
 pub fn pointer_coordinate_space() -> (u32, u32) {
@@ -182,7 +184,12 @@ pub fn raw_pointer_tracking_available() -> bool {
 
 pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
     STREAM_POINTER.lock().tracker = Arc::downgrade(&tracker);
-    if stream_pointer_enabled() {
+    let stream_mode = stream_pointer_enabled();
+    let mut listener_modes = LISTENER_MODES.lock();
+    if listener_modes[usize::from(stream_mode)] {
+        return Ok(());
+    }
+    if stream_mode {
         let buttons = open_button_devices();
         anyhow::ensure!(
             !buttons.is_empty(),
@@ -194,13 +201,9 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
                 path.display()
             );
             let tracker = tracker.clone();
-            let range = AxisRange {
-                minimum: 0,
-                maximum: 1,
-            };
-            let coordinates = Arc::new(Mutex::new((0, 0, range, range)));
-            std::thread::spawn(move || listen_buttons(device, tracker, coordinates));
+            std::thread::spawn(move || listen_buttons(device, tracker, None));
         }
+        listener_modes[1] = true;
         return Ok(());
     }
     let mut devices = open_pointer_devices()?;
@@ -224,13 +227,14 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
         let button_tracker = tracker.clone();
         let button_coordinates = coordinates.clone();
         std::thread::spawn(move || {
-            listen_buttons(button_device, button_tracker, button_coordinates)
+            listen_buttons(button_device, button_tracker, Some(button_coordinates))
         });
     }
 
     std::thread::spawn(move || {
         listen_position(devices, tracker, coordinates, !buttons_are_separate)
     });
+    listener_modes[0] = true;
     Ok(())
 }
 
@@ -279,23 +283,23 @@ fn listen_position(
                 EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_X, value) => {
                     coordinates.lock().0 = value;
                     if is_tracking {
-                        add_current_event(&tracker, &coordinates, MouseEventType::Move);
+                        add_current_event(&tracker, Some(&coordinates), MouseEventType::Move);
                     }
                 }
                 EventSummary::AbsoluteAxis(_, AbsoluteAxisCode::ABS_Y, value) => {
                     coordinates.lock().1 = value;
                     if is_tracking {
-                        add_current_event(&tracker, &coordinates, MouseEventType::Move);
+                        add_current_event(&tracker, Some(&coordinates), MouseEventType::Move);
                     }
                 }
                 EventSummary::Key(_, code, value) if is_tracking && include_buttons => {
                     if let Some(event_type) = button_event(code, value) {
-                        add_current_event(&tracker, &coordinates, event_type);
+                        add_current_event(&tracker, Some(&coordinates), event_type);
                     }
                 }
                 EventSummary::RelativeAxis(_, axis, value) if is_tracking && include_buttons => {
                     if let Some(event_type) = wheel_event(axis, value, wheel_axes) {
-                        add_current_event(&tracker, &coordinates, event_type);
+                        add_current_event(&tracker, Some(&coordinates), event_type);
                     }
                 }
                 _ => {}
@@ -307,7 +311,7 @@ fn listen_position(
 fn listen_buttons(
     mut device: Device,
     tracker: Arc<Mutex<MouseTracker>>,
-    coordinates: Arc<Mutex<(i32, i32, AxisRange, AxisRange)>>,
+    coordinates: Option<Arc<Mutex<(i32, i32, AxisRange, AxisRange)>>>,
 ) {
     let wheel_axes = high_resolution_wheel_axes(&device);
     loop {
@@ -328,7 +332,7 @@ fn listen_buttons(
                 _ => None,
             };
             if let Some(event_type) = event_type {
-                add_current_event(&tracker, &coordinates, event_type);
+                add_current_event(&tracker, coordinates.as_ref(), event_type);
             }
         }
     }
@@ -373,25 +377,33 @@ fn wheel_event(
     Some(MouseEventType::Wheel { delta_x, delta_y })
 }
 
+fn event_position(
+    pointer: &StreamPointer,
+    coordinates: Option<(i32, i32, AxisRange, AxisRange)>,
+) -> Option<(f64, f64)> {
+    // Each worker owns one coordinate source. Inactive-mode workers must not
+    // reinterpret old coordinates or publish duplicate events after a switch.
+    match (pointer.enabled, coordinates) {
+        (true, None) => pointer.position,
+        (false, Some((raw_x, raw_y, x_range, y_range))) => Some((
+            x_range.map(raw_x, CANONICAL_WIDTH),
+            y_range.map(raw_y, CANONICAL_HEIGHT),
+        )),
+        _ => None,
+    }
+}
+
 fn add_current_event(
     tracker: &Arc<Mutex<MouseTracker>>,
-    coordinates: &Arc<Mutex<(i32, i32, AxisRange, AxisRange)>>,
+    coordinates: Option<&Arc<Mutex<(i32, i32, AxisRange, AxisRange)>>>,
     event_type: MouseEventType,
 ) {
     let pointer = STREAM_POINTER.lock();
-    if pointer.enabled {
-        let position = pointer.position;
-        drop(pointer);
-        if let Some((x, y)) = position {
-            push_pointer_event(tracker, x, y, event_type);
-        }
-        return;
-    }
+    let position = event_position(&pointer, coordinates.map(|value| *value.lock()));
     drop(pointer);
-    let (raw_x, raw_y, x_range, y_range) = *coordinates.lock();
-    let x = x_range.map(raw_x, CANONICAL_WIDTH);
-    let y = y_range.map(raw_y, CANONICAL_HEIGHT);
-    push_pointer_event(tracker, x, y, event_type);
+    if let Some((x, y)) = position {
+        push_pointer_event(tracker, x, y, event_type);
+    }
 }
 
 fn push_pointer_event(
@@ -416,6 +428,30 @@ fn push_pointer_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn switching_from_stream_to_absolute_ignores_stream_workers() {
+        let range = AxisRange {
+            minimum: 0,
+            maximum: 100,
+        };
+        let coordinates = Some((25, 75, range, range));
+        let mut pointer = StreamPointer {
+            enabled: true,
+            position: Some((123.0, 456.0)),
+            ..Default::default()
+        };
+        assert_eq!(event_position(&pointer, None), Some((123.0, 456.0)));
+        assert_eq!(event_position(&pointer, coordinates), None);
+        pointer.enabled = false;
+        pointer.position = None;
+        assert_eq!(event_position(&pointer, None), None);
+        assert_eq!(event_position(&pointer, coordinates), Some((480.0, 810.0)));
+        pointer.enabled = true;
+        pointer.position = Some((300.0, 200.0));
+        assert_eq!(event_position(&pointer, coordinates), None);
+        assert_eq!(event_position(&pointer, None), Some((300.0, 200.0)));
+    }
 
     #[test]
     fn compositor_coordinates_stay_relative_to_the_captured_window() {

@@ -30,6 +30,7 @@ pub struct RecordingCapabilities {
     uses_system_source_picker: bool,
     display_preview_available: bool,
     automatic_zoom_available: bool,
+    system_audio_available: bool,
 }
 
 #[tauri::command]
@@ -45,6 +46,7 @@ pub fn get_recording_capabilities() -> RecordingCapabilities {
             uses_system_source_picker: true,
             display_preview_available: false,
             automatic_zoom_available: crate::input::raw_pointer_tracking_available(),
+            system_audio_available: false,
         };
     }
 
@@ -55,6 +57,7 @@ pub fn get_recording_capabilities() -> RecordingCapabilities {
         uses_system_source_picker: false,
         display_preview_available: true,
         automatic_zoom_available: true,
+        system_audio_available: true,
     }
 }
 

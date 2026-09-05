@@ -29,12 +29,19 @@ impl GpuCompositor {
             "[GPU] Using adapter: {} ({:?}, {:?}, driver={})",
             adapter_info.name, adapter_info.device_type, adapter_info.backend, adapter_info.driver
         );
+        #[cfg(not(target_os = "linux"))]
         if adapter_info.device_type == wgpu::DeviceType::Cpu
             && std::env::var_os("TARANTINO_ALLOW_SOFTWARE_GPU").is_none()
         {
             anyhow::bail!(
                 "A software GPU adapter ({}) was selected. Install a native Vulkan/Metal driver or set TARANTINO_ALLOW_SOFTWARE_GPU=1 to override.",
                 adapter_info.name
+            );
+        }
+        #[cfg(target_os = "linux")]
+        if adapter_info.device_type == wgpu::DeviceType::Cpu {
+            eprintln!(
+                "[GPU] Using software rendering for export; this may be slower than a native GPU."
             );
         }
 

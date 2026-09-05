@@ -83,7 +83,7 @@ elif is_family fedora || [ "$distro_id" = "rhel" ]; then
     gstreamer1-plugins-bad-free gstreamer1-plugin-openh264 \
     gstreamer1-vaapi libva-utils pipewire-gstreamer pipewire-devel pipewire \
     xdg-desktop-portal
-elif is_family suse || [ "$distro_id" = "opensuse-tumbleweed" ] || [ "$distro_id" = "opensuse-leap" ]; then
+elif [ "$distro_id" = "opensuse-tumbleweed" ]; then
   run_as_root zypper --non-interactive refresh
   run_as_root zypper --non-interactive install --no-recommends \
     gcc gcc-c++ make git curl wget file pkg-config clang nodejs npm \
@@ -113,4 +113,8 @@ if [ "$distro_id" != "steamos" ]; then
   fi
 fi
 
-echo "Linux environment ready for ${PRETTY_NAME:-$distro_id}. Run: pnpm tauri:dev"
+if [ "$distro_id" = "steamos" ]; then
+  printf 'Linux environment ready for %s. Run: distrobox enter "%s" -- pnpm tauri:dev\n' "${PRETTY_NAME:-$distro_id}" "$container_name"
+else
+  echo "Linux environment ready for ${PRETTY_NAME:-$distro_id}. Run: pnpm tauri:dev"
+fi

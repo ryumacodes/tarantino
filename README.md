@@ -48,6 +48,12 @@ The first recording may prompt for Screen Recording, Microphone, or Camera acces
 
 ## Development
 
+Keep handwritten source files at 700 lines or fewer. Repository checks enforce
+this limit; necessary exceptions require a reason and a ceiling in
+`scripts/source-size-exceptions.txt`. Generated schemas and dependency lockfiles
+remain intact. Keep Linux fixes scoped to Linux and preserve macOS behavior and
+performance; verify performance claims with macOS measurements.
+
 Common development tasks:
 
 ```bash
@@ -74,7 +80,7 @@ portal for your desktop environment, and these GStreamer elements:
 
 The setup command detects the host from `/etc/os-release` and installs the
 correct native packages on Arch/Manjaro, Debian/Ubuntu/Mint, Fedora/RHEL, and
-openSUSE. Immutable SteamOS uses an Arch Distrobox so the read-only host remains
+openSUSE Tumbleweed. Leap requires manual dependency setup. Immutable SteamOS uses an Arch Distrobox so the read-only host remains
 untouched. After setup, the same development command works on macOS and Linux:
 
 ```bash

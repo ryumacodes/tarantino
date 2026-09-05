@@ -31,8 +31,8 @@ impl UnifiedAppState {
             guard.start_tracking()?;
         }
 
-        if !LISTENER_STARTED.load(Ordering::Acquire) {
-            // Spawn global listener thread once
+        if cfg!(target_os = "linux") || !LISTENER_STARTED.load(Ordering::Acquire) {
+            // Linux initializes each coordinate mode once as sessions change.
             create_mouse_listener(tracker.clone())?;
             LISTENER_STARTED.store(true, Ordering::Release);
         }
