@@ -196,9 +196,37 @@ fn load_mouse_events_from_session(session_path: &Path) -> Result<Vec<MouseEvent>
     }
 
     let mouse_data = std::fs::read_to_string(&mouse_events_path)?;
-    let mouse_events: Vec<MouseEvent> = serde_json::from_str(&mouse_data)?;
+    parse_stored_mouse_events(&mouse_data)
+}
+
+fn parse_stored_mouse_events(mouse_data: &str) -> Result<Vec<MouseEvent>> {
+    let stored_events = match serde_json::from_str(mouse_data)? {
+        StoredMouseEvents::Sequence(events) => events,
+        StoredMouseEvents::Session { mouse_events } => mouse_events,
+    };
+    let mouse_events = stored_events
+        .into_iter()
+        .map(|event| match event {
+            StoredMouseEvent::Raw(event) => event,
+            StoredMouseEvent::Enhanced { base } => base,
+        })
+        .collect();
 
     Ok(mouse_events)
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StoredMouseEvents {
+    Sequence(Vec<StoredMouseEvent>),
+    Session { mouse_events: Vec<StoredMouseEvent> },
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StoredMouseEvent {
+    Raw(MouseEvent),
+    Enhanced { base: MouseEvent },
 }
 
 /// Tauri command to generate preview zoom indicators
@@ -263,6 +291,35 @@ mod tests {
             },
             display_id: None,
         }
+    }
+
+    #[test]
+    fn parses_legacy_mouse_event_sequence() {
+        let event = create_test_mouse_event(1000, 0.3, 0.4);
+        let json = serde_json::to_string(&vec![event]).unwrap();
+
+        let parsed = parse_stored_mouse_events(&json).unwrap();
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].timestamp, 1000);
+    }
+
+    #[test]
+    fn parses_wrapped_enhanced_mouse_events() {
+        let event = create_test_mouse_event(2000, 0.6, 0.7);
+        let json = serde_json::json!({
+            "mouse_events": [{ "base": event, "cursor": null }],
+            "display_width": 1920,
+            "display_height": 1080
+        })
+        .to_string();
+
+        let parsed = parse_stored_mouse_events(&json).unwrap();
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].timestamp, 2000);
+        assert_eq!(parsed[0].x, 0.6);
+        assert_eq!(parsed[0].y, 0.7);
     }
 
     #[test]

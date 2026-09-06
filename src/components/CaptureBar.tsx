@@ -1,67 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react'; import { invoke } from '@tauri-apps/api/core';
 import { Window } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
-import { Menu, MenuItem } from '@tauri-apps/api/menu';
+import { MenuItem } from '@tauri-apps/api/menu';
 import DisplayPicker from './DisplayPicker';
-import CaptureSettings, { CaptureConfig } from './CaptureSettings';
+import type { CaptureConfig } from './CaptureSettings';
+import CaptureSettingsPanel from './CaptureSettingsPanel';
 import CaptureShortcutOverlays from './CaptureShortcutOverlays';
-import PermissionStatus from './PermissionStatus';
-import { X, Monitor, Square, Camera, Mic, Volume2, Settings, ChevronDown, RotateCcw } from 'lucide-react';
+import PointerCaptureConsent from './PointerCaptureConsent';
+import { X, Monitor, Square, Camera, Mic, Volume2, Settings, ChevronDown, RotateCcw, AlertTriangle } from 'lucide-react';
 import { useRecordingStore } from '../stores/recording';
 import { cn } from '../utils/cn';
 import { useCaptureShortcuts } from '../hooks/useCaptureShortcuts';
-type CaptureMode = 'display' | 'window' | 'area' | 'device';
-type WebcamShape = 'circle' | 'roundrect';
-
-interface NativeMenuChoice {
-  id: string;
-  name?: string;
-}
-
-interface CameraDevice extends NativeMenuChoice {
-  name: string;
-  is_default?: boolean;
-}
-
-interface CaptureWindowInfo {
-  id: string;
-  title?: string;
-  app_name?: string;
-}
-
-const isRecordableWindow = (windowInfo: CaptureWindowInfo) => {
-  const appName = (windowInfo.app_name || '').toLowerCase();
-  const title = (windowInfo.title || '').toLowerCase();
-  return appName !== 'tarantino' && title !== 'tarantino' && !title.includes('web inspector');
-};
-
-const createSelectionItems = <T extends NativeMenuChoice>(
-  choices: T[],
-  selectedId: string | null,
-  onSelect: (choice: T) => void,
-  label: (choice: T) => string = (choice) => choice.name || choice.id,
-) => Promise.all(
-  choices.map((choice) => MenuItem.new({
-    text: `${selectedId === choice.id ? '✓ ' : '   '}${label(choice)}`,
-    action: () => onSelect(choice),
-  })),
-);
-
-const popupNativeMenu = async (items: Awaited<ReturnType<typeof MenuItem.new>>[]) => {
-  const menu = await Menu.new({ items });
-  await menu.popup();
-};
-
-const handleCaptureBarDrag = async (event: React.MouseEvent) => {
-  const target = event.target as HTMLElement;
-  if (target.tagName === 'BUTTON' || target.closest('button') || target.closest('.capture-bar__input')) return;
-
-  try {
-    await Window.getCurrent().startDragging();
-  } catch (error) {
-    console.error('Failed to start dragging:', error);
-  }
-};
+import { isLinuxRuntime } from '../utils/platform';
+import { optimisticNativeCapabilities, type RecordingCapabilities } from '../utils/recordingCapabilities';
+import { type CaptureMode, type WebcamShape, type CameraDevice, isRecordableWindow, createSelectionItems, popupNativeMenu, handleCaptureBarDrag, exitCaptureBar, initialCaptureConfig } from './captureBarHelpers';
 
 const CaptureBar: React.FC = () => {
   const [captureMode, setCaptureMode] = useState<CaptureMode>('display');
@@ -73,6 +25,7 @@ const CaptureBar: React.FC = () => {
   const [displays, setDisplays] = useState<any[]>([]);
   const [windows, setWindows] = useState<any[]>([]);
   const [windowsLoading, setWindowsLoading] = useState(true);
+  const [windowPreparing, setWindowPreparing] = useState(false);
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [audioDevices, setAudioDevices] = useState<any>({ microphones: [], system_sources: [] });
   const [selectedDisplay, setSelectedDisplay] = useState<any>(null);
@@ -85,15 +38,12 @@ const CaptureBar: React.FC = () => {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showSpeakerNotes, setShowSpeakerNotes] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [captureConfig, setCaptureConfig] = useState<CaptureConfig>({
-    includeCursor: true,
-    cursorSize: 'normal',
-    highlightClicks: false,
-    fps: 60,
-    outputResolution: 'match',
-    encoder: 'auto',
-    container: 'mp4'
-  });
+  const [recordingCapabilities, setRecordingCapabilities] = useState<RecordingCapabilities | null>(
+    isLinuxRuntime ? null : optimisticNativeCapabilities,
+  );
+  const [showPointerConsent, setShowPointerConsent] = useState(false);
+  const [checkingRecordingSupport, setCheckingRecordingSupport] = useState(false);
+  const [captureConfig, setCaptureConfig] = useState<CaptureConfig>(initialCaptureConfig);
   const windowRefreshRef = useRef<Promise<any[]> | null>(null);
   const startInFlightRef = useRef(false);
   const stopInFlightRef = useRef(false);
@@ -101,28 +51,47 @@ const CaptureBar: React.FC = () => {
   const isRecording = state === 'recording', isStarting = state === 'prerecord';
   const appWindows = windows.filter(isRecordableWindow);
   const windowModeReady = !windowsLoading && appWindows.length > 0;
+  const portalWindow = recordingCapabilities?.usesSystemSourcePicker === true && appWindows.length === 1;
   const selectedTargetReady = captureMode === 'window'
     ? windowModeReady && selectedWindow !== null
     : captureMode === 'display'
       ? selectedDisplay !== null
       : selectedDevice !== null;
-  const canRecord = !startInFlightRef.current && !stopInFlightRef.current && !isStarting && (isRecording || selectedTargetReady);
+  const systemAudioAvailable = recordingCapabilities?.systemAudioAvailable ?? !isLinuxRuntime;
+  const systemAudioUnavailableReason = "System audio recording is not available on this Linux runtime yet.";
+  const recordingAvailable = recordingCapabilities?.recordingAvailable === true;
+  const canRecord = recordingAvailable && !startInFlightRef.current && !stopInFlightRef.current && !isStarting && !windowPreparing && (isRecording || selectedTargetReady);
+  const checkRecordingSupport = async () => {
+    setCheckingRecordingSupport(true);
+    try {
+      setRecordingCapabilities(await invoke<RecordingCapabilities>('get_recording_capabilities'));
+    } catch (error) {
+      setRecordingCapabilities({
+        recordingAvailable: false,
+        unavailableReason: `Could not verify recording support: ${String(error)}`,
+        usesSystemSourcePicker: false,
+        displayPreviewAvailable: false,
+        automaticZoomAvailable: false,
+        systemAudioAvailable: !isLinuxRuntime,
+      });
+    } finally {
+      setCheckingRecordingSupport(false);
+    }
+  };
   useEffect(() => {
     loadDevices();
+    checkRecordingSupport();
   }, []);
-
   useEffect(() => {
     const unlisten = listen<string>('recording-stopped', async (event) => {
       if (event.payload) {
         await stopRecording(event.payload);
       }
     });
-
     return () => {
       unlisten.then(fn => fn());
     };
   }, [stopRecording]);
-
   const loadDevices = async () => {
     try {
       const [displayList, deviceList, audioList] = await Promise.all([
@@ -183,9 +152,30 @@ const CaptureBar: React.FC = () => {
     return windowRefreshRef.current;
   };
 
+  const preparePortalWindow = async () => {
+    if (!portalWindow || windowPreparing || isStarting || isRecording) return;
+    const pickerWindow = appWindows[0];
+    setWindowPreparing(true);
+    try {
+      await invoke('capture_prepare_window');
+      setCaptureMode('window');
+      await invoke('capture_set_mode', { mode: 'window' });
+      await selectWindow(pickerWindow.id);
+    } catch (error) {
+      console.error('Failed to choose a window:', error);
+      setSelectedWindow(null);
+    } finally {
+      setWindowPreparing(false);
+    }
+  };
+
   const handleModeChange = async (mode: CaptureMode) => {
     if (isStarting || isRecording) return;
     if (mode === 'window' && !windowModeReady) return;
+    if (mode === 'window' && portalWindow) {
+      await preparePortalWindow();
+      return;
+    }
     setCaptureMode(mode);
     const backendMode = mode === 'display' ? 'desktop' : mode;
     await invoke('capture_set_mode', { mode: backendMode });
@@ -290,6 +280,7 @@ const CaptureBar: React.FC = () => {
   };
 
   const handleSystemAudioToggle = async () => {
+    if (!systemAudioAvailable) return;
     const enabled = !systemAudioEnabled;
     setSystemAudioEnabled(enabled);
     await invoke('input_set_system_audio', {
@@ -364,6 +355,7 @@ const CaptureBar: React.FC = () => {
   };
 
   const showSystemAudioMenu = async () => {
+    if (!systemAudioAvailable) return;
     const sources = audioDevices.system_sources || [];
     const choices = sources.length > 0 ? sources : [{ id: 'default', name: 'System Default' }];
     const items = await createSelectionItems(
@@ -394,8 +386,16 @@ const CaptureBar: React.FC = () => {
     await popupNativeMenu(items);
   };
 
-  const startRecordingNow = async () => {
+  const startRecordingNow = async (capturePointerEvents?: boolean) => {
     if (!canRecord || startInFlightRef.current || stopInFlightRef.current || isRecording) return;
+    if (
+      capturePointerEvents === undefined
+      && recordingCapabilities?.usesSystemSourcePicker
+      && recordingCapabilities.automaticZoomAvailable
+    ) {
+      setShowPointerConsent(true);
+      return;
+    }
     startInFlightRef.current = true;
     setRecordingState('prerecord');
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
@@ -411,7 +411,8 @@ const CaptureBar: React.FC = () => {
         quality: 'High',
         includeCursor: captureConfig.includeCursor,
         includeMicrophone: micEnabled,
-        includeSystemAudio: systemAudioEnabled,
+        includeSystemAudio: systemAudioAvailable && systemAudioEnabled,
+        capturePointerEvents: capturePointerEvents ?? true,
         webcamShape,
         outputPath: path });
       setRecordingState('recording');
@@ -467,12 +468,6 @@ const CaptureBar: React.FC = () => {
     else await startRecordingNow();
   };
 
-  const handleExit = async () => {
-    if (isRecording) {
-      await invoke('record_stop');
-    }
-    await invoke('exit');
-  };
 
   useCaptureShortcuts({
     isRecording,
@@ -492,6 +487,7 @@ const CaptureBar: React.FC = () => {
       <div
         className={cn('capture-bar__record', { recording: isRecording || isStarting, disabled: !canRecord })}
         onClick={handleRecord}
+        title={recordingCapabilities?.unavailableReason ?? (recordingCapabilities ? 'Start recording' : 'Checking recording support')}
       >
         <div className="record-dot" />
       </div>
@@ -507,18 +503,29 @@ const CaptureBar: React.FC = () => {
         </button>
       )}
 
-      <div className="capture-bar__modes">
+      {!recordingAvailable && recordingCapabilities ? (
+        <button
+          className="capture-bar__runtime-warning"
+          onClick={() => setShowSettings(true)}
+          title={recordingCapabilities.unavailableReason ?? 'Recording is unavailable'}
+        >
+          <AlertTriangle size={16} />
+          <span>Recording unavailable</span>
+        </button>
+      ) : <div className="capture-bar__modes">
         <button
           className={cn('capture-bar__mode', { active: captureMode === 'display' })}
           disabled={isStarting || isRecording}
           onClick={() => {
             if (isStarting || isRecording) return;
             handleModeChange('display');
-            setShowDisplayPicker(!showDisplayPicker);
+            if (!recordingCapabilities?.usesSystemSourcePicker) {
+              setShowDisplayPicker(!showDisplayPicker);
+            }
           }}
           onMouseEnter={async () => {
             if (isStarting || isRecording) return;
-            if (selectedDisplay) {
+            if (selectedDisplay && recordingCapabilities?.displayPreviewAvailable) {
               try {
                 await invoke('show_display_preview', { displayId: selectedDisplay.id });
               } catch (error) {
@@ -533,25 +540,37 @@ const CaptureBar: React.FC = () => {
               console.error('Failed to hide display preview:', error);
             }
           }}
-          title="Capture Display"
+          title={recordingCapabilities?.usesSystemSourcePicker ? 'Capture the current display; your desktop confirms screen access when recording starts' : 'Capture Display'}
         >
           <Monitor size={16} />
           <span>{selectedDisplay ? selectedDisplay.name : 'Display'}</span>
         </button>
         <button
           className={cn('capture-bar__mode', { active: captureMode === 'window' })}
-          disabled={!windowModeReady || isStarting || isRecording}
+          disabled={!windowModeReady || windowPreparing || isStarting || isRecording}
           onClick={() => {
-            if (!windowModeReady || isStarting || isRecording) return;
-            captureMode === 'window' ? showWindowMenu() : handleModeChange('window');
+            if (!windowModeReady || windowPreparing || isStarting || isRecording) return;
+            if (portalWindow) {
+              preparePortalWindow();
+            } else {
+              captureMode === 'window' ? showWindowMenu() : handleModeChange('window');
+            }
           }}
-          title={windowsLoading ? 'Loading windows' : windowModeReady ? 'Capture Window' : 'No windows available'}
+          title={windowPreparing
+            ? 'Choosing window'
+            : windowsLoading
+            ? 'Loading windows'
+            : windowModeReady
+              ? recordingCapabilities?.usesSystemSourcePicker
+                ? 'Choose Window, then press Record to open the secure system window picker'
+                : 'Capture Window'
+              : 'No windows available'}
         >
           <Square size={16} />
-          <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{captureMode === 'window' && selectedWindow ? (windows.find((w: any) => w.id === selectedWindow)?.title || 'Window') : windowsLoading ? 'Loading...' : 'Window'}</span>
+          <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{windowPreparing ? 'Choosing...' : captureMode === 'window' && selectedWindow ? (portalWindow ? 'Selected window' : (windows.find((w: any) => w.id === selectedWindow)?.title || 'Window')) : windowsLoading ? 'Loading...' : 'Window'}</span>
           {captureMode === 'window' && <ChevronDown size={12} />}
         </button>
-      </div>
+      </div>}
 
       <div className="capture-bar__inputs">
         <div className="capture-bar__input">
@@ -592,14 +611,16 @@ const CaptureBar: React.FC = () => {
           <button
             className={cn('capture-bar__input-toggle', { active: systemAudioEnabled })}
             onClick={handleSystemAudioToggle}
-            title={systemAudioEnabled ? 'Disable System Audio' : 'Enable System Audio'}
+            disabled={!systemAudioAvailable}
+            title={!systemAudioAvailable ? systemAudioUnavailableReason : systemAudioEnabled ? 'Disable System Audio' : 'Enable System Audio'}
           >
             <Volume2 size={16} />
           </button>
           <button
             className="capture-bar__input-select"
             onClick={showSystemAudioMenu}
-            title="Select System Audio"
+            disabled={!systemAudioAvailable}
+            title={systemAudioAvailable ? "Select System Audio" : systemAudioUnavailableReason}
           >
             <ChevronDown size={12} />
           </button>
@@ -618,7 +639,7 @@ const CaptureBar: React.FC = () => {
 
       <button
         className="capture-bar__exit"
-        onClick={handleExit}
+        onClick={() => exitCaptureBar(isRecording)}
         title="Exit"
       >
         <X size={16} />
@@ -639,21 +660,14 @@ const CaptureBar: React.FC = () => {
       )}
       
       {showSettings && (
-        <div className="capture-bar__dropdown capture-bar__dropdown--settings">
-          <div className="space-y-4">
-            <PermissionStatus className="mb-4" />
-            
-            <CaptureSettings
-              compact
-              config={captureConfig}
-              onChange={setCaptureConfig}
-              sourceResolution={selectedDisplay ? {
-                width: selectedDisplay.width,
-                height: selectedDisplay.height
-              } : undefined}
-            />
-          </div>
-        </div>
+        <CaptureSettingsPanel
+          recordingCapabilities={recordingCapabilities}
+          checkingRecordingSupport={checkingRecordingSupport}
+          checkRecordingSupport={checkRecordingSupport}
+          captureConfig={captureConfig}
+          setCaptureConfig={setCaptureConfig}
+          selectedDisplay={selectedDisplay}
+        />
       )}
 
       <CaptureShortcutOverlays
@@ -662,6 +676,18 @@ const CaptureBar: React.FC = () => {
         onCloseShortcuts={() => setShowShortcuts(false)}
         onCloseSpeakerNotes={() => setShowSpeakerNotes(false)}
       />
+      {showPointerConsent && (
+        <PointerCaptureConsent
+          onEnable={() => {
+            setShowPointerConsent(false);
+            void startRecordingNow(true);
+          }}
+          onSkip={() => {
+            setShowPointerConsent(false);
+            void startRecordingNow(false);
+          }}
+        />
+      )}
     </div>
   );
 };

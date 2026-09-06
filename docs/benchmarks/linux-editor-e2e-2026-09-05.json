@@ -1,0 +1,38 @@
+{
+  "passed": true,
+  "native_webview": "wry",
+  "initial_bars": [
+    7,
+    3,
+    6,
+    2,
+    7,
+    5,
+    1,
+    4
+  ],
+  "zoomed_bars": [
+    6,
+    2,
+    5,
+    1
+  ],
+  "frame_pixel_difference": 44.43882621541767,
+  "checks": [
+    "native IPC and generated sidecars",
+    "decoded timeline thumbnails",
+    "non-black preview pixels",
+    "visible automatic zoom",
+    "moving source frames during playback",
+    "last frame after end seek",
+    "recording reopened"
+  ],
+  "date": "2026-09-05",
+  "platform": "Linux (SteamOS/KDE Wayland, X11 webview backend in Arch development container)",
+  "app": "packaged Tauri debug binary with production frontend assets",
+  "unit_tests": {
+    "frontend": 16,
+    "native": 59
+  },
+  "scope": "Synthetic GStreamer recording and known click through native finalization; actual packaged editor UI. Desktop permission picker and physical mouse capture are not automated."
+}

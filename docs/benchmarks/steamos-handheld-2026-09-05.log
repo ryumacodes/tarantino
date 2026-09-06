@@ -1,0 +1,527 @@
+   Compiling tarantino v0.1.0 (/home/deck/projects/tarantino/src-tauri)
+warning: unused import: `types::CaptureSourceType`
+  --> src/capture/mod.rs:53:9
+   |
+53 | pub use types::CaptureSourceType;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `Position` and `Size`
+ --> src/commands/display_preview.rs:7:33
+  |
+7 | use tauri::{AppHandle, Manager, Position, Size, State};
+  |                                 ^^^^^^^^  ^^^^
+
+warning: unused imports: `EventType`, `Event`, and `listen`
+ --> src/input/mod.rs:5:20
+  |
+5 | use rdev::{Button, Event, EventType, Key, listen};
+  |                    ^^^^^  ^^^^^^^^^       ^^^^^^
+
+warning: unused import: `UNIX_EPOCH`
+  --> src/input/mod.rs:11:29
+   |
+11 | use std::time::{SystemTime, UNIX_EPOCH};
+   |                             ^^^^^^^^^^
+
+warning: unreachable expression
+  --> src/encoder/mod.rs:65:9
+   |
+62 |             anyhow::bail!("FFmpeg encoder not yet implemented");
+   |             --------------------------------------------------- any code following this expression is unreachable
+...
+65 |         Ok(())
+   |         ^^^^^^ unreachable expression
+   |
+   = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `enabled`
+   --> src/commands/input.rs:188:5
+    |
+188 |     enabled: bool,
+    |     ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_enabled`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `shape`
+   --> src/commands/input.rs:190:5
+    |
+190 |     shape: String,
+    |     ^^^^^ help: if this is intentional, prefix it with an underscore: `_shape`
+
+warning: unused variable: `state`
+   --> src/commands/input.rs:191:5
+    |
+191 |     state: State<'_, Arc<UnifiedAppState>>,
+    |     ^^^^^ help: if this is intentional, prefix it with an underscore: `_state`
+
+warning: unused variable: `config`
+  --> src/encoder/mod.rs:37:14
+   |
+37 |         let (config, _output_path) = match self {
+   |              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_config`
+
+warning: unused variable: `frame_data`
+  --> src/encoder/mod.rs:71:9
+   |
+71 |         frame_data: &[u8],
+   |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_frame_data`
+
+warning: unused variable: `width`
+  --> src/encoder/mod.rs:72:9
+   |
+72 |         width: u32,
+   |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_width`
+
+warning: unused variable: `height`
+  --> src/encoder/mod.rs:73:9
+   |
+73 |         height: u32,
+   |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_height`
+
+warning: unused variable: `stride`
+  --> src/encoder/mod.rs:74:9
+   |
+74 |         stride: u32,
+   |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_stride`
+
+warning: unused variable: `pixel_format`
+  --> src/encoder/mod.rs:75:9
+   |
+75 |         pixel_format: &str,
+   |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_pixel_format`
+
+warning: unused variable: `timestamp_us`
+  --> src/encoder/mod.rs:76:9
+   |
+76 |         timestamp_us: u64,
+   |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_timestamp_us`
+
+warning: methods `check_permissions`, `request_permissions`, `start_capture`, `stop_capture`, `frame_receiver`, and `audio_receiver` are never used
+  --> src/capture/backends/mod.rs:33:14
+   |
+28 | pub trait NativeCaptureBackend: Send + Sync {
+   |           -------------------- methods in this trait
+...
+33 |     async fn check_permissions(&self) -> Result<PermissionStatus>;
+   |              ^^^^^^^^^^^^^^^^^
+...
+36 |     async fn request_permissions(&self) -> Result<PermissionStatus>;
+   |              ^^^^^^^^^^^^^^^^^^^
+...
+39 |     async fn start_capture(&mut self, config: CaptureConfig) -> Result<()>;
+   |              ^^^^^^^^^^^^^
+...
+42 |     async fn stop_capture(&mut self) -> Result<()>;
+   |              ^^^^^^^^^^^^
+...
+45 |     fn frame_receiver(&self) -> Option<broadcast::Receiver<CapturedFrame>>;
+   |        ^^^^^^^^^^^^^^
+...
+48 |     fn audio_receiver(&self) -> Option<broadcast::Receiver<CapturedAudio>>;
+   |        ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `frame_sender` and `is_active` are never read
+  --> src/capture/backends/linux/mod.rs:16:5
+   |
+15 | pub struct PipeWireBackend {
+   |            --------------- fields in this struct
+16 |     frame_sender: Arc<Mutex<Option<broadcast::Sender<CapturedFrame>>>>,
+   |     ^^^^^^^^^^^^
+17 |     is_active: Arc<Mutex<bool>>,
+   |     ^^^^^^^^^
+
+warning: multiple fields are never read
+  --> src/capture/types.rs:9:9
+   |
+ 8 | pub struct CapturedFrame {
+   |            ------------- fields in this struct
+ 9 |     pub data: Bytes,
+   |         ^^^^
+10 |     pub width: u32,
+   |         ^^^^^
+11 |     pub height: u32,
+   |         ^^^^^^
+12 |     pub pixel_format: String,
+   |         ^^^^^^^^^^^^
+13 |     pub timestamp_us: u64,
+   |         ^^^^^^^^^^^^
+14 |     pub stride: u32,
+   |         ^^^^^^
+15 |     pub captured_at: std::time::SystemTime,
+   |         ^^^^^^^^^^^
+   |
+   = note: `CapturedFrame` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: struct `CaptureConfig` is never constructed
+  --> src/capture/types.rs:51:12
+   |
+51 | pub struct CaptureConfig {
+   |            ^^^^^^^^^^^^^
+
+warning: struct `CaptureRegion` is never constructed
+  --> src/capture/types.rs:62:12
+   |
+62 | pub struct CaptureRegion {
+   |            ^^^^^^^^^^^^^
+
+warning: struct `PermissionStatus` is never constructed
+  --> src/capture/types.rs:70:12
+   |
+70 | pub struct PermissionStatus {
+   |            ^^^^^^^^^^^^^^^^
+
+warning: function `input_set_camera_native` is never used
+   --> src/commands/input.rs:187:10
+    |
+187 | async fn input_set_camera_native(
+    |          ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: enum `Encoder` is never used
+  --> src/encoder/mod.rs:12:10
+   |
+12 | pub enum Encoder {
+   |          ^^^^^^^
+
+warning: associated items `new`, `start`, `encode_frame`, `finish`, and `try_receive_frame` are never used
+   --> src/encoder/mod.rs:27:12
+    |
+ 25 | impl Encoder {
+    | ------------ associated items in this implementation
+ 26 |     /// Create a new uninitialized encoder
+ 27 |     pub fn new(config: EncoderConfig, output_path: impl AsRef<Path>) -> Result<Self> {
+    |            ^^^
+...
+ 35 |     pub fn start(&mut self) -> Result<()> {
+    |            ^^^^^
+...
+ 69 |     pub fn encode_frame(
+    |            ^^^^^^^^^^^^
+...
+103 |     pub fn finish(&mut self) -> Result<()> {
+    |            ^^^^^^
+...
+121 |     pub fn try_receive_frame(&self) -> Option<EncodedFrame> {
+    |            ^^^^^^^^^^^^^^^^^
+
+warning: struct `EncoderConfig` is never constructed
+ --> src/encoder/types.rs:6:12
+  |
+6 | pub struct EncoderConfig {
+  |            ^^^^^^^^^^^^^
+
+warning: struct `EncodedFrame` is never constructed
+  --> src/encoder/types.rs:20:12
+   |
+20 | pub struct EncodedFrame {
+   |            ^^^^^^^^^^^^
+
+warning: static `LAST_MOUSE_POSITION` is never used
+  --> src/input/mod.rs:15:8
+   |
+15 | static LAST_MOUSE_POSITION: Mutex<(f64, f64)> = Mutex::new((0.0, 0.0));
+   |        ^^^^^^^^^^^^^^^^^^^
+
+warning: function `classify_key` is never used
+   --> src/input/mod.rs:173:4
+    |
+173 | fn classify_key(key: &Key) -> (bool, bool) {
+    |    ^^^^^^^^^^^^
+
+warning: function `key_motion` is never used
+   --> src/input/mod.rs:215:4
+    |
+215 | fn key_motion(key: &Key) -> KeyMotion {
+    |    ^^^^^^^^^^
+
+warning: function `any_modifier_held` is never used
+   --> src/input/mod.rs:225:4
+    |
+225 | fn any_modifier_held() -> bool {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: methods `add_key_event` and `update_latest_typing_caret` are never used
+   --> src/input/mod.rs:376:12
+    |
+248 | impl MouseTracker {
+    | ----------------- methods in this implementation
+...
+376 |     pub fn add_key_event(&self, event: KeyEvent) {
+    |            ^^^^^^^^^^^^^
+...
+399 |     pub fn update_latest_typing_caret(&self, caret_x: f64, caret_y: f64) {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `focused_caret_position` is never used
+   --> src/input/mod.rs:152:12
+    |
+152 |     pub fn focused_caret_position() -> Option<(f64, f64)> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `Mp4Muxer` is never constructed
+  --> src/muxer/mod.rs:21:12
+   |
+21 | pub struct Mp4Muxer {
+   |            ^^^^^^^^
+
+warning: multiple associated items are never used
+   --> src/muxer/mod.rs:41:12
+    |
+ 36 | impl Mp4Muxer {
+    | ------------- associated items in this implementation
+...
+ 41 |     pub fn new(output_path: impl AsRef<Path>, width: u32, height: u32, fps: u32) -> Result<Self> {
+    |            ^^^
+...
+ 90 |     fn extract_parameter_sets(&mut self, data: &[u8]) -> Result<()> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+...
+146 |     fn initialize_track(&mut self) -> Result<()> {
+    |        ^^^^^^^^^^^^^^^^
+...
+212 |     fn convert_to_avcc(&self, data: &[u8]) -> Vec<u8> {
+    |        ^^^^^^^^^^^^^^^
+...
+223 |     fn filter_parameter_sets_from_avcc(&self, data: &[u8]) -> Vec<u8> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+320 |     fn write_frame_internal(&mut self, frame: &EncodedFrame, duration_ms: u32) -> Result<()> {
+    |        ^^^^^^^^^^^^^^^^^^^^
+...
+357 |     fn queue_timed_sample(&mut self, frame: EncodedFrame) -> Result<()> {
+    |        ^^^^^^^^^^^^^^^^^^
+...
+372 |     pub fn write_frame(&mut self, frame: &EncodedFrame, _duration_ms: u32) -> Result<()> {
+    |            ^^^^^^^^^^^
+...
+410 |     pub fn finish(self) -> Result<()> {
+    |            ^^^^^^
+...
+416 |     pub fn finish_with_duration(mut self, target_duration_ms: Option<u64>) -> Result<()> {
+    |            ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `spawn_video_task` is never used
+  --> src/recording/encoder_loop.rs:12:8
+   |
+12 | pub fn spawn_video_task(
+   |        ^^^^^^^^^^^^^^^^
+
+warning: function `drain_encoder_frames` is never used
+  --> src/recording/finalization.rs:11:8
+   |
+11 | pub fn drain_encoder_frames(
+   |        ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `flush_encoder` is never used
+   --> src/recording/finalization.rs:107:8
+    |
+107 | pub fn flush_encoder(
+    |        ^^^^^^^^^^^^^
+
+warning: function `finalize_muxer` is never used
+   --> src/recording/finalization.rs:165:8
+    |
+165 | pub fn finalize_muxer(
+    |        ^^^^^^^^^^^^^^
+
+warning: variant `VideoToolbox` is never constructed
+  --> src/video_processing/codec_config.rs:13:5
+   |
+12 | pub enum ExportAcceleration {
+   |          ------------------ variant in this enum
+13 |     VideoToolbox,
+   |     ^^^^^^^^^^^^
+   |
+   = note: `ExportAcceleration` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: `tarantino` (bin "tarantino" test) generated 39 warnings (run `cargo fix --bin "tarantino" -p tarantino --tests` to apply 14 suggestions)
+    Finished `release` profile [optimized] target(s) in 19.84s
+     Running unittests src/main.rs (src-tauri/target/release/deps/tarantino-a14774226a56b904)
+
+running 1 test
+[Export] project_title from settings: None
+[Export] Output path will be: "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/export-0.mp4"
+[Export] Video acceleration: VA-API
+[Wallpaper Image] export skipped: background_type=Some("solid")
+[GPU Config] output=1920x1080, content=692x390, input=692x390 offset=(0,0)
+=== GPU EXPORT START ===
+  Input (decode): 692x390
+  Output: 1920x1080 @ 60fps
+  Zoom: 0 frames
+  Cursor: 0 positions
+  Motion blur: false
+  Shadow: true
+  Corner radius: 31.2
+[GPU] Using adapter: AMD Ryzen Z1 Extreme (RADV PHOENIX) (IntegratedGpu, Vulkan, driver=radv)
+[GPU] Compositor initialized: 1920x1080, cursor=false, corner_radius=31.2, shadow=true, cursor_style=pointer
+  Decoder args: ["-y", "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-threads", "0", "-i", "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/fixture.mp4", "-vf", "fps=60,scale=692:390", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]
+  Encoder args: ["-y", "-vaapi_device", "/dev/dri/renderD128", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", "1920x1080", "-r", "60", "-threads", "0", "-i", "-", "-c:v", "h264_vaapi", "-b:v", "10M", "-vf", "fps=60,format=nv12,hwupload", "-movflags", "+faststart", "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/export-0.mp4"]
+  GPU frame 30/300 (10.0%)
+  GPU frame 60/300 (20.0%)
+  GPU frame 90/300 (30.0%)
+  GPU frame 120/300 (40.0%)
+  GPU frame 150/300 (50.0%)
+  GPU frame 180/300 (60.0%)
+  GPU frame 210/300 (70.0%)
+  GPU frame 240/300 (80.0%)
+  GPU frame 270/300 (90.0%)
+  GPU frame 300/300 (100.0%)
+  Decoder finished at frame 300
+=== GPU EXPORT COMPLETE: 300 frames in 2.8s (105.5 fps) ===
+[Export] project_title from settings: None
+[Export] Output path will be: "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/export-1.mp4"
+[Export] Video acceleration: VA-API
+[Wallpaper Image] export skipped: background_type=Some("solid")
+[GPU Config] output=1920x1080, content=692x390, input=692x390 offset=(0,0)
+=== GPU EXPORT START ===
+  Input (decode): 692x390
+  Output: 1920x1080 @ 60fps
+  Zoom: 0 frames
+  Cursor: 0 positions
+  Motion blur: false
+  Shadow: true
+  Corner radius: 31.2
+[GPU] Using adapter: AMD Ryzen Z1 Extreme (RADV PHOENIX) (IntegratedGpu, Vulkan, driver=radv)
+[GPU] Compositor initialized: 1920x1080, cursor=false, corner_radius=31.2, shadow=true, cursor_style=pointer
+  Decoder args: ["-y", "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-threads", "0", "-i", "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/fixture.mp4", "-vf", "fps=60,scale=692:390", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]
+  Encoder args: ["-y", "-vaapi_device", "/dev/dri/renderD128", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", "1920x1080", "-r", "60", "-threads", "0", "-i", "-", "-c:v", "h264_vaapi", "-b:v", "10M", "-vf", "fps=60,format=nv12,hwupload", "-movflags", "+faststart", "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/export-1.mp4"]
+  GPU frame 30/300 (10.0%)
+  GPU frame 60/300 (20.0%)
+  GPU frame 90/300 (30.0%)
+  GPU frame 120/300 (40.0%)
+  GPU frame 150/300 (50.0%)
+  GPU frame 180/300 (60.0%)
+  GPU frame 210/300 (70.0%)
+  GPU frame 240/300 (80.0%)
+  GPU frame 270/300 (90.0%)
+  GPU frame 300/300 (100.0%)
+  Decoder finished at frame 300
+=== GPU EXPORT COMPLETE: 300 frames in 2.8s (107.1 fps) ===
+BENCH run=1 seconds=3.354644 fps=89.428
+[Export] project_title from settings: None
+[Export] Output path will be: "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/export-2.mp4"
+[Export] Video acceleration: VA-API
+[Wallpaper Image] export skipped: background_type=Some("solid")
+[GPU Config] output=1920x1080, content=692x390, input=692x390 offset=(0,0)
+=== GPU EXPORT START ===
+  Input (decode): 692x390
+  Output: 1920x1080 @ 60fps
+  Zoom: 0 frames
+  Cursor: 0 positions
+  Motion blur: false
+  Shadow: true
+  Corner radius: 31.2
+[GPU] Using adapter: AMD Ryzen Z1 Extreme (RADV PHOENIX) (IntegratedGpu, Vulkan, driver=radv)
+[GPU] Compositor initialized: 1920x1080, cursor=false, corner_radius=31.2, shadow=true, cursor_style=pointer
+  Decoder args: ["-y", "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-threads", "0", "-i", "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/fixture.mp4", "-vf", "fps=60,scale=692:390", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]
+  Encoder args: ["-y", "-vaapi_device", "/dev/dri/renderD128", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", "1920x1080", "-r", "60", "-threads", "0", "-i", "-", "-c:v", "h264_vaapi", "-b:v", "10M", "-vf", "fps=60,format=nv12,hwupload", "-movflags", "+faststart", "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/export-2.mp4"]
+  GPU frame 30/300 (10.0%)
+  GPU frame 60/300 (20.0%)
+  GPU frame 90/300 (30.0%)
+  GPU frame 120/300 (40.0%)
+  GPU frame 150/300 (50.0%)
+  GPU frame 180/300 (60.0%)
+  GPU frame 210/300 (70.0%)
+  GPU frame 240/300 (80.0%)
+  GPU frame 270/300 (90.0%)
+  GPU frame 300/300 (100.0%)
+  Decoder finished at frame 300
+=== GPU EXPORT COMPLETE: 300 frames in 2.9s (104.7 fps) ===
+BENCH run=2 seconds=3.390941 fps=88.471
+[Export] project_title from settings: None
+[Export] Output path will be: "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/export-3.mp4"
+[Export] Video acceleration: VA-API
+[Wallpaper Image] export skipped: background_type=Some("solid")
+[GPU Config] output=1920x1080, content=692x390, input=692x390 offset=(0,0)
+=== GPU EXPORT START ===
+  Input (decode): 692x390
+  Output: 1920x1080 @ 60fps
+  Zoom: 0 frames
+  Cursor: 0 positions
+  Motion blur: false
+  Shadow: true
+  Corner radius: 31.2
+[GPU] Using adapter: AMD Ryzen Z1 Extreme (RADV PHOENIX) (IntegratedGpu, Vulkan, driver=radv)
+[GPU] Compositor initialized: 1920x1080, cursor=false, corner_radius=31.2, shadow=true, cursor_style=pointer
+  Decoder args: ["-y", "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-threads", "0", "-i", "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/fixture.mp4", "-vf", "fps=60,scale=692:390", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]
+  Encoder args: ["-y", "-vaapi_device", "/dev/dri/renderD128", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", "1920x1080", "-r", "60", "-threads", "0", "-i", "-", "-c:v", "h264_vaapi", "-b:v", "10M", "-vf", "fps=60,format=nv12,hwupload", "-movflags", "+faststart", "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/export-3.mp4"]
+  GPU frame 30/300 (10.0%)
+  GPU frame 60/300 (20.0%)
+  GPU frame 90/300 (30.0%)
+  GPU frame 120/300 (40.0%)
+  GPU frame 150/300 (50.0%)
+  GPU frame 180/300 (60.0%)
+  GPU frame 210/300 (70.0%)
+  GPU frame 240/300 (80.0%)
+  GPU frame 270/300 (90.0%)
+  GPU frame 300/300 (100.0%)
+  Decoder finished at frame 300
+=== GPU EXPORT COMPLETE: 300 frames in 2.8s (106.0 fps) ===
+BENCH run=3 seconds=3.335606 fps=89.939
+[Export] project_title from settings: None
+[Export] Output path will be: "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/export-4.mp4"
+[Export] Video acceleration: VA-API
+[Wallpaper Image] export skipped: background_type=Some("solid")
+[GPU Config] output=1920x1080, content=692x390, input=692x390 offset=(0,0)
+=== GPU EXPORT START ===
+  Input (decode): 692x390
+  Output: 1920x1080 @ 60fps
+  Zoom: 0 frames
+  Cursor: 0 positions
+  Motion blur: false
+  Shadow: true
+  Corner radius: 31.2
+[GPU] Using adapter: AMD Ryzen Z1 Extreme (RADV PHOENIX) (IntegratedGpu, Vulkan, driver=radv)
+[GPU] Compositor initialized: 1920x1080, cursor=false, corner_radius=31.2, shadow=true, cursor_style=pointer
+  Decoder args: ["-y", "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-threads", "0", "-i", "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/fixture.mp4", "-vf", "fps=60,scale=692:390", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]
+  Encoder args: ["-y", "-vaapi_device", "/dev/dri/renderD128", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", "1920x1080", "-r", "60", "-threads", "0", "-i", "-", "-c:v", "h264_vaapi", "-b:v", "10M", "-vf", "fps=60,format=nv12,hwupload", "-movflags", "+faststart", "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/export-4.mp4"]
+  GPU frame 30/300 (10.0%)
+  GPU frame 60/300 (20.0%)
+  GPU frame 90/300 (30.0%)
+  GPU frame 120/300 (40.0%)
+  GPU frame 150/300 (50.0%)
+  GPU frame 180/300 (60.0%)
+  GPU frame 210/300 (70.0%)
+  GPU frame 240/300 (80.0%)
+  GPU frame 270/300 (90.0%)
+  GPU frame 300/300 (100.0%)
+  Decoder finished at frame 300
+=== GPU EXPORT COMPLETE: 300 frames in 3.0s (98.9 fps) ===
+BENCH run=4 seconds=3.547697 fps=84.562
+[Export] project_title from settings: None
+[Export] Output path will be: "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/export-5.mp4"
+[Export] Video acceleration: VA-API
+[Wallpaper Image] export skipped: background_type=Some("solid")
+[GPU Config] output=1920x1080, content=692x390, input=692x390 offset=(0,0)
+=== GPU EXPORT START ===
+  Input (decode): 692x390
+  Output: 1920x1080 @ 60fps
+  Zoom: 0 frames
+  Cursor: 0 positions
+  Motion blur: false
+  Shadow: true
+  Corner radius: 31.2
+[GPU] Using adapter: AMD Ryzen Z1 Extreme (RADV PHOENIX) (IntegratedGpu, Vulkan, driver=radv)
+[GPU] Compositor initialized: 1920x1080, cursor=false, corner_radius=31.2, shadow=true, cursor_style=pointer
+  Decoder args: ["-y", "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-threads", "0", "-i", "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/fixture.mp4", "-vf", "fps=60,scale=692:390", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]
+  Encoder args: ["-y", "-vaapi_device", "/dev/dri/renderD128", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", "1920x1080", "-r", "60", "-threads", "0", "-i", "-", "-c:v", "h264_vaapi", "-b:v", "10M", "-vf", "fps=60,format=nv12,hwupload", "-movflags", "+faststart", "/tmp/tarantino-bench-b4158fc0-2896-4f28-bc96-df07bcf8b05c/export-5.mp4"]
+  GPU frame 30/300 (10.0%)
+  GPU frame 60/300 (20.0%)
+  GPU frame 90/300 (30.0%)
+  GPU frame 120/300 (40.0%)
+  GPU frame 150/300 (50.0%)
+  GPU frame 180/300 (60.0%)
+  GPU frame 210/300 (70.0%)
+  GPU frame 240/300 (80.0%)
+  GPU frame 270/300 (90.0%)
+  GPU frame 300/300 (100.0%)
+  Decoder finished at frame 300
+=== GPU EXPORT COMPLETE: 300 frames in 3.5s (85.5 fps) ===
+BENCH run=5 seconds=4.046114 fps=74.145
+BENCH_RESULT {"arch":"x86_64","debug_build":false,"median_fps":88.47100478759339,"median_seconds":3.390941481,"os":"linux","runs":5,"sorted_seconds":[3.335606135,3.354643653,3.390941481,3.547697458,4.046114178]}
+test video_processing::performance_tests::export_performance_benchmark ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 62 filtered out; finished in 27.67s

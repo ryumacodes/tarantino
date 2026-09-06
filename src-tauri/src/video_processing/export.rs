@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::audio_export::{AudioTrackFiles, append_audio_encode_args, append_audio_inputs};
-use super::codec_config::{add_trim_settings, build_codec_args};
+use super::codec_config::{add_trim_settings, build_codec_args, detect_export_acceleration};
 use super::gpu_compositor::{GpuCompositor, build_gpu_config_with_webcam};
 use super::types::{
     ExportSettings, ProcessingProgress, VideoInfo, ZoomBlock, load_zoom_blocks_from_sidecar,
@@ -78,6 +78,8 @@ pub async fn export_video(
     let webcam_info = get_webcam_info(input_path);
 
     let target_fps = settings.frame_rate.unwrap_or(60);
+    let acceleration = detect_export_acceleration(&settings);
+    println!("[Export] Video acceleration: {}", acceleration.label());
     let (source_width, source_height) = (video_info.width, video_info.height);
     let duration_ms = video_info.duration_ms;
     let is_window_mode = settings.capture_mode.as_deref() == Some("window");
@@ -309,17 +311,14 @@ pub async fn export_video(
         .map(BufReader::new);
 
     // Spawn FFmpeg decoder (raw RGBA output)
-    let mut decoder_args = vec![
-        "-y".to_string(),
-        #[cfg(target_os = "macos")]
-        "-hwaccel".to_string(),
-        #[cfg(target_os = "macos")]
-        "videotoolbox".to_string(),
+    let mut decoder_args = vec!["-y".to_string()];
+    acceleration.append_decoder_args(&mut decoder_args);
+    decoder_args.extend([
         "-threads".to_string(),
         "0".to_string(),
         "-i".to_string(),
         input_path.to_string_lossy().to_string(),
-    ];
+    ]);
 
     // Add trim
     add_trim_settings(&mut decoder_args, &settings);
@@ -345,8 +344,9 @@ pub async fn export_video(
         .map_err(|e| anyhow!("Failed to spawn decoder: {}", e))?;
 
     // Spawn FFmpeg encoder
-    let mut encoder_args = vec![
-        "-y".to_string(),
+    let mut encoder_args = vec!["-y".to_string()];
+    acceleration.append_encoder_input_args(&mut encoder_args);
+    encoder_args.extend([
         "-f".to_string(),
         "rawvideo".to_string(),
         "-pix_fmt".to_string(),
@@ -359,17 +359,17 @@ pub async fn export_video(
         "0".to_string(),
         "-i".to_string(),
         "-".to_string(),
-    ];
+    ]);
 
     if audio_tracks.has_any() {
         append_audio_inputs(&mut encoder_args, &audio_tracks);
         append_audio_encode_args(&mut encoder_args, &settings, &audio_tracks);
     }
 
-    encoder_args.extend(build_codec_args(&settings));
+    encoder_args.extend(build_codec_args(&settings, &acceleration));
     encoder_args.extend([
         "-vf".to_string(),
-        format!("fps={},format=yuv420p", target_fps),
+        acceleration.encoder_filter(target_fps),
         "-movflags".to_string(),
         "+faststart".to_string(),
     ]);

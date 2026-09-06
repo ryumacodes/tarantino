@@ -36,6 +36,17 @@ pub fn ns_screen_for_cg_display_id(target: u32) -> Option<(cocoa::base::id, CGRe
     }
 }
 
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub async fn show_display_preview(
+    _display_id: String,
+    _app: AppHandle,
+    _state: State<'_, Arc<UnifiedAppState>>,
+) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub async fn show_display_preview(
     display_id: String,

@@ -185,6 +185,26 @@
   white-space: nowrap;
 }
 
+.capture-bar__runtime-warning {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  border-radius: 9px;
+  background: rgba(120, 53, 15, 0.55);
+  color: #fde68a;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+
+.capture-bar__runtime-warning:hover {
+  background: rgba(146, 64, 14, 0.7);
+}
+
 .capture-bar__settings {
   display: flex;
   align-items: center;

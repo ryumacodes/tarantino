@@ -480,6 +480,8 @@ pub async fn record_stop_instant(
                 &app,
                 &temp_path,
                 has_webcam,
+                has_mic,
+                has_system_audio,
                 &webcam_shape,
                 webcam_x,
                 webcam_y,
@@ -517,6 +519,8 @@ pub async fn record_stop_instant(
             crate::commands::processing::open_editor_with_loading(
                 &app,
                 &placeholder_path,
+                false,
+                false,
                 false,
                 "circle",
                 0.895,

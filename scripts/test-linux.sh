@@ -1,0 +1,83 @@
+#!/bin/sh
+set -eu
+
+run_cargo() {
+  cargo_log=$(mktemp)
+  if "$@" >"$cargo_log" 2>&1; then
+    cat "$cargo_log"
+    rm -f "$cargo_log"
+    return 0
+  fi
+
+  cat "$cargo_log" >&2
+  if [ "${GITHUB_ACTIONS:-false}" = "true" ]; then
+    diagnostic=$(grep -E -i 'error|failed|caused by|requires rustc|not found' "$cargo_log" | tail -n 40 || true)
+    if [ -z "$diagnostic" ]; then
+      diagnostic=$(tail -n 60 "$cargo_log")
+    fi
+    escaped=$(printf '%s' "$diagnostic" | sed 's/%/%25/g; s/\r/%0D/g' | awk 'BEGIN { ORS="%0A" } { print }')
+    printf '::error title=Linux native build::%s\n' "$escaped"
+  fi
+  rm -f "$cargo_log"
+  return 1
+}
+
+if [ "$(uname -s)" != "Linux" ]; then
+  echo "error: this verification suite must run on Linux" >&2
+  exit 1
+fi
+
+for command in pnpm cargo pkg-config gst-inspect-1.0 ffmpeg ffprobe; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "error: required command is missing: $command" >&2
+    exit 1
+  fi
+done
+
+if ! pkg-config --exists libpipewire-0.3; then
+  echo "error: PipeWire development headers are missing; run pnpm setup:linux" >&2
+  exit 1
+fi
+
+for plugin in pipewiresrc videorate h264parse mp4mux; do
+  if ! gst-inspect-1.0 "$plugin" >/dev/null 2>&1; then
+    echo "error: required GStreamer plugin is missing: $plugin" >&2
+    exit 1
+  fi
+done
+
+encoder=""
+for candidate in nvh264enc vah264enc vaapih264enc x264enc openh264enc; do
+  if gst-inspect-1.0 "$candidate" >/dev/null 2>&1; then
+    encoder=$candidate
+    break
+  fi
+done
+if [ -z "$encoder" ]; then
+  echo "error: install a supported GStreamer H.264 encoder: VA-API, NVIDIA, x264, or OpenH264" >&2
+  exit 1
+fi
+
+echo "[1/7] Repository hygiene"
+pnpm run check:repo-hygiene
+
+echo "[2/7] Frontend unit tests"
+pnpm run test:unit
+
+echo "[3/7] Frontend type-check and production build"
+pnpm run build
+
+echo "[4/7] Rust formatting"
+cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+echo "[5/7] Rust and Linux native unit tests"
+run_cargo cargo test --locked --all-targets --manifest-path src-tauri/Cargo.toml
+
+echo "[6/7] Rust and Linux native compile check"
+run_cargo cargo check --locked --all-targets --manifest-path src-tauri/Cargo.toml
+
+echo "[7/7] Linux capture runtime plugins"
+gst-inspect-1.0 pipewiresrc videorate "$encoder" h264parse mp4mux >/dev/null
+run_cargo cargo test --locked --manifest-path src-tauri/Cargo.toml linux_recording_runtime_smoke -- --ignored --nocapture
+
+echo "Linux verification passed. The runtime test reports the usable encoder. A logged-in graphical session is still required for the portal recording smoke test."

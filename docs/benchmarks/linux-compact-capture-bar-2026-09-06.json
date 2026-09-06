@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-06",
+  "passed": true,
+  "before": {
+    "native_height": 200,
+    "bar_height": 60
+  },
+  "after": {
+    "native_height": 60,
+    "bar_height": 60
+  },
+  "settings_open_height": 318,
+  "checks": [
+    "60px native window after startup",
+    "Output path visible when expanded",
+    "Close restores 60px",
+    "Reopen retains output path"
+  ],
+  "scope": "Linux capture webview only"
+}

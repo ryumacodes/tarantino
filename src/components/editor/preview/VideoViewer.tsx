@@ -4,9 +4,10 @@ import { Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useEditorStore, SPRING_PRESETS, ZOOM_SPEED_PRESETS } from '../../../stores/editor';
-import { VideoMaterial, VideoFallback } from './VideoMaterial';
+import { VideoMaterial, VideoFallback, LinuxNativeVideoOverlay } from './VideoMaterial';
 import { BackgroundPlane } from './BackgroundPlane';
 import { VideoShadow } from './VideoShadow';
+import { isLinuxRuntime } from '../../../utils/platform';
 
 interface SpringConfig {
   tension: number;
@@ -147,6 +148,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
 
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [linuxNativeOverlayEnabled, setLinuxNativeOverlayEnabled] = useState(false);
 
   useEffect(() => {
     const loadVideo = async () => {
@@ -480,7 +482,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
           <planeGeometry args={[1, 1]} />
           <meshBasicMaterial color="#1a1a1a" toneMapped={false} />
         </mesh>
-        <Text
+        {!isLinuxRuntime && <Text
           position={[0, 0, 0.1]}
           fontSize={0.3}
           color="#ff5555"
@@ -488,7 +490,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
           anchorY="middle"
         >
           {videoError}
-        </Text>
+        </Text>}
       </group>
     );
   }
@@ -501,7 +503,9 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
           <planeGeometry args={[1, 1]} />
           <meshBasicMaterial color="#1a1a1a" toneMapped={false} />
         </mesh>
-        <Text
+        {/* A font-backed loading label can suspend the entire Linux canvas
+            before loadVideo runs when packaged CSP blocks the font worker. */}
+        {!isLinuxRuntime && <Text
           position={[0, 0, 0.1]}
           fontSize={0.4}
           color="#6272a4"
@@ -509,7 +513,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
           anchorY="middle"
         >
           Loading video...
-        </Text>
+        </Text>}
       </group>
     );
   }
@@ -527,8 +531,15 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
             cornerRadius={visualSettings.cornerRadius}
             aspectRatio={planeWidth / planeHeight}
             cleanupWindowCorners={captureMode === 'window'}
+            suppressTimeUpdates={linuxNativeOverlayEnabled}
           />
         </Suspense>
+        {isLinuxRuntime && (
+          <LinuxNativeVideoOverlay
+            isPlaying={isPlaying}
+            onEnabledChange={setLinuxNativeOverlayEnabled}
+          />
+        )}
       </mesh>
     </group>
   );

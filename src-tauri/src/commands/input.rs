@@ -177,16 +177,7 @@ pub async fn input_set_camera(
         .await
         .map_err(|e| e.to_string())?;
 
-    #[cfg(target_os = "macos")]
-    {
-        return input_set_camera_with_window(enabled, device_id, device_name, shape, _app, state)
-            .await;
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Ok(())
-    }
+    input_set_camera_with_window(enabled, device_id, device_name, shape, _app, state).await
 }
 
 #[tauri::command]

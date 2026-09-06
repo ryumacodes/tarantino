@@ -191,7 +191,27 @@ impl UnifiedAppState {
             })
             .collect::<Vec<_>>();
 
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        let devices = std::fs::read_dir("/sys/class/video4linux")
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let id = entry.file_name().to_string_lossy().into_owned();
+                let name = std::fs::read_to_string(entry.path().join("name"))
+                    .ok()
+                    .map(|name| name.trim().to_string())
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or_else(|| id.clone());
+                Some(AudioDevice {
+                    id: format!("/dev/{id}"),
+                    name,
+                    is_default: id == "video0",
+                })
+            })
+            .collect::<Vec<_>>();
+
+        #[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
         let devices = Vec::new();
 
         println!(

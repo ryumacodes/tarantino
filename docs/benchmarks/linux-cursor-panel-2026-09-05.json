@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "checks": [
+    "Packaged external CSS applied",
+    "Pointer and hide toggles change and restore",
+    "All five cursor style buttons select",
+    "None, Circle and Ripple select",
+    "Rotation and Advanced expand",
+    "Size slider changes and resets"
+  ],
+  "styles": [
+    "cursor-style-pointer",
+    "cursor-style-circle",
+    "cursor-style-filled",
+    "cursor-style-outline",
+    "cursor-style-dotted"
+  ],
+  "date": "2026-09-05",
+  "runtime": "Packaged Linux Tauri WebKit",
+  "cause": "CSP blocked runtime React style element",
+  "fix": "Linux-only external CSS import; original macOS inline styles retained"
+}

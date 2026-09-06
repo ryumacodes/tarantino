@@ -29,6 +29,17 @@ use tauri::{Manager, tray::TrayIconBuilder};
 // Re-export CaptureMode from commands::capture for external use
 pub use commands::capture::CaptureMode;
 
+#[cfg(target_os = "linux")]
+fn configure_linux_desktop_runtime() {
+    if !commands::video::linux_native_preview_required() {
+        return;
+    }
+
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+    }
+}
+
 //=============================================================================
 // System Tray Setup
 //=============================================================================
@@ -104,8 +115,24 @@ fn setup_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
 // Main Entry Point
 //=============================================================================
 
+#[cfg(target_os = "linux")]
+fn main() {
+    configure_linux_desktop_runtime();
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to create async runtime")
+        .block_on(run());
+}
+
+#[cfg(not(target_os = "linux"))]
 #[tokio::main]
 async fn main() {
+    run().await;
+}
+
+async fn run() {
     tracing_subscriber::fmt::init();
 
     let app_state = Arc::new(UnifiedAppState::new().expect("Failed to create app state"));
@@ -119,6 +146,7 @@ async fn main() {
         .invoke_handler(tauri::generate_handler![
             // Capture configuration (from commands module)
             commands::capture::capture_set_mode,
+            commands::capture::capture_prepare_window,
             commands::capture::capture_select_display,
             commands::capture::capture_select_window,
             commands::capture::capture_select_area,
@@ -145,6 +173,7 @@ async fn main() {
             recording_commands::record_stop_instant_new,
             recording_commands::record_restart_new,
             recording_commands::get_recording_status,
+            recording_commands::get_recording_capabilities,
             recording_commands::update_recording_duration,
             // Permission management
             permissions::check_permissions,
@@ -182,8 +211,11 @@ async fn main() {
             commands::mouse::get_mouse_tracking_stats,
             // Video processing
             commands::video::get_video_info,
+            commands::video::get_video_output_directory,
             commands::video::get_video_metadata,
             commands::video::extract_video_thumbnails,
+            commands::video::extract_video_preview_frames,
+            commands::video::linux_native_preview_required,
             commands::video::export_video,
             commands::video::extract_audio_waveform,
             commands::video::read_sidecar_file,
@@ -202,13 +234,22 @@ async fn main() {
                 eprintln!("Failed to setup system tray: {}", e);
             }
 
-            if let Some(capture_bar) = app.get_webview_window("capture-bar") {
-                capture_bar.show().ok();
-                capture_bar.set_focus().ok();
+            #[cfg(target_os = "linux")]
+            if let Some(bar) = app.get_webview_window("capture-bar") {
+                // WebKitGTK otherwise imposes a 200px minimum on the 60px bar.
+                let _ = bar.with_webview(|webview| {
+                    use gtk::prelude::WidgetExt;
+                    webview.inner().set_size_request(1, 1);
+                });
+                let _ = bar.set_size(tauri::LogicalSize::new(710.0, 60.0));
+            }
+
+            if let Err(error) = commands::misc::bring_capture_bar_to_front(app.handle()) {
+                eprintln!("Failed to show capture bar in front: {error}");
             }
 
             #[cfg(debug_assertions)]
-            {
+            if std::env::var("TARANTINO_OPEN_DEVTOOLS").ok().as_deref() == Some("1") {
                 if let Some(window) = app.get_webview_window("capture-bar") {
                     window.open_devtools();
                 }

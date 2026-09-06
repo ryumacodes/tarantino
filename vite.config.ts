@@ -16,6 +16,14 @@ export default defineConfig({
     minify: !process.env.TAURI_DEBUG ? 'oxc' : false,
     sourcemap: !!process.env.TAURI_DEBUG,
     rollupOptions: {
+      // Vite treats any chunk named "-legacy" as a legacy bundle and injects
+      // its CSS inline, which the packaged Linux webview's CSP rejects.
+      ...(process.platform === 'linux' ? {
+        output: {
+          chunkFileNames: (chunk: { name: string }) =>
+            `assets/${chunk.name.replace(/-legacy/g, '-styles')}-[hash].js`,
+        },
+      } : {}),
       input: {
         main: resolve(__dirname, 'index.html'),
         editor: resolve(__dirname, 'editor.html'),

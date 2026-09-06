@@ -1,0 +1,53 @@
+{
+  "date": "2026-09-05",
+  "passed": true,
+  "environment": "KDE Wayland / native Tauri WebKit webview",
+  "source": "Actual browser-window recording; reused for editor regression tests",
+  "window_sizes": [
+    [
+      1000,
+      700
+    ],
+    [
+      1280,
+      840
+    ],
+    [
+      1600,
+      1000
+    ]
+  ],
+  "checks": [
+    "Preview canvas resizes and playback controls remain in bounds",
+    "Playback advances at each window size",
+    "Seek to start and end",
+    "Native-click fullscreen enters 1920x1200 and exits",
+    "13 decoded thumbnails and automatic zoom retained",
+    "Timeline zoom in, zoom out, fit, collapse and expand",
+    "Clips, Cursor, Motion, Audio and Background panels open",
+    "Focus and Desktop layout playback and export",
+    "Decoded export frames visually inspected for real content, cursor and click ripple"
+  ],
+  "exports": {
+    "focus": {
+      "width": 1310,
+      "height": 1080,
+      "duration": "12.216667",
+      "nb_read_frames": "733",
+      "path": "/home/deck/Movies/Tarantino/tarantino-windowed-focus.mp4"
+    },
+    "desktop": {
+      "width": 1920,
+      "height": 1080,
+      "duration": "12.216667",
+      "nb_read_frames": "733",
+      "path": "/home/deck/Movies/Tarantino/tarantino-windowed-desktop.mp4"
+    }
+  },
+  "limitations": [
+    "One KDE Wayland host",
+    "Audio panel opening does not verify audio capture or processing; source has no audio",
+    "Webcam and every individual effects setting not covered",
+    "No macOS performance measurement"
+  ]
+}

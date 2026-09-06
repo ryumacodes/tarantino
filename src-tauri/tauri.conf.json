@@ -21,11 +21,9 @@
         "shadow": false,
         "alwaysOnTop": true,
         "skipTaskbar": false,
-        "center": false,
+        "center": true,
         "resizable": false,
-        "visible": false,
-        "x": 200,
-        "y": 200
+        "visible": true
       }
     ],
     "security": {
@@ -40,6 +38,10 @@
         "enable": true,
         "scope": [
           "/Users/*/Movies/Tarantino/**",
+          "/home/*/Videos/Tarantino/**",
+          "/home/*/Movies/Tarantino/**",
+          "$HOME/Videos/Tarantino/**",
+          "$HOME/Movies/Tarantino/**",
           "/tmp/**",
           "/var/folders/**",
           "/private/tmp/**",

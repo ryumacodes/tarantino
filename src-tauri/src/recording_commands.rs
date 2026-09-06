@@ -1,4 +1,5 @@
 use anyhow::Result;
+use serde::Serialize;
 use std::path::Path;
 use std::sync::{
     Arc,
@@ -21,6 +22,45 @@ use ui::{hide_ui_elements, restore_ui_elements};
 
 static STARTING_RECORDING: AtomicBool = AtomicBool::new(false);
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingCapabilities {
+    recording_available: bool,
+    unavailable_reason: Option<String>,
+    uses_system_source_picker: bool,
+    display_preview_available: bool,
+    automatic_zoom_available: bool,
+    system_audio_available: bool,
+}
+
+#[tauri::command]
+pub fn get_recording_capabilities() -> RecordingCapabilities {
+    #[cfg(target_os = "linux")]
+    {
+        let unavailable_reason = crate::recording::linux::runtime_preflight()
+            .err()
+            .map(|error| error.to_string());
+        return RecordingCapabilities {
+            recording_available: unavailable_reason.is_none(),
+            unavailable_reason,
+            uses_system_source_picker: true,
+            display_preview_available: false,
+            automatic_zoom_available: crate::input::raw_pointer_tracking_available(),
+            system_audio_available: false,
+        };
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    RecordingCapabilities {
+        recording_available: true,
+        unavailable_reason: None,
+        uses_system_source_picker: false,
+        display_preview_available: true,
+        automatic_zoom_available: true,
+        system_audio_available: true,
+    }
+}
+
 #[tauri::command]
 pub async fn record_start_new(
     target_type: String,
@@ -29,6 +69,7 @@ pub async fn record_start_new(
     include_cursor: bool,
     include_microphone: bool,
     include_system_audio: bool,
+    capture_pointer_events: bool,
     webcam_shape: Option<String>,
     output_path: Option<String>,
     app: AppHandle,
@@ -48,6 +89,9 @@ pub async fn record_start_new(
     }
     let _start_guard = StartGuard;
     println!("Starting recording with new architecture");
+
+    #[cfg(not(target_os = "linux"))]
+    let _ = capture_pointer_events;
 
     if state.recording.is_recording() {
         return Err("Recording is already active".to_string());
@@ -136,7 +180,14 @@ pub async fn record_start_new(
         return Err(e);
     }
 
+    #[cfg(target_os = "linux")]
+    let previous_pointer_capture_consent = crate::input::pointer_capture_consented();
+    #[cfg(target_os = "linux")]
+    crate::input::set_pointer_capture_consent(capture_pointer_events);
+
     if let Err(e) = state.start_recording(recording_config).await {
+        #[cfg(target_os = "linux")]
+        crate::input::set_pointer_capture_consent(previous_pointer_capture_consent);
         println!("Recording failed during native start: {}", e);
         if state.is_camera_enabled() {
             let _ = crate::commands::input::stop_webview_webcam_recording(

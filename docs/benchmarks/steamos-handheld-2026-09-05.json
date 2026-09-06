@@ -1,0 +1,185 @@
+{
+  "date": "2026-09-05",
+  "label": "Benchmarked on Lenovo Go S Z1E running SteamOS",
+  "hardware": {
+    "vendor": "LENOVO",
+    "model": "83N6",
+    "processor": "AMD Ryzen Z1 Extreme",
+    "note": "Detected hardware is not a Valve Steam Deck.",
+    "device_name": "Lenovo Go S Z1E",
+    "device_name_source": "User-provided; firmware reports LENOVO 83N6 with AMD Ryzen Z1 Extreme"
+  },
+  "environment": {
+    "host": "SteamOS / KDE Wayland",
+    "container": "Arch Linux",
+    "power": "Battery, discharging; 92% at start",
+    "platform_profile": "custom"
+  },
+  "revision": "90a60bfcb6b4045ac344119b0b2e832d246ec1fb",
+  "working_tree": "Includes uncommitted Linux fixes",
+  "export": {
+    "build": "release",
+    "fixture": "5 seconds, 1920x1080, 60fps, 300 frames; padding, shadow and rounded corners",
+    "encoder": "h264_vaapi",
+    "warmup_runs": 1,
+    "validation": "All six outputs decoded to 300 frames at 1920x1080",
+    "arch": "x86_64",
+    "debug_build": false,
+    "median_fps": 88.47100478759339,
+    "median_seconds": 3.390941481,
+    "os": "linux",
+    "runs": 5,
+    "sorted_seconds": [
+      3.335606135,
+      3.354643653,
+      3.390941481,
+      3.547697458,
+      4.046114178
+    ]
+  },
+  "preview": {
+    "build": "packaged debug",
+    "method": "Native IPC decode of 30 frames to 1280px-wide previews; excludes rendering",
+    "batches": [
+      {
+        "results": [
+          {
+            "measured": [
+              {
+                "frames": 30,
+                "elapsed_ms": 1176,
+                "data_url_bytes": 1955298
+              },
+              {
+                "frames": 30,
+                "elapsed_ms": 1285,
+                "data_url_bytes": 2042070
+              },
+              {
+                "frames": 30,
+                "elapsed_ms": 972,
+                "data_url_bytes": 2059710
+              },
+              {
+                "frames": 30,
+                "elapsed_ms": 281,
+                "data_url_bytes": 1965606
+              }
+            ],
+            "source_height": 1080,
+            "preview_width": 1280,
+            "warmup": {
+              "frames": 30,
+              "elapsed_ms": 1152.0000000009313,
+              "data_url_bytes": 1965606
+            }
+          },
+          {
+            "measured": [
+              {
+                "frames": 30,
+                "elapsed_ms": 464,
+                "data_url_bytes": 2287834
+              },
+              {
+                "frames": 30,
+                "elapsed_ms": 511,
+                "data_url_bytes": 2370918
+              },
+              {
+                "frames": 30,
+                "elapsed_ms": 580.0000000009313,
+                "data_url_bytes": 2393270
+              },
+              {
+                "frames": 30,
+                "elapsed_ms": 408.9999999990687,
+                "data_url_bytes": 2287486
+              }
+            ],
+            "source_height": 2160,
+            "preview_width": 1280,
+            "warmup": {
+              "frames": 30,
+              "elapsed_ms": 475,
+              "data_url_bytes": 2287486
+            }
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "measured": [
+              {
+                "frames": 30,
+                "elapsed_ms": 308,
+                "data_url_bytes": 1955298
+              },
+              {
+                "frames": 30,
+                "elapsed_ms": 328.9999999990687,
+                "data_url_bytes": 2042070
+              },
+              {
+                "frames": 30,
+                "elapsed_ms": 337,
+                "data_url_bytes": 2059710
+              },
+              {
+                "frames": 30,
+                "elapsed_ms": 281,
+                "data_url_bytes": 1965606
+              }
+            ],
+            "source_height": 1080,
+            "preview_width": 1280,
+            "warmup": {
+              "frames": 30,
+              "elapsed_ms": 289.0000000009313,
+              "data_url_bytes": 1965606
+            }
+          },
+          {
+            "measured": [
+              {
+                "frames": 30,
+                "elapsed_ms": 531.0000000009313,
+                "data_url_bytes": 2287834
+              },
+              {
+                "frames": 30,
+                "elapsed_ms": 549,
+                "data_url_bytes": 2370918
+              },
+              {
+                "frames": 30,
+                "elapsed_ms": 585,
+                "data_url_bytes": 2393270
+              },
+              {
+                "frames": 30,
+                "elapsed_ms": 415,
+                "data_url_bytes": 2287486
+              }
+            ],
+            "source_height": 2160,
+            "preview_width": 1280,
+            "warmup": {
+              "frames": 30,
+              "elapsed_ms": 455,
+              "data_url_bytes": 2287486
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "limitations": [
+    "No macOS measurements or parity claim",
+    "Not a Valve Steam Deck benchmark",
+    "Power and background workload are not controlled",
+    "Preview first batch varied; all results retained",
+    "No matched baseline run in this measurement"
+  ]
+}

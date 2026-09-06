@@ -1,0 +1,87 @@
+{
+  "results": [
+    {
+      "measured": [
+        {
+          "frames": 30,
+          "elapsed_ms": 258,
+          "data_url_bytes": 1955298
+        },
+        {
+          "frames": 30,
+          "elapsed_ms": 270,
+          "data_url_bytes": 2042070
+        },
+        {
+          "frames": 30,
+          "elapsed_ms": 287,
+          "data_url_bytes": 2059710
+        },
+        {
+          "frames": 30,
+          "elapsed_ms": 239,
+          "data_url_bytes": 1965606
+        }
+      ],
+      "source_height": 1080,
+      "preview_width": 1280,
+      "warmup": {
+        "frames": 30,
+        "elapsed_ms": 558,
+        "data_url_bytes": 1965606
+      }
+    },
+    {
+      "measured": [
+        {
+          "frames": 30,
+          "elapsed_ms": 451.00000000000364,
+          "data_url_bytes": 2287834
+        },
+        {
+          "frames": 30,
+          "elapsed_ms": 507.99999999999636,
+          "data_url_bytes": 2370918
+        },
+        {
+          "frames": 30,
+          "elapsed_ms": 551,
+          "data_url_bytes": 2393270
+        },
+        {
+          "frames": 30,
+          "elapsed_ms": 393,
+          "data_url_bytes": 2287486
+        }
+      ],
+      "source_height": 2160,
+      "preview_width": 1280,
+      "warmup": {
+        "frames": 30,
+        "elapsed_ms": 393,
+        "data_url_bytes": 2287486
+      }
+    }
+  ],
+  "date": "2026-09-05",
+  "environment": "SteamOS KDE Wayland; Arch container; AMD Ryzen Z1 Extreme; packaged debug Tauri binary",
+  "limitations": [
+    "One host and synthetic sources, not macOS parity.",
+    "Batch timings include native IPC but exclude rendering.",
+    "Cadence is actual 1280-wide canvas texture uploads over 4.2 seconds; one before/after sample."
+  ],
+  "cadence": {
+    "before": {
+      "upload_count": 32,
+      "max_gap_ms": 1638,
+      "gaps_over_150ms": [
+        1638
+      ]
+    },
+    "after": {
+      "upload_count": 118,
+      "max_gap_ms": 82,
+      "gaps_over_150ms": []
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "date": "2026-09-05",
+  "passed": true,
+  "environment": "SteamOS KDE Wayland; Arch development container; AMD Ryzen Z1 Extreme",
+  "capture": "Actual user-selected browser window through the desktop portal and PipeWire",
+  "input": "OS-level pointer movement and button events through an already-authorized Linux mouse interface; no fabricated input sidecar",
+  "requested_wall_seconds": 12,
+  "recording": {
+    "width": 1378,
+    "height": 1137,
+    "duration": "12.219333",
+    "nb_read_frames": "338"
+  },
+  "export": {
+    "width": 1310,
+    "height": 1080,
+    "duration": "12.216667",
+    "nb_read_frames": "733"
+  },
+  "mouse_events": 9,
+  "click_positions": [
+    [
+      1250.0,
+      400.0
+    ],
+    [
+      1250.0,
+      700.0
+    ],
+    [
+      1000.0,
+      950.0
+    ]
+  ],
+  "zoom_blocks": 1,
+  "editor": {
+    "decoded_thumbnails": 13,
+    "visible_preview": true,
+    "zoom_visible_during_playback": true,
+    "cursor_visible": true
+  },
+  "source_path": "/tmp/tarantino-real-window-verified.mp4",
+  "export_path": "/home/deck/Movies/Tarantino/tarantino-real-window-verified.mp4",
+  "limitations": [
+    "One KDE Wayland host; other desktop backends and GPU combinations still require live tests.",
+    "No macOS performance measurements."
+  ]
+}

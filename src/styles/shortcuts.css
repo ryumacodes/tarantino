@@ -33,6 +33,36 @@
   font-weight: 650;
 }
 
+.pointer-consent p {
+  margin: 0;
+  padding: 18px;
+  color: var(--editor-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.pointer-consent__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 18px 18px;
+}
+
+.pointer-consent__actions button {
+  padding: 8px 12px;
+  color: var(--editor-text-primary);
+  background: var(--editor-bg-tertiary);
+  border: 1px solid var(--editor-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pointer-consent__actions .pointer-consent__enable {
+  color: white;
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
 .shortcut-modal header button,
 .speaker-notes-panel button {
   color: var(--editor-text-secondary);

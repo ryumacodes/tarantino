@@ -11,6 +11,15 @@ pub fn release_recording_surfaces(
     state: Option<&Arc<UnifiedAppState>>,
     reason: &str,
 ) {
+    release_recording_surfaces_except(app, state, reason, None);
+}
+
+pub fn release_recording_surfaces_except(
+    app: &AppHandle,
+    state: Option<&Arc<UnifiedAppState>>,
+    reason: &str,
+    visible_window: Option<&str>,
+) {
     println!("Releasing transient recording surfaces: {}", reason);
 
     if let Some(state) = state {
@@ -21,13 +30,17 @@ pub fn release_recording_surfaces(
     for label in ["display-preview", "webcam-preview", "recording-hud"] {
         if let Some(window) = app.get_webview_window(label) {
             let _ = window.set_always_on_top(false);
-            let _ = window.hide();
+            if visible_window != Some(label) {
+                let _ = window.hide();
+            }
         }
     }
 
     if let Some(bar) = app.get_webview_window("capture-bar") {
         let _ = bar.set_always_on_top(false);
-        let _ = bar.hide();
+        if visible_window != Some("capture-bar") {
+            let _ = bar.hide();
+        }
     }
 
     if let Some(editor) = app.get_webview_window("editor") {

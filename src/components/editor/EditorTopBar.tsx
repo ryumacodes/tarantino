@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Settings,
   Download,
   Pencil,
   Check
@@ -111,11 +110,6 @@ const EditorTopBar: React.FC<EditorTopBarProps> = ({
       </div>
 
       <div className="top-bar-right">
-        {/* TODO: Add functional export presets. */}
-        <button className="editor-btn editor-btn--ghost editor-btn--icon" title="Settings">
-          <Settings size={16} />
-        </button>
-
         <button
           className={`export-button ${isExporting ? 'exporting' : ''}`}
           onClick={onExport}

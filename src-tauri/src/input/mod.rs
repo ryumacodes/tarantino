@@ -3,6 +3,7 @@
 use anyhow::Result;
 use parking_lot::Mutex;
 use rdev::{Button, Event, EventType, Key, listen};
+
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -139,6 +140,13 @@ pub enum KeyMotion {
 #[allow(unsafe_op_in_unsafe_fn)]
 mod macos;
 
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::pointer_coordinate_space;
+#[cfg(target_os = "linux")]
+pub(crate) use linux::{configure_stream_pointer, observe_stream_pointer, stream_pointer_enabled};
+
 #[cfg(not(target_os = "macos"))]
 mod macos {
     pub fn focused_caret_position() -> Option<(f64, f64)> {
@@ -151,6 +159,15 @@ mod macos {
 static CMD_HELD: AtomicBool = AtomicBool::new(false);
 static CTRL_HELD: AtomicBool = AtomicBool::new(false);
 static ALT_HELD: AtomicBool = AtomicBool::new(false);
+static POINTER_CAPTURE_CONSENT: AtomicBool = AtomicBool::new(true);
+
+pub fn set_pointer_capture_consent(granted: bool) {
+    POINTER_CAPTURE_CONSENT.store(granted, Ordering::Release);
+}
+
+pub fn pointer_capture_consented() -> bool {
+    POINTER_CAPTURE_CONSENT.load(Ordering::Acquire)
+}
 
 /// Classify an rdev key: returns (is_command_modifier, is_character_key)
 fn classify_key(key: &Key) -> (bool, bool) {
@@ -399,49 +416,10 @@ impl MouseTracker {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn movement(timestamp: u64, x: f64, y: f64) -> MouseEvent {
-        MouseEvent {
-            timestamp,
-            x,
-            y,
-            event_type: MouseEventType::Move,
-            display_id: None,
-        }
-    }
-
-    #[test]
-    fn preserves_last_warmup_position_at_video_start() {
-        let events = vec![
-            movement(100, 10.0, 20.0),
-            movement(700, 30.0, 40.0),
-            movement(1500, 50.0, 60.0),
-        ];
-
-        let normalized = normalize_mouse_events_for_timeline(&events, 1000);
-
-        assert_eq!(normalized.len(), 2);
-        assert_eq!(normalized[0].timestamp, 0);
-        assert_eq!((normalized[0].x, normalized[0].y), (30.0, 40.0));
-        assert!(matches!(normalized[0].event_type, MouseEventType::Move));
-        assert_eq!(normalized[1].timestamp, 500);
-    }
-
-    #[test]
-    fn exact_start_event_takes_precedence_over_warmup_position() {
-        let events = vec![movement(700, 30.0, 40.0), movement(1000, 50.0, 60.0)];
-
-        let normalized = normalize_mouse_events_for_timeline(&events, 1000);
-
-        assert_eq!(normalized.len(), 1);
-        assert_eq!(normalized[0].timestamp, 0);
-        assert_eq!((normalized[0].x, normalized[0].y), (50.0, 60.0));
-    }
-}
+mod tests;
 
 /// Global mouse listener function with permission validation
+#[cfg(not(target_os = "linux"))]
 pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
     // Check permissions before starting the listener
     if let Err(permission_error) = crate::permissions::validate_mouse_tracking_permissions() {
@@ -451,7 +429,14 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
         ));
     }
 
+    // Wayland does not expose global mouse buttons through XWayland/rdev.
+    // Read the session-authorized evdev mouse devices for button events while
+    // rdev continues to supply the compositor cursor position.
+    #[cfg(target_os = "linux")]
+    linux::create_button_listener(tracker.clone());
+
     std::thread::spawn(move || {
+        let listener_state = tracker.clone();
         let callback = move |event: Event| {
             // Check if tracking is enabled FIRST to avoid unnecessary work
             let tracker_guard = tracker.lock();
@@ -615,15 +600,34 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
 
         // Start the rdev listener - this blocks the thread
         if let Err(error) = listen(callback) {
+            listener_state.lock().is_tracking = false;
             eprintln!("🚨 Mouse tracking error: {:?}", error);
-            eprintln!("This is likely due to missing Accessibility permissions.");
-            eprintln!(
-                "Please enable Accessibility permissions in System Preferences and restart Tarantino."
-            );
+            #[cfg(target_os = "macos")]
+            {
+                eprintln!("This is likely due to missing Accessibility permissions.");
+                eprintln!(
+                    "Please enable Accessibility permissions in System Preferences and restart Tarantino."
+                );
+            }
         }
     });
 
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
+    linux::create_mouse_listener(tracker)
+}
+
+#[cfg(target_os = "linux")]
+pub fn raw_pointer_tracking_available() -> bool {
+    linux::raw_pointer_tracking_available()
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn raw_pointer_tracking_available() -> bool {
+    true
 }
 
 /// Statistics about recorded mouse events

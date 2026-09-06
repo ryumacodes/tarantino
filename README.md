@@ -1,6 +1,6 @@
 # Tarantino
 
-A macOS screen recorder and editor for polished product demos.
+A cross-platform screen recorder and editor for polished product demos.
 
 > Early-stage software — under active development. Expect bugs and breaking changes.
 
@@ -18,12 +18,18 @@ A macOS screen recorder and editor for polished product demos.
 - [Tauri](https://tauri.app/) and Rust — desktop shell and native application code
 - React and Zustand — editor interface and state management
 - ScreenCaptureKit and VideoToolbox — macOS capture and hardware video encoding
+- XDG Desktop Portal, PipeWire, and in-process GStreamer — Linux capture and encoding
 - wgpu and Metal — preview and export rendering
 - FFmpeg — media inspection and processing
 
 ## Platform Support
 
-Tarantino currently supports macOS. Windows and Linux capture backends are not ready yet.
+Tarantino supports macOS. Linux support is under active development for modern
+PipeWire desktops on both Wayland and X11. Windows capture is not ready yet.
+
+On Linux, the desktop portal presents the authoritative screen or window picker
+when recording starts. This avoids compositor-specific enumeration and works
+with GNOME, KDE Plasma, and other portal-capable desktop environments.
 
 ## Installation
 
@@ -42,6 +48,12 @@ The first recording may prompt for Screen Recording, Microphone, or Camera acces
 
 ## Development
 
+Keep handwritten source files at 700 lines or fewer. Repository checks enforce
+this limit; necessary exceptions require a reason and a ceiling in
+`scripts/source-size-exceptions.txt`. Generated schemas and dependency lockfiles
+remain intact. Keep Linux fixes scoped to Linux and preserve macOS behavior and
+performance; verify performance claims with macOS measurements.
+
 Common development tasks:
 
 ```bash
@@ -58,6 +70,47 @@ pnpm tauri:dev:raw
 ```
 
 Use the regular development command unless you specifically need raw mode.
+
+### Linux development
+
+Linux requires the normal Tauri dependencies plus FFmpeg, PipeWire (including
+development headers for its cursor metadata reader), the desktop
+portal for your desktop environment, and these GStreamer elements:
+`pipewiresrc`, `h264parse`, `mp4mux`, and either `x264enc` or `openh264enc`.
+
+The setup command detects the host from `/etc/os-release` and installs the
+correct native packages on Arch/Manjaro, Debian/Ubuntu/Mint, Fedora/RHEL, and
+openSUSE Tumbleweed. Leap requires manual dependency setup. Immutable SteamOS uses an Arch Distrobox so the read-only host remains
+untouched. After setup, the same development command works on macOS and Linux:
+
+```bash
+pnpm setup:linux
+pnpm tauri:dev
+```
+
+The capture implementation itself is distro-independent: XDG Desktop Portal
+selects displays and windows, PipeWire supplies frames, and GStreamer chooses
+an encoder available on that machine. Desktop-specific behavior is kept at the
+edges—for example, only KDE Wayland uses the XWayland keep-above workaround.
+Install the matching portal backend for the active desktop (`gnome`, `kde`, or
+`wlr`); most desktop distributions include it by default.
+
+Run the distro-independent verification suite with:
+
+```bash
+pnpm test:linux
+```
+
+The automated Linux matrix runs this suite on Ubuntu 24.04, Debian Stable,
+Fedora, openSUSE Tumbleweed, and current Arch Linux, with the same build also
+verified in the repository's Nix development environment. Linux Mint 22 uses
+the Ubuntu 24.04 package base covered by the Ubuntu build; LMDE is represented
+by Debian Stable. NixOS developers can enter the environment with `nix develop`.
+
+CI also validates the GNOME, KDE Plasma, and wlroots ScreenCast portal
+descriptors and recording plugins. A final recording smoke test still requires
+a logged-in graphical session because the portal deliberately requires user
+interaction; follow [the Linux recording checklist](docs/linux-recording-smoke-test.md).
 
 ## Permissions
 

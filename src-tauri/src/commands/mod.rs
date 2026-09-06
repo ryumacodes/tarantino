@@ -17,6 +17,7 @@
 pub mod capture;
 pub mod device;
 pub mod display_preview;
+mod editor_ready;
 pub mod hud;
 pub mod input;
 pub mod lifecycle;

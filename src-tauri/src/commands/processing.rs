@@ -13,6 +13,8 @@ use crate::auto_zoom::ZoomProcessor;
 use crate::event_capture::{CaptureSession, EnhancedMouseEvent};
 use crate::state::UnifiedAppState;
 
+use super::editor_ready::notify_editor_ready;
+
 async fn wait_for_webcam_sidecar(temp_path: &str, max_wait: tokio::time::Duration) -> bool {
     let artifacts = crate::recording::artifacts::RecordingArtifacts::new(temp_path);
     let candidates = [artifacts.webcam_mp4(), artifacts.webcam_webm()];
@@ -147,7 +149,7 @@ pub async fn open_editor(
     }
 
     #[cfg(debug_assertions)]
-    {
+    if std::env::var_os("TARANTINO_OPEN_DEVTOOLS").is_some() {
         win.open_devtools();
     }
 
@@ -167,6 +169,8 @@ pub async fn open_editor_with_loading(
     app: &tauri::AppHandle,
     temp_path: &str,
     has_webcam: bool,
+    has_mic: bool,
+    has_system_audio: bool,
     webcam_shape: &str,
     webcam_x: f32,
     webcam_y: f32,
@@ -177,9 +181,11 @@ pub async fn open_editor_with_loading(
     }
 
     let url = format!(
-        "editor.html?loading=true&temp_path={}&webcam={}&webcam_shape={}&webcam_x={:.4}&webcam_y={:.4}&webcam_size={:.4}",
+        "editor.html?loading=true&temp_path={}&webcam={}&mic={}&system_audio={}&webcam_shape={}&webcam_x={:.4}&webcam_y={:.4}&webcam_size={:.4}",
         urlencoding::encode(temp_path),
         has_webcam,
+        has_mic,
+        has_system_audio,
         urlencoding::encode(webcam_shape),
         webcam_x,
         webcam_y,
@@ -231,38 +237,6 @@ pub async fn update_editor_status(app: &tauri::AppHandle, status: &str) -> Resul
     Ok(())
 }
 
-/// Notify the editor that the recording is ready
-pub async fn notify_editor_ready(
-    app: &tauri::AppHandle,
-    final_path: &str,
-    has_webcam: bool,
-    has_mic: bool,
-    has_system_audio: bool,
-    webcam_shape: &str,
-    webcam_x: f32,
-    webcam_y: f32,
-    webcam_size: f32,
-) -> Result<()> {
-    if let Some(editor) = app.get_webview_window("editor") {
-        editor
-            .emit(
-                "recording-ready",
-                serde_json::json!({
-                    "path": final_path,
-                    "has_webcam": has_webcam,
-                    "has_mic": has_mic,
-                    "has_system_audio": has_system_audio,
-                    "webcam_shape": webcam_shape,
-                    "webcam_x": webcam_x,
-                    "webcam_y": webcam_y,
-                    "webcam_size": webcam_size,
-                }),
-            )
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
-    }
-    Ok(())
-}
-
 /// Spawn background processing for a recording
 ///
 /// NOTE: `recording_start_time` must be captured BEFORE calling `stop_mouse_tracking()`,
@@ -287,6 +261,11 @@ pub fn spawn_background_recording_processing(
         "🎬 [BG_PROCESS] Recording start time (passed): {:?}",
         recording_start_time
     );
+
+    let zoom_geometry = state
+        .get_recording_info()
+        .map(|(width, height, _, area, _)| (width, height, area))
+        .unwrap_or((1920, 1080, None));
 
     tokio::spawn(async move {
         let _ = update_editor_status(&app, "Finalizing recording...").await;
@@ -357,10 +336,15 @@ pub fn spawn_background_recording_processing(
                     mouse_events.len()
                 );
                 println!("📹 [BG_PROCESS] Using start_time: {:?}", start_time);
-                let final_path =
-                    process_recorded_file(&temp_path, mouse_events, key_events, start_time)
-                        .await
-                        .unwrap_or(temp_path.clone());
+                let final_path = process_recorded_file(
+                    &temp_path,
+                    mouse_events,
+                    key_events,
+                    start_time,
+                    zoom_geometry,
+                )
+                .await
+                .unwrap_or(temp_path.clone());
 
                 let final_path_buf = std::path::Path::new(&final_path);
                 if crate::commands::video_validation::wait_for_file_ready(
@@ -401,6 +385,7 @@ pub async fn process_recorded_file(
     mouse_events: Vec<crate::input::MouseEvent>,
     key_events: Vec<crate::input::KeyEvent>,
     start_time: Option<std::time::SystemTime>,
+    zoom_geometry: (u32, u32, Option<crate::recording::types::RecordingArea>),
 ) -> Result<String> {
     println!("📁 [PROCESS] Starting process_recorded_file");
     println!("📁 [PROCESS] Temp path: {}", temp_path);
@@ -531,21 +516,39 @@ pub async fn process_recorded_file(
         crate::recording::artifacts::RecordingArtifacts::new(&media_path).auto_zoom();
     println!("🔍 [PROCESS] Auto-zoom path: {}", auto_zoom_path.display());
 
-    if !auto_zoom_path.exists() {
-        println!("🔍 [PROCESS] Generating auto-zoom analysis...");
+    if !mouse_events.is_empty() || !key_events.is_empty() {
+        println!("🔍 [PROCESS] Regenerating authoritative auto-zoom analysis...");
 
         let mut session = CaptureSession::new();
         // Events are already normalized to relative time (0 = recording start)
         // So we must set start_time to 0 to match
         session.start_time = 0;
         session.mouse_events = enhanced_events.clone();
+        session.metadata.display_resolution = (zoom_geometry.0, zoom_geometry.1);
+        session.metadata.capture_region = zoom_geometry
+            .2
+            .as_ref()
+            .map(|area| (area.x, area.y, area.width, area.height));
 
-        // Set end_time from last event or fallback - required for zoom block duration calculation
-        if let Some(last_event) = session.mouse_events.last() {
-            session.end_time = Some(last_event.base.timestamp + 1000); // Add 1s buffer
-        } else {
-            session.end_time = Some(30000); // Default 30s fallback
-        }
+        // Use the finalized media duration so the last click retains its full
+        // hold/exit animation. Fall back to the event timeline if probing fails.
+        let event_end = session
+            .mouse_events
+            .iter()
+            .map(|event| event.base.timestamp)
+            .chain(normalized_key_events.iter().map(|event| event.timestamp))
+            .max()
+            .unwrap_or(0)
+            + 3000;
+        let media_duration = match crate::video_processing::VideoProcessor::new() {
+            Ok(processor) => processor
+                .get_video_info(&media_path)
+                .await
+                .map(|info| info.duration_ms)
+                .unwrap_or(event_end),
+            Err(_) => event_end,
+        };
+        session.end_time = Some(media_duration.max(1000));
 
         println!(
             "🔍 [PROCESS] Session created with {} mouse events, start_time: {}, end_time: {:?}",
@@ -586,8 +589,8 @@ pub async fn process_recorded_file(
                 println!("❌ [PROCESS] Zoom analysis failed: {}", e);
             }
         }
-    } else {
-        println!("ℹ️ [PROCESS] Auto-zoom file already exists, skipping generation");
+    } else if auto_zoom_path.exists() {
+        println!("ℹ️ [PROCESS] Keeping existing zoom data because no new input events exist");
     }
 
     println!(

@@ -10,7 +10,24 @@ fn main() {
     build_windows_backend();
 
     #[cfg(target_os = "linux")]
-    build_linux_backend();
+    {
+        println!("cargo:rerun-if-changed=src/recording/linux_cursor.c");
+        let pipewire = pkg_config::Config::new()
+            .cargo_metadata(false)
+            .probe("libpipewire-0.3")
+            .expect("Linux cursor capture requires PipeWire development headers");
+        let mut build = cc::Build::new();
+        for path in pipewire.include_paths {
+            build.include(path);
+        }
+        build
+            .file("src/recording/linux_cursor.c")
+            .compile("linux_cursor");
+        // With GNU ld --as-needed, dependencies must follow the static archive
+        // that references them. Emit PipeWire's link flags after linux_cursor.
+        pkg_config::probe_library("libpipewire-0.3")
+            .expect("Linux cursor capture requires PipeWire development headers");
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -81,12 +98,4 @@ fn build_windows_backend() {
     println!("cargo:rustc-link-lib=dxgi");
     println!("cargo:rustc-link-lib=mfplat");
     println!("cargo:rustc-link-lib=mfreadwrite");
-}
-
-#[cfg(target_os = "linux")]
-fn build_linux_backend() {
-    // Linux PipeWire backend
-    // Link PipeWire libraries
-    println!("cargo:rustc-link-lib=pipewire-0.3");
-    println!("cargo:rustc-link-lib=spa-0.2");
 }

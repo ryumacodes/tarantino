@@ -31,8 +31,8 @@ impl UnifiedAppState {
             guard.start_tracking()?;
         }
 
-        if !LISTENER_STARTED.load(Ordering::Acquire) {
-            // Spawn global listener thread once
+        if cfg!(target_os = "linux") || !LISTENER_STARTED.load(Ordering::Acquire) {
+            // Linux initializes each coordinate mode once as sessions change.
             create_mouse_listener(tracker.clone())?;
             LISTENER_STARTED.store(true, Ordering::Release);
         }
@@ -113,6 +113,13 @@ impl UnifiedAppState {
         let (width, height, scale_factor, recording_area, screen_dims) = self
             .get_recording_info()
             .unwrap_or((1920, 1080, 1.0, None, None));
+
+        #[cfg(target_os = "linux")]
+        let (width, height) = if width == 0 || height == 0 {
+            crate::input::pointer_coordinate_space()
+        } else {
+            (width, height)
+        };
         println!(
             "=== ZOOM_ANALYSIS: Using display resolution {}x{}, scale_factor: {} ===",
             width, height, scale_factor
@@ -236,6 +243,13 @@ impl UnifiedAppState {
         Option<crate::recording::types::RecordingArea>,
         Option<(u32, u32)>,
     )> {
+        #[cfg(target_os = "linux")]
+        if crate::input::stream_pointer_enabled() {
+            let (width, height) = crate::input::pointer_coordinate_space();
+            // PipeWire cursor metadata is already relative to the selected
+            // stream. Portal window placeholders have no desktop geometry.
+            return Some((width, height, 1.0, None, None));
+        }
         if let Some(config) = self.recording.get_current_config() {
             match &config.target {
                 crate::recording::types::RecordingTarget::Desktop { display_id, area } => {

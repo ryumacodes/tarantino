@@ -10,10 +10,13 @@
     "check:repo-hygiene": "sh scripts/check-repo-hygiene.sh",
     "test:unit": "vitest run",
     "test:macos": "sh scripts/test-macos.sh",
+    "test:linux": "sh scripts/test-linux.sh",
+    "setup:linux": "sh scripts/setup-linux.sh",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "sh scripts/run-dev.sh",
     "tauri:dev:raw": "TARANTINO_DEV_LAUNCH_MODE=raw TARANTINO_RAW_DEV=1 tauri dev",
+    "tauri:dev:linux": "sh scripts/run-linux.sh",
     "tauri:build": "tauri build"
   },
   "dependencies": {
