@@ -12,8 +12,14 @@ use gst::prelude::*;
 
 use super::{QualityPreset, RecordingConfig, RecordingTarget};
 
+#[path = "linux_audio.rs"]
+mod audio;
 #[path = "linux_cursor.rs"]
 mod cursor;
+
+pub(crate) fn system_audio_available() -> bool {
+    audio::available()
+}
 
 /// Open the compositor's real window chooser before recording and persist the
 /// approved source for the recording session that follows.
@@ -66,10 +72,8 @@ pub struct LinuxRecording {
 
 impl LinuxRecording {
     pub async fn start(config: &RecordingConfig, output_path: &Path) -> Result<Self> {
-        if config.include_system_audio {
-            anyhow::bail!(
-                "System audio capture is not available on Linux yet; disable system audio and try again"
-            );
+        if config.include_system_audio && !system_audio_available() {
+            anyhow::bail!("System audio requires the GStreamer PulseAudio and WAV plugins");
         }
 
         runtime_preflight()?;
@@ -89,7 +93,10 @@ impl LinuxRecording {
                 anyhow::bail!("Device capture is not supported on Linux yet")
             }
         };
+        // Keep the compositor-rendered cursor when input access is unavailable;
+        // metadata-only capture requires a working editor cursor event stream.
         let cursor_metadata = crate::input::pointer_capture_consented()
+            && crate::input::pointer_tracking_available()
             && portal
                 .available_cursor_modes()
                 .await
@@ -135,6 +142,11 @@ impl LinuxRecording {
             .streams()
             .first()
             .context("The desktop portal returned no PipeWire stream")?;
+        crate::input::configure_stream_geometry(
+            stream.position(),
+            stream.size(),
+            source_type == SourceType::Window,
+        );
         let pipewire_fd = portal
             .open_pipe_wire_remote(&session, Default::default())
             .await
@@ -161,17 +173,20 @@ impl LinuxRecording {
             stream.pipe_wire_node_id(),
             pipewire_fd.as_raw_fd(),
         )?;
-        pipeline
-            .set_state(gst::State::Playing)
-            .context("Failed to start the native Linux recording pipeline")?;
-
-        Ok(Self {
+        let recording = Self {
             pipeline,
             _cursor_reader: cursor_reader,
             _portal: portal,
             _session: session,
             _pipewire_fd: pipewire_fd,
-        })
+        };
+        // Own the resources before startup, so Drop tears down partial audio or
+        // video startup failures as well as successful recording sessions.
+        recording
+            .pipeline
+            .set_state(gst::State::Playing)
+            .context("Failed to start the native Linux recording pipeline")?;
+        Ok(recording)
     }
 
     pub fn signal_stop(&mut self) -> Result<()> {
@@ -301,7 +316,8 @@ fn build_pipeline(
     // Some compositors reuse the image's original PTS for static/cursor-only
     // updates. A live recording must follow elapsed time, not that stale PTS.
     // Make only the buffer header writable; pixel memory remains shared.
-    let first_frame = std::sync::OnceLock::<std::time::Instant>::new();
+    let first_frame = std::sync::Arc::new(std::sync::OnceLock::<std::time::Instant>::new());
+    let video_started = first_frame.clone();
     source
         .static_pad("src")
         .context("PipeWire source has no output pad")?
@@ -320,7 +336,12 @@ fn build_pipeline(
         .property("location", output_path.to_string_lossy().as_ref())
         .build()
         .context("Failed to create the recording file sink")?;
-    build_pipeline_with_source(config, source, sink, encoder_kind, gpu_conversion)
+    let pipeline = build_pipeline_with_source(config, source, sink, encoder_kind, gpu_conversion)?;
+    if config.include_system_audio {
+        let sidecar = super::artifacts::RecordingArtifacts::new(output_path).system_audio();
+        audio::attach(&pipeline, &sidecar, video_started)?;
+    }
+    Ok(pipeline)
 }
 
 // Production and runtime probes use the same conversion, rate control, encoder,

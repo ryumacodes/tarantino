@@ -40,13 +40,16 @@ mod other_platforms {
     use super::*;
 
     pub fn check_accessibility_permission() -> bool {
-        // On other platforms, assume permissions are granted
+        #[cfg(target_os = "linux")]
+        return crate::input::pointer_tracking_available();
+        #[cfg(not(target_os = "linux"))]
         true
     }
 
     pub fn request_accessibility_permission() -> std::result::Result<bool, PermissionError> {
-        // On other platforms, no permission request needed
-        Ok(true)
+        // Linux enables tracking by default, but cannot grant itself access to
+        // input devices. Report the actual session permission instead.
+        Ok(check_accessibility_permission())
     }
 
     pub fn open_accessibility_preferences() -> std::result::Result<(), PermissionError> {
@@ -171,7 +174,19 @@ pub fn diagnose_screen_capture() -> Result<String, PermissionError> {
         macos::diagnose_screen_capture().map_err(|e| PermissionError::SystemError(e.to_string()))
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        let tracking = if crate::input::pointer_tracking_available() {
+            "Mouse input is readable; automatic click zoom is enabled by default."
+        } else {
+            "Mouse input is not readable; recording can continue, but automatic click zoom needs input-device access."
+        };
+        Ok(format!(
+            "Screen capture is authorized through the desktop's source picker. {tracking} Typing zoom also needs a readable keyboard."
+        ))
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         Ok("Screen capture should work on this platform without special permissions.".to_string())
     }
@@ -272,12 +287,7 @@ pub fn request_all_recording_permissions() -> Result<PermissionStatus, Permissio
 
     #[cfg(not(target_os = "macos"))]
     {
-        // On other platforms, assume permissions are granted
-        Ok(PermissionStatus {
-            accessibility_granted: true,
-            screen_recording_granted: true,
-            can_request_accessibility: false,
-        })
+        Ok(check_permissions())
     }
 }
 

@@ -45,8 +45,8 @@ pub fn get_recording_capabilities() -> RecordingCapabilities {
             unavailable_reason,
             uses_system_source_picker: true,
             display_preview_available: false,
-            automatic_zoom_available: crate::input::raw_pointer_tracking_available(),
-            system_audio_available: false,
+            automatic_zoom_available: crate::input::pointer_tracking_available(),
+            system_audio_available: crate::recording::linux::system_audio_available(),
         };
     }
 

@@ -73,10 +73,28 @@ async fn benchmark(root: &Path) -> Result<()> {
         .unwrap_or_else(|_| "5".into())
         .parse()?;
     ensure!((1..=20).contains(&runs), "Use 1–20 measured runs");
+    let zoom_blocks: Option<Vec<super::types::ZoomBlock>> = if let Some(path) =
+        std::env::var_os("TARANTINO_BENCH_ZOOM_BLOCKS")
+    {
+        let blocks: Vec<super::types::ZoomBlock> = serde_json::from_slice(&std::fs::read(path)?)?;
+        ensure!(
+            !blocks.is_empty(),
+            "Zoom benchmark requires at least one block"
+        );
+        ensure!(
+            blocks.iter().all(|b| b.zoom_level > 1.0
+                && b.end_time_ms > b.start_time_ms
+                && b.end_time_ms <= 5000),
+            "Zoom blocks must fit the five-second fixture"
+        );
+        Some(blocks)
+    } else {
+        None
+    };
     let mut timings = Vec::new();
     for run in 0..=runs {
         let output = root.join(format!("export-{run}.mp4"));
-        let settings: ExportSettings = serde_json::from_value(serde_json::json!({
+        let mut settings: ExportSettings = serde_json::from_value(serde_json::json!({
             "output_path": output, "resolution": {"width": 1920, "height": 1080},
             "frame_rate": 60, "format": "mp4", "codec": "h264", "quality": "high",
             "source_width": 1920, "source_height": 1080,
@@ -84,6 +102,7 @@ async fn benchmark(root: &Path) -> Result<()> {
             "visual_settings": {"padding": 32, "corner_radius": 16,
                 "shadow_enabled": true, "background_type": "solid", "background_color": "#202020"}
         }))?;
+        settings.zoom_blocks = zoom_blocks.clone();
         let start = Instant::now();
         export_video(root, &input, settings, &info, None).await?;
         let elapsed = start.elapsed().as_secs_f64();
@@ -102,6 +121,11 @@ async fn benchmark(root: &Path) -> Result<()> {
                 frames as f64 / elapsed
             );
         }
+        if run == runs {
+            if let Some(path) = std::env::var_os("TARANTINO_BENCH_KEEP_OUTPUT") {
+                std::fs::copy(&output, path)?;
+            }
+        }
         std::fs::remove_file(output)?;
     }
     timings.sort_by(f64::total_cmp);
@@ -115,6 +139,7 @@ async fn benchmark(root: &Path) -> Result<()> {
         serde_json::json!({
             "os": std::env::consts::OS, "arch": std::env::consts::ARCH,
             "debug_build": cfg!(debug_assertions), "runs": runs,
+            "zoom_blocks": zoom_blocks.as_ref().map_or(0, Vec::len),
             "median_seconds": median, "median_fps": frames as f64 / median,
             "sorted_seconds": timings,
         })

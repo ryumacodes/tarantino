@@ -1,36 +1,31 @@
 #!/bin/sh
 set -eu
 
-project_dir=$(pwd)
-container_name="${TARANTINO_CONTAINER_NAME:-tarantino-dev}"
+# Rustup installs per user; desktop launchers may not load shell profiles.
+tarantino_js_root=${XDG_DATA_HOME:-"$HOME/.local/share"}/tarantino/toolchain
+PATH="$tarantino_js_root/bin:$tarantino_js_root/global/bin:${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+export PATH
 
-if [ -n "${CONTAINER_ID:-}" ]; then
-  exec sh scripts/run-linux-container.sh
-fi
-
-linux_id=unknown
-if [ -r /etc/os-release ]; then
-  . /etc/os-release
-  linux_id=${ID:-unknown}
-fi
-
-if [ "$linux_id" = "steamos" ]; then
-  if ! command -v distrobox >/dev/null 2>&1 || \
-     ! distrobox list 2>/dev/null | grep -q "[[:space:]]${container_name}[[:space:]]"; then
-    echo "The SteamOS development container is not installed. Run: pnpm setup:linux" >&2
-    exit 1
-  fi
-
-  exec distrobox enter "$container_name" -- bash -lc \
-    'cd "$1" && exec sh scripts/run-linux-container.sh' bash "$project_dir"
-fi
-
-# Conventional Linux distributions use their native toolchain directly.
-for command in cargo pnpm gst-inspect-1.0 ffmpeg; do
+# Use the environment the user launched from, including on SteamOS.
+# Entering a development container is an explicit user choice.
+for command in cargo pnpm cc pkg-config gst-inspect-1.0 ffmpeg ffprobe; do
   if ! command -v "$command" >/dev/null 2>&1; then
-    echo "Linux dependency is missing: $command. Run: pnpm setup:linux" >&2
+    echo "Linux development dependency is missing in this environment: $command" >&2
+    echo "Install the native build dependencies here, or launch a built Tarantino AppImage." >&2
     exit 1
   fi
 done
 
-exec sh scripts/run-linux-container.sh
+# Desktop backend selection happens in Linux native startup for both
+# development runs and packaged applications.
+
+# A previous development run may have left the Vite interface available after
+# the native process exited. Reuse that live server instead of failing because
+# its fixed port is occupied.
+if curl -fsS --max-time 2 http://127.0.0.1:2703/ 2>/dev/null | grep -qi '<title>Tarantino</title>'; then
+  echo "Reusing the existing Tarantino development interface on port 2703."
+  cd src-tauri
+  exec cargo run --no-default-features
+fi
+
+exec pnpm tauri dev

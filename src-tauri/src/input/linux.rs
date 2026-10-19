@@ -8,6 +8,18 @@ use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[path = "linux_buttons.rs"]
+mod buttons;
+#[path = "linux_caret.rs"]
+mod caret;
+#[path = "linux_desktop_buttons.rs"]
+mod desktop_buttons;
+#[path = "linux_keyboard.rs"]
+mod keyboard;
+#[path = "linux_xtest.rs"]
+mod xtest;
+pub(crate) use caret::configure_stream_geometry;
+
 const CANONICAL_WIDTH: f64 = 1920.0;
 const CANONICAL_HEIGHT: f64 = 1080.0;
 
@@ -178,32 +190,30 @@ fn open_pointer_devices() -> Result<PointerDevices> {
     })
 }
 
-pub fn raw_pointer_tracking_available() -> bool {
-    !open_button_devices().is_empty()
+pub fn pointer_tracking_available() -> bool {
+    !open_button_devices().is_empty() || desktop_buttons::x11_available()
 }
 
 pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
+    create_pointer_listener(tracker.clone())?;
+    keyboard::start(tracker);
+    Ok(())
+}
+
+fn create_pointer_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
     STREAM_POINTER.lock().tracker = Arc::downgrade(&tracker);
     let stream_mode = stream_pointer_enabled();
-    let mut listener_modes = LISTENER_MODES.lock();
-    if listener_modes[usize::from(stream_mode)] {
-        return Ok(());
-    }
     if stream_mode {
-        let buttons = open_button_devices();
-        anyhow::ensure!(
-            !buttons.is_empty(),
-            "No readable mouse button device was found"
-        );
-        for (device, path) in buttons {
-            println!(
-                "Linux compositor pointer listening to buttons: {}",
-                path.display()
-            );
-            let tracker = tracker.clone();
-            std::thread::spawn(move || listen_buttons(device, tracker, None));
+        if desktop_buttons::x11_available() {
+            // A full X11 session exposes all desktop clicks through RECORD;
+            // raw-device permission is unnecessary for click zoom here.
+            return desktop_buttons::start(tracker);
         }
-        listener_modes[1] = true;
+        let _ = desktop_buttons::start(tracker.clone());
+        return buttons::start(tracker);
+    }
+    let mut listener_modes = LISTENER_MODES.lock();
+    if listener_modes[0] {
         return Ok(());
     }
     let mut devices = open_pointer_devices()?;
@@ -398,11 +408,20 @@ fn add_current_event(
     coordinates: Option<&Arc<Mutex<(i32, i32, AxisRange, AxisRange)>>>,
     event_type: MouseEventType,
 ) {
+    add_current_event_at(tracker, coordinates, event_type, SystemTime::now());
+}
+
+fn add_current_event_at(
+    tracker: &Arc<Mutex<MouseTracker>>,
+    coordinates: Option<&Arc<Mutex<(i32, i32, AxisRange, AxisRange)>>>,
+    event_type: MouseEventType,
+    timestamp: SystemTime,
+) {
     let pointer = STREAM_POINTER.lock();
     let position = event_position(&pointer, coordinates.map(|value| *value.lock()));
     drop(pointer);
     if let Some((x, y)) = position {
-        push_pointer_event(tracker, x, y, event_type);
+        push_pointer_event_at(tracker, x, y, event_type, timestamp);
     }
 }
 
@@ -412,11 +431,29 @@ fn push_pointer_event(
     y: f64,
     event_type: MouseEventType,
 ) {
-    let timestamp = SystemTime::now()
+    push_pointer_event_at(tracker, x, y, event_type, SystemTime::now());
+}
+
+fn push_pointer_event_at(
+    tracker: &Arc<Mutex<MouseTracker>>,
+    x: f64,
+    y: f64,
+    event_type: MouseEventType,
+    timestamp: SystemTime,
+) {
+    let tracker = tracker.lock();
+    if !tracker.is_tracking
+        || tracker
+            .recording_start_time
+            .is_none_or(|start| timestamp < start)
+    {
+        return;
+    }
+    let timestamp = timestamp
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
-    tracker.lock().add_event(MouseEvent {
+    tracker.add_event(MouseEvent {
         timestamp,
         x,
         y,
@@ -428,6 +465,37 @@ fn push_pointer_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queued_clicks_before_recording_are_discarded() {
+        let tracker = Arc::new(Mutex::new(MouseTracker::new()));
+        let start = UNIX_EPOCH + std::time::Duration::from_secs(100);
+        tracker.lock().is_tracking = true;
+        tracker.lock().recording_start_time = Some(start);
+        push_pointer_event_at(
+            &tracker,
+            10.0,
+            20.0,
+            MouseEventType::ButtonPress {
+                button: MouseButton::Left,
+            },
+            start - std::time::Duration::from_millis(1),
+        );
+        assert!(tracker.lock().get_events().is_empty());
+        push_pointer_event_at(
+            &tracker,
+            10.0,
+            20.0,
+            MouseEventType::ButtonPress {
+                button: MouseButton::Left,
+            },
+            start,
+        );
+        assert_eq!(tracker.lock().get_events()[0].timestamp, 100_000);
+        tracker.lock().is_tracking = false;
+        push_pointer_event_at(&tracker, 10.0, 20.0, MouseEventType::Move, start);
+        assert_eq!(tracker.lock().get_events().len(), 1);
+    }
 
     #[test]
     fn switching_from_stream_to_absolute_ignores_stream_workers() {

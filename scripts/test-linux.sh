@@ -39,7 +39,7 @@ if ! pkg-config --exists libpipewire-0.3; then
   exit 1
 fi
 
-for plugin in pipewiresrc videorate h264parse mp4mux; do
+for plugin in v4l2src pipewiresrc videorate h264parse mp4mux pulsesrc audioconvert audioresample wavenc; do
   if ! gst-inspect-1.0 "$plugin" >/dev/null 2>&1; then
     echo "error: required GStreamer plugin is missing: $plugin" >&2
     exit 1
@@ -79,5 +79,9 @@ run_cargo cargo check --locked --all-targets --manifest-path src-tauri/Cargo.tom
 echo "[7/7] Linux capture runtime plugins"
 gst-inspect-1.0 pipewiresrc videorate "$encoder" h264parse mp4mux >/dev/null
 run_cargo cargo test --locked --manifest-path src-tauri/Cargo.toml linux_recording_runtime_smoke -- --ignored --nocapture
+run_cargo cargo test --locked --manifest-path src-tauri/Cargo.toml linux_system_audio_runtime_smoke -- --ignored --nocapture
+run_cargo cargo test --locked --manifest-path src-tauri/Cargo.toml linux_microphone_wav_smoke -- --ignored --nocapture
+
+run_cargo cargo test --locked --manifest-path src-tauri/Cargo.toml linux_camera_discovery_smoke -- --ignored --nocapture
 
 echo "Linux verification passed. The runtime test reports the usable encoder. A logged-in graphical session is still required for the portal recording smoke test."

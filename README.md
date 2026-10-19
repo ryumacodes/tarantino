@@ -31,7 +31,61 @@ On Linux, the desktop portal presents the authoritative screen or window picker
 when recording starts. This avoids compositor-specific enumeration and works
 with GNOME, KDE Plasma, and other portal-capable desktop environments.
 
+Linux cursor tracking and automatic click zoom are enabled by default. Tracking
+uses the desktop RECORD service in a full X11 session. Wayland tracking still
+requires session permission to read a compatible mouse device; the app reports
+that capability separately from screen capture. The desktop's source
+picker remains authoritative for screen-capture access. Typing-triggered zoom
+also requires a readable keyboard; it records activity and editing categories,
+not typed text. AT-SPI accessibility is enabled automatically for caret tracking
+in supported applications. GTK and Qt caret events are mapped into recording
+coordinates and drive typing zoom; when a reliable caret position is unavailable,
+zoom uses the captured pointer position. Desktop-generated clicks (including
+Steam Input emulation under XWayland) supplement physical input, with duplicate
+reports filtered out. Pure Wayland sessions still depend on readable input devices.
+System audio records the default output monitor to a separate WAV track through
+PulseAudio or PipeWire's PulseAudio service.
+
 ## Installation
+
+### Native Linux packages
+
+Linux users should launch a packaged release directly; Node.js, Rust and
+Distrobox are development tools, not application requirements. The Linux CI
+build is configured to upload an x86_64 AppImage and Debian installer as the
+`tarantino-linux-x86_64` artifact. The AppImage includes FFmpeg, ffprobe and the
+GStreamer media framework, including the matching cryptography and media
+helper libraries. It still uses the host's GTK desktop runtime, desktop portal,
+PipeWire services and GPU drivers. Minimal server/container images need those
+desktop libraries before the package can start.
+
+After downloading and extracting a successful CI artifact on SteamOS:
+
+```bash
+chmod +x Tarantino_*.AppImage
+./Tarantino_*.AppImage
+```
+
+If FUSE is unavailable, use `APPIMAGE_EXTRACT_AND_RUN=1 ./Tarantino_*.AppImage`.
+Builds use Ubuntu 24.04 as their library baseline; compatibility with older
+systems and SteamOS must be checked on those systems. A passing build does not
+prove capture permissions, hardware acceleration or performance parity.
+
+To build both packages in a Linux development environment:
+
+```bash
+pnpm build:linux
+```
+
+To check a package's media dependencies without opening a window:
+
+```bash
+APPIMAGE_EXTRACT_AND_RUN=1 ./Tarantino_*.AppImage --linux-runtime-check
+```
+
+This check exercises bundled media tools and synthetic video/audio encoding.
+It does not capture the desktop or test GPU performance. CI runs it before
+uploading packages; desktop validation follows the Linux recording checklist.
 
 ### Developers (Fresh Clone)
 
@@ -80,13 +134,34 @@ portal for your desktop environment, and these GStreamer elements:
 
 The setup command detects the host from `/etc/os-release` and installs the
 correct native packages on Arch/Manjaro, Debian/Ubuntu/Mint, Fedora/RHEL, and
-openSUSE Tumbleweed. Leap requires manual dependency setup. Immutable SteamOS uses an Arch Distrobox so the read-only host remains
-untouched. After setup, the same development command works on macOS and Linux:
+openSUSE Tumbleweed. Leap requires manual dependency setup. SteamOS setup installs
+native development packages from the configured SteamOS repositories, initializes
+the package signing keyring and restores the original filesystem read-only mode
+when it exits. SteamOS updates may require rerunning setup.
+
+Run from a host terminal in the project directory:
 
 ```bash
-pnpm setup:linux
-pnpm tauri:dev
+sh scripts/setup-linux.sh
+tarantino_tools="${XDG_DATA_HOME:-$HOME/.local/share}/tarantino/toolchain"
+export PATH="$tarantino_tools/bin:$tarantino_tools/global/bin:${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+pnpm install --frozen-lockfile
+pnpm tauri dev
 ```
+
+Setup installs Rust 1.88 and Cargo with the official rustup installer if no
+suitable compiler is available, and preserves an existing newer compiler. The
+PATH line above makes a newly installed Cargo available in the current terminal;
+`pnpm tauri:dev` also finds the user Cargo directory automatically. `pnpm install`
+installs JavaScript dependencies; native toolchains are installed by Linux setup.
+Setup also installs the pinned pnpm version. If Node is missing or too old, it
+installs the official Node 24 LTS binary after checking its SHA-256 checksum.
+These JavaScript tools live under the user data directory, leaving distro
+packages in place. Existing compatible Node installations are preserved.
+The SteamOS installer uses Pacman file records to reinstall packages with missing
+development headers or pkg-config metadata, following the build dependency chain.
+If repair fails, setup stops with the remaining error. Both setup and launch use the host directly and do
+not create or enter a development container.
 
 The capture implementation itself is distro-independent: XDG Desktop Portal
 selects displays and windows, PipeWire supplies frames, and GStreamer chooses

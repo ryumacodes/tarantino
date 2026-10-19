@@ -58,7 +58,7 @@ const CaptureBar: React.FC = () => {
       ? selectedDisplay !== null
       : selectedDevice !== null;
   const systemAudioAvailable = recordingCapabilities?.systemAudioAvailable ?? !isLinuxRuntime;
-  const systemAudioUnavailableReason = "System audio recording is not available on this Linux runtime yet.";
+  const systemAudioUnavailableReason = "System audio requires the GStreamer PulseAudio and WAV plugins.";
   const recordingAvailable = recordingCapabilities?.recordingAvailable === true;
   const canRecord = recordingAvailable && !startInFlightRef.current && !stopInFlightRef.current && !isStarting && !windowPreparing && (isRecording || selectedTargetReady);
   const checkRecordingSupport = async () => {
@@ -390,6 +390,7 @@ const CaptureBar: React.FC = () => {
     if (!canRecord || startInFlightRef.current || stopInFlightRef.current || isRecording) return;
     if (
       capturePointerEvents === undefined
+      && !isLinuxRuntime
       && recordingCapabilities?.usesSystemSourcePicker
       && recordingCapabilities.automaticZoomAvailable
     ) {

@@ -33,6 +33,12 @@ impl UnifiedAppState {
 
         if cfg!(target_os = "linux") || !LISTENER_STARTED.load(Ordering::Acquire) {
             // Linux initializes each coordinate mode once as sessions change.
+            #[cfg(target_os = "linux")]
+            if let Err(error) = create_mouse_listener(tracker.clone()) {
+                tracker.lock().stop_tracking();
+                return Err(error);
+            }
+            #[cfg(not(target_os = "linux"))]
             create_mouse_listener(tracker.clone())?;
             LISTENER_STARTED.store(true, Ordering::Release);
         }

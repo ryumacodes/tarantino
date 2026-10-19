@@ -2,7 +2,7 @@ name: Linux
 
 on:
   push:
-    branches: [linux-support, linux-native-parity]
+    branches: [main, linux-support, linux-native-parity, linux-parity-defaults]
   pull_request:
 
 jobs:
@@ -11,19 +11,25 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Test native JavaScript setup
+        run: python3 scripts/test-linux-js.py
+      - name: Test native Rust setup
+        run: python3 scripts/test-linux-rust.py
+      - name: Test SteamOS dependency repair
+        run: python3 scripts/test-steamos-repair.py
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential curl file wget pkg-config libssl-dev \
+            build-essential curl file patchelf wget pkg-config libssl-dev xvfb xauth xdotool \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
             libxdo-dev libasound2-dev clang \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libpipewire-0.3-dev \
             libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
             libavdevice-dev libswscale-dev libswresample-dev ffmpeg \
-            gstreamer1.0-tools gstreamer1.0-pipewire \
+            gstreamer1.0-tools gstreamer1.0-pipewire gstreamer1.0-pulseaudio \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
+            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-vaapi
       - uses: dtolnay/rust-toolchain@1.88.0
         with:
           components: rustfmt
@@ -36,8 +42,26 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:linux
-      - name: Build Debian package
-        run: pnpm tauri build --bundles deb
+      - name: Check X11 click zoom without raw input devices
+        run: xvfb-run -a env XDG_SESSION_TYPE=x11 cargo test --locked --manifest-path src-tauri/Cargo.toml native_x11_click_without_raw_devices -- --ignored --nocapture
+      - name: Check forwarded XTEST clicks without server events
+        run: xvfb-run -a env XDG_SESSION_TYPE=x11 cargo test --locked --manifest-path src-tauri/Cargo.toml native_xtest_requests_without_server_events -- --ignored --nocapture
+      - name: Build native Linux packages
+        run: pnpm build:linux
+      - name: Check packaged media runtime without host plugins
+        run: |
+          package=$(find src-tauri/target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)
+          test -n "$package"
+          GST_PLUGIN_SYSTEM_PATH_1_0= GST_PLUGIN_PATH_1_0= \
+            GST_REGISTRY_1_0="$RUNNER_TEMP/tarantino-gst-registry.bin" \
+            APPIMAGE_EXTRACT_AND_RUN=1 "$package" --linux-runtime-check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarantino-linux-x86_64
+          if-no-files-found: error
+          path: |
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
 
   debian:
     name: Debian Stable
@@ -48,13 +72,13 @@ jobs:
         run: |
           apt-get update
           apt-get install -y \
-            build-essential curl file git wget pkg-config libssl-dev clang \
+            build-essential curl file patchelf git wget pkg-config libssl-dev clang \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
             librsvg2-dev libxdo-dev libasound2-dev \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libpipewire-0.3-dev \
             libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
             libavdevice-dev libswscale-dev libswresample-dev ffmpeg \
-            gstreamer1.0-tools gstreamer1.0-pipewire \
+            gstreamer1.0-tools gstreamer1.0-pipewire gstreamer1.0-pulseaudio \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
       - uses: actions/checkout@v4
@@ -82,7 +106,7 @@ jobs:
       - name: Install system dependencies
         run: |
           dnf install -y \
-            gcc gcc-c++ make curl file git wget pkgconf-pkg-config \
+            gcc gcc-c++ make curl file patchelf git wget pkgconf-pkg-config \
             openssl-devel clang nodejs npm webkit2gtk4.1-devel \
             libappindicator-gtk3-devel librsvg2-devel libxdo-devel \
             alsa-lib-devel gstreamer1-devel gstreamer1-plugins-base-devel \
@@ -113,7 +137,7 @@ jobs:
         run: |
           zypper --non-interactive refresh
           zypper --non-interactive install --no-recommends \
-            gcc gcc-c++ make curl file git wget pkg-config clang \
+            gcc gcc-c++ make curl file patchelf git wget pkg-config clang \
             libopenssl-devel 'pkgconfig(webkit2gtk-4.1)' \
             libappindicator3-1 librsvg-devel xdotool alsa-devel \
             gstreamer-devel gstreamer-plugins-base-devel gstreamer-utils \
@@ -152,7 +176,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm
           pacman -S --needed --noconfirm \
-            git curl wget file pkgconf openssl clang rustup nodejs pnpm \
+            git curl wget file patchelf pkgconf openssl clang rustup nodejs pnpm \
             webkit2gtk-4.1 libayatana-appindicator librsvg xdotool alsa-lib \
             ffmpeg gstreamer gst-plugins-base gst-plugins-good \
             gst-plugins-bad gst-plugins-ugly gst-plugin-pipewire
@@ -216,9 +240,41 @@ jobs:
           apt-get update
           apt-get install -y \
             dbus xdg-desktop-portal "${{ matrix.package }}" \
-            gstreamer1.0-tools gstreamer1.0-pipewire \
+            gstreamer1.0-tools gstreamer1.0-pipewire gstreamer1.0-pulseaudio \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-bad
       - uses: actions/checkout@v4
       - name: Validate ScreenCast portal backend
         run: sh scripts/check-linux-portal-backend.sh "${{ matrix.backend }}"
+
+  packaged-runtime:
+    name: AppImage runtime (${{ matrix.distro }})
+    needs: ubuntu
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: Ubuntu 24.04
+            image: ubuntu:24.04
+            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libgtk-3-0 libgl1 libegl1 libopengl0 libgbm1 libasound2t64
+          - distro: Fedora
+            image: registry.fedoraproject.org/fedora:latest
+            install: dnf install -y gtk3 mesa-libGL mesa-libEGL libglvnd-opengl mesa-libgbm alsa-lib
+    container: ${{ matrix.image }}
+    steps:
+      - name: Install desktop runtime baseline
+        run: ${{ matrix.install }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarantino-linux-x86_64
+          path: linux-packages
+      - name: Verify packaged media on a different distro
+        shell: bash
+        run: |
+          package=$(find linux-packages -name '*.AppImage' -print -quit)
+          test -n "$package"
+          chmod +x "$package"
+          GST_PLUGIN_SYSTEM_PATH_1_0= GST_PLUGIN_PATH_1_0= \
+            GST_REGISTRY_1_0="$RUNNER_TEMP/tarantino-package-registry.bin" \
+            APPIMAGE_EXTRACT_AND_RUN=1 "$package" --linux-runtime-check

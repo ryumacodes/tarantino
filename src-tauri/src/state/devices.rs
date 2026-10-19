@@ -192,24 +192,8 @@ impl UnifiedAppState {
             .collect::<Vec<_>>();
 
         #[cfg(target_os = "linux")]
-        let devices = std::fs::read_dir("/sys/class/video4linux")
-            .into_iter()
-            .flatten()
-            .filter_map(|entry| entry.ok())
-            .filter_map(|entry| {
-                let id = entry.file_name().to_string_lossy().into_owned();
-                let name = std::fs::read_to_string(entry.path().join("name"))
-                    .ok()
-                    .map(|name| name.trim().to_string())
-                    .filter(|name| !name.is_empty())
-                    .unwrap_or_else(|| id.clone());
-                Some(AudioDevice {
-                    id: format!("/dev/{id}"),
-                    name,
-                    is_default: id == "video0",
-                })
-            })
-            .collect::<Vec<_>>();
+        let devices =
+            tokio::task::spawn_blocking(crate::camera::enumerate_camera_devices).await??;
 
         #[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
         let devices = Vec::new();
@@ -224,9 +208,17 @@ impl UnifiedAppState {
     /// Get all audio devices
     pub async fn get_audio_devices(&self) -> Result<AudioDevices> {
         println!("=== UNIFIED_STATE: get_audio_devices called ===");
-        // TODO: Get audio devices
-        println!("=== UNIFIED_STATE: Returning default audio devices (not implemented yet) ===");
-        Ok(AudioDevices::default())
+        #[cfg(target_os = "linux")]
+        return tokio::task::spawn_blocking(crate::audio::linux::devices)
+            .await?
+            .map_err(anyhow::Error::msg);
+        #[cfg(not(target_os = "linux"))]
+        {
+            println!(
+                "=== UNIFIED_STATE: Returning default audio devices (not implemented yet) ==="
+            );
+            Ok(AudioDevices::default())
+        }
     }
 
     /// Refresh all device lists (displays, windows, audio devices)

@@ -11,6 +11,8 @@ mod event_capture;
 mod ffmpeg;
 mod ffmpeg_manager;
 mod input;
+#[cfg(target_os = "linux")]
+mod linux_runtime;
 mod muxer;
 mod permissions;
 mod post_processing;
@@ -117,6 +119,14 @@ fn setup_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
 
 #[cfg(target_os = "linux")]
 fn main() {
+    linux_runtime::configure();
+    if std::env::args().any(|arg| arg == "--linux-runtime-check") {
+        if let Err(error) = linux_runtime::check() {
+            eprintln!("Linux packaged runtime check failed: {error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     configure_linux_desktop_runtime();
 
     tokio::runtime::Builder::new_multi_thread()

@@ -1,0 +1,1010 @@
+{
+  "date": "2026-10-20",
+  "timezone": "Australia/Sydney",
+  "environment": {
+    "os": "SteamOS Desktop Mode",
+    "session": "KDE Wayland / XWayland",
+    "gpu": "AMD Steam Machine, Navi33, 8 GiB VRAM",
+    "mesa": "26.1.2",
+    "display": "3840x2160 at 59.98 Hz, scale 1.45",
+    "recorder_build": "release, uncommitted linux-parity-defaults including XTEST R2 fix",
+    "recording_encoder": "vah264enc, VA surface conversion, target 60 fps",
+    "capture_source": "1920x1080 glxgears window"
+  },
+  "limitations": [
+    "Synthetic OpenGL workload; not a real-game FPS result. Tomb Raider launched but remained black before producing a benchmark result.",
+    "One 30-second resource sample per condition; not a statistical multi-run benchmark.",
+    "CPU percent is relative to one logical core. RSS sums recorder and descendants and can count shared pages more than once.",
+    "GPU percentage is total-device utilization, not recorder-only utilization.",
+    "Export at 60 fps resamples capture; it does not prove 60 unique captured frames per second."
+  ],
+  "runs": {
+    "baseline": {
+      "mean_workload_fps": 16435.347,
+      "five_second_fps_samples": [
+        16382.17,
+        16604.521,
+        16320.663,
+        16287.723,
+        16620.943,
+        16396.062
+      ],
+      "resource_samples": [
+        {
+          "elapsed": 1,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.83984375,
+          "gpu_percent": 62
+        },
+        {
+          "elapsed": 2,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.83984375,
+          "gpu_percent": 59
+        },
+        {
+          "elapsed": 3,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.83984375,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 4,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.83984375,
+          "gpu_percent": 59
+        },
+        {
+          "elapsed": 5,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.83984375,
+          "gpu_percent": 59
+        },
+        {
+          "elapsed": 6,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.83984375,
+          "gpu_percent": 61
+        },
+        {
+          "elapsed": 7,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.83984375,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 8,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.83984375,
+          "gpu_percent": 55
+        },
+        {
+          "elapsed": 9,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.83984375,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 10,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.58984375,
+          "gpu_percent": 57
+        },
+        {
+          "elapsed": 11,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.58984375,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 12,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.58984375,
+          "gpu_percent": 60
+        },
+        {
+          "elapsed": 13,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.58984375,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 14,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.58984375,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 15,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.58984375,
+          "gpu_percent": 55
+        },
+        {
+          "elapsed": 16,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.58984375,
+          "gpu_percent": 60
+        },
+        {
+          "elapsed": 17,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.58984375,
+          "gpu_percent": 62
+        },
+        {
+          "elapsed": 18,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.33984375,
+          "gpu_percent": 59
+        },
+        {
+          "elapsed": 19,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.33984375,
+          "gpu_percent": 57
+        },
+        {
+          "elapsed": 20,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.33984375,
+          "gpu_percent": 55
+        },
+        {
+          "elapsed": 21,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.33984375,
+          "gpu_percent": 58
+        },
+        {
+          "elapsed": 22,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.33984375,
+          "gpu_percent": 54
+        },
+        {
+          "elapsed": 23,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.33984375,
+          "gpu_percent": 55
+        },
+        {
+          "elapsed": 24,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.33984375,
+          "gpu_percent": 58
+        },
+        {
+          "elapsed": 25,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.33984375,
+          "gpu_percent": 54
+        },
+        {
+          "elapsed": 26,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.33984375,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 27,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.33984375,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 28,
+          "recorder_cpu_percent": 0.984049772426053,
+          "recorder_rss_mib": 598.33984375,
+          "gpu_percent": 57
+        },
+        {
+          "elapsed": 29,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.33984375,
+          "gpu_percent": 58
+        },
+        {
+          "elapsed": 30,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 598.33984375,
+          "gpu_percent": 56
+        }
+      ],
+      "mean_resources": {
+        "recorder_cpu_percent": 0.032801659080868434,
+        "recorder_rss_mib": 598.5565104166667,
+        "gpu_percent": 57.266666666666666
+      }
+    },
+    "recording": {
+      "mean_workload_fps": 13329.139833333333,
+      "five_second_fps_samples": [
+        13181.284,
+        13038.743,
+        13126.14,
+        13618.654,
+        13377.388,
+        13632.63
+      ],
+      "resource_samples": [
+        {
+          "elapsed": 1,
+          "recorder_cpu_percent": 10.837208471947802,
+          "recorder_rss_mib": 472.15234375,
+          "gpu_percent": 55
+        },
+        {
+          "elapsed": 2,
+          "recorder_cpu_percent": 11.855908996618172,
+          "recorder_rss_mib": 472.10546875,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 3,
+          "recorder_cpu_percent": 10.832399607559104,
+          "recorder_rss_mib": 472.07421875,
+          "gpu_percent": 55
+        },
+        {
+          "elapsed": 4,
+          "recorder_cpu_percent": 10.804332617916462,
+          "recorder_rss_mib": 472.13671875,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 5,
+          "recorder_cpu_percent": 11.837168560334204,
+          "recorder_rss_mib": 472.16796875,
+          "gpu_percent": 55
+        },
+        {
+          "elapsed": 6,
+          "recorder_cpu_percent": 10.877335256960746,
+          "recorder_rss_mib": 472.21484375,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 7,
+          "recorder_cpu_percent": 9.905154196404744,
+          "recorder_rss_mib": 472.16796875,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 8,
+          "recorder_cpu_percent": 10.879573629600793,
+          "recorder_rss_mib": 472.05859375,
+          "gpu_percent": 60
+        },
+        {
+          "elapsed": 9,
+          "recorder_cpu_percent": 12.855884404512176,
+          "recorder_rss_mib": 472.07421875,
+          "gpu_percent": 58
+        },
+        {
+          "elapsed": 10,
+          "recorder_cpu_percent": 9.857972532419264,
+          "recorder_rss_mib": 471.72265625,
+          "gpu_percent": 57
+        },
+        {
+          "elapsed": 11,
+          "recorder_cpu_percent": 11.810130143835634,
+          "recorder_rss_mib": 471.73828125,
+          "gpu_percent": 57
+        },
+        {
+          "elapsed": 12,
+          "recorder_cpu_percent": 10.835927980693787,
+          "recorder_rss_mib": 471.80078125,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 13,
+          "recorder_cpu_percent": 10.831062321314585,
+          "recorder_rss_mib": 471.78515625,
+          "gpu_percent": 54
+        },
+        {
+          "elapsed": 14,
+          "recorder_cpu_percent": 10.84432686827839,
+          "recorder_rss_mib": 471.83203125,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 15,
+          "recorder_cpu_percent": 11.82315858152589,
+          "recorder_rss_mib": 471.82421875,
+          "gpu_percent": 58
+        },
+        {
+          "elapsed": 16,
+          "recorder_cpu_percent": 9.876369775945543,
+          "recorder_rss_mib": 471.83203125,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 17,
+          "recorder_cpu_percent": 10.849326153238165,
+          "recorder_rss_mib": 471.83203125,
+          "gpu_percent": 58
+        },
+        {
+          "elapsed": 18,
+          "recorder_cpu_percent": 11.818256336763746,
+          "recorder_rss_mib": 471.67578125,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 19,
+          "recorder_cpu_percent": 10.86603640764786,
+          "recorder_rss_mib": 474.7734375,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 20,
+          "recorder_cpu_percent": 10.886259770070529,
+          "recorder_rss_mib": 471.94140625,
+          "gpu_percent": 59
+        },
+        {
+          "elapsed": 21,
+          "recorder_cpu_percent": 10.89370153718288,
+          "recorder_rss_mib": 471.80078125,
+          "gpu_percent": 55
+        },
+        {
+          "elapsed": 22,
+          "recorder_cpu_percent": 9.884802716723375,
+          "recorder_rss_mib": 471.89453125,
+          "gpu_percent": 57
+        },
+        {
+          "elapsed": 23,
+          "recorder_cpu_percent": 11.79545057394203,
+          "recorder_rss_mib": 471.94140625,
+          "gpu_percent": 55
+        },
+        {
+          "elapsed": 24,
+          "recorder_cpu_percent": 12.845133673468935,
+          "recorder_rss_mib": 472.00390625,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 25,
+          "recorder_cpu_percent": 10.888227348560354,
+          "recorder_rss_mib": 471.91015625,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 26,
+          "recorder_cpu_percent": 10.888474214887534,
+          "recorder_rss_mib": 471.94140625,
+          "gpu_percent": 58
+        },
+        {
+          "elapsed": 27,
+          "recorder_cpu_percent": 10.887387903661448,
+          "recorder_rss_mib": 471.98828125,
+          "gpu_percent": 53
+        },
+        {
+          "elapsed": 28,
+          "recorder_cpu_percent": 10.880126960867711,
+          "recorder_rss_mib": 471.89453125,
+          "gpu_percent": 56
+        },
+        {
+          "elapsed": 29,
+          "recorder_cpu_percent": 10.88838157808964,
+          "recorder_rss_mib": 471.87890625,
+          "gpu_percent": 60
+        },
+        {
+          "elapsed": 30,
+          "recorder_cpu_percent": 9.88543529805647,
+          "recorder_rss_mib": 471.89453125,
+          "gpu_percent": 55
+        }
+      ],
+      "mean_resources": {
+        "recorder_cpu_percent": 11.024030480634266,
+        "recorder_rss_mib": 472.03528645833336,
+        "gpu_percent": 56.36666666666667
+      }
+    },
+    "capped-recording": {
+      "mean_workload_fps": 59.997166666666665,
+      "five_second_fps_samples": [
+        59.992,
+        59.998,
+        60.0,
+        59.999,
+        60.006,
+        59.988
+      ],
+      "resource_samples": [
+        {
+          "elapsed": 1,
+          "recorder_cpu_percent": 9.859782436696314,
+          "recorder_rss_mib": 615.265625,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 2,
+          "recorder_cpu_percent": 10.865250016779143,
+          "recorder_rss_mib": 615.234375,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 3,
+          "recorder_cpu_percent": 10.842511640181815,
+          "recorder_rss_mib": 615.234375,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 4,
+          "recorder_cpu_percent": 9.856791785951701,
+          "recorder_rss_mib": 615.296875,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 5,
+          "recorder_cpu_percent": 9.876839046813187,
+          "recorder_rss_mib": 615.265625,
+          "gpu_percent": 19
+        },
+        {
+          "elapsed": 6,
+          "recorder_cpu_percent": 10.875369752573233,
+          "recorder_rss_mib": 615.203125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 7,
+          "recorder_cpu_percent": 11.82316343912518,
+          "recorder_rss_mib": 613.48828125,
+          "gpu_percent": 20
+        },
+        {
+          "elapsed": 8,
+          "recorder_cpu_percent": 9.85689107102599,
+          "recorder_rss_mib": 613.58203125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 9,
+          "recorder_cpu_percent": 11.825896887266866,
+          "recorder_rss_mib": 613.26953125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 10,
+          "recorder_cpu_percent": 9.870690645860208,
+          "recorder_rss_mib": 613.51953125,
+          "gpu_percent": 22
+        },
+        {
+          "elapsed": 11,
+          "recorder_cpu_percent": 10.87182931883056,
+          "recorder_rss_mib": 613.36328125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 12,
+          "recorder_cpu_percent": 10.834498164990917,
+          "recorder_rss_mib": 613.45703125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 13,
+          "recorder_cpu_percent": 10.856100081077459,
+          "recorder_rss_mib": 613.42578125,
+          "gpu_percent": 20
+        },
+        {
+          "elapsed": 14,
+          "recorder_cpu_percent": 10.849801082516425,
+          "recorder_rss_mib": 613.48828125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 15,
+          "recorder_cpu_percent": 10.827167079587815,
+          "recorder_rss_mib": 613.55078125,
+          "gpu_percent": 20
+        },
+        {
+          "elapsed": 16,
+          "recorder_cpu_percent": 10.852109492030754,
+          "recorder_rss_mib": 613.45703125,
+          "gpu_percent": 22
+        },
+        {
+          "elapsed": 17,
+          "recorder_cpu_percent": 9.877944092604464,
+          "recorder_rss_mib": 613.51953125,
+          "gpu_percent": 20
+        },
+        {
+          "elapsed": 18,
+          "recorder_cpu_percent": 9.87542657954291,
+          "recorder_rss_mib": 613.58203125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 19,
+          "recorder_cpu_percent": 10.869188243439925,
+          "recorder_rss_mib": 613.61328125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 20,
+          "recorder_cpu_percent": 10.823308077771765,
+          "recorder_rss_mib": 613.51953125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 21,
+          "recorder_cpu_percent": 11.833538268036587,
+          "recorder_rss_mib": 613.58203125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 22,
+          "recorder_cpu_percent": 9.842938077720964,
+          "recorder_rss_mib": 613.51953125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 23,
+          "recorder_cpu_percent": 9.869834714891622,
+          "recorder_rss_mib": 613.58203125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 24,
+          "recorder_cpu_percent": 10.856625717998162,
+          "recorder_rss_mib": 613.58203125,
+          "gpu_percent": 22
+        },
+        {
+          "elapsed": 25,
+          "recorder_cpu_percent": 9.868844906525753,
+          "recorder_rss_mib": 613.45703125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 26,
+          "recorder_cpu_percent": 10.878533235116565,
+          "recorder_rss_mib": 613.48828125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 27,
+          "recorder_cpu_percent": 10.864893892761078,
+          "recorder_rss_mib": 613.48828125,
+          "gpu_percent": 22
+        },
+        {
+          "elapsed": 28,
+          "recorder_cpu_percent": 9.904904566319342,
+          "recorder_rss_mib": 613.61328125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 29,
+          "recorder_cpu_percent": 10.867718371077382,
+          "recorder_rss_mib": 613.51953125,
+          "gpu_percent": 21
+        },
+        {
+          "elapsed": 30,
+          "recorder_cpu_percent": 9.89850612279995,
+          "recorder_rss_mib": 613.64453125,
+          "gpu_percent": 21
+        }
+      ],
+      "mean_resources": {
+        "recorder_cpu_percent": 10.559229893597134,
+        "recorder_rss_mib": 613.8604166666667,
+        "gpu_percent": 20.933333333333334
+      }
+    }
+  },
+  "capped_baseline_fps": 60.001,
+  "captures": [
+    {
+      "path": "/tmp/2026-10-19T14-16-08.mp4",
+      "condition": "uncapped",
+      "frames": 3105,
+      "duration_seconds": 57.803167,
+      "average_fps": 53.716780222536826,
+      "median_frame_interval_ms": 18.5,
+      "maximum_frame_interval_ms": 21.5,
+      "gaps_over_25ms": 0
+    },
+    {
+      "path": "/tmp/2026-10-19T14-21-02.mp4",
+      "condition": "capped",
+      "frames": 2264,
+      "duration_seconds": 44.259333,
+      "average_fps": 51.15305246351052,
+      "median_frame_interval_ms": 19.5,
+      "maximum_frame_interval_ms": 22.833,
+      "gaps_over_25ms": 0
+    }
+  ],
+  "export": {
+    "input": "/tmp/2026-10-19T14-16-08.mp4",
+    "output": "/home/deck/Movies/Tarantino/2026-10-19T14-16-08.mp4",
+    "frames": 3468,
+    "elapsed_seconds": 45.6,
+    "throughput_fps": 76.1,
+    "encoder": "h264_vaapi",
+    "output_fps": 60
+  },
+  "conclusion": "Capped source rendering remains at 60 fps, but actual capture averages 51.2 fps. The capture pipeline does not yet meet a sustained 60 fps target in this test.",
+  "zoom_test": {
+    "capture_path": "/tmp/2026-10-19T14-26-46.mp4",
+    "actual_capture_fps": 50.97188995215311,
+    "capture_frames": 3409,
+    "capture_duration_seconds": 66.88,
+    "generated_clicks": 5,
+    "generated_zoom_blocks": [
+      {
+        "id": "zoom_0",
+        "click_x": 0.18125,
+        "click_y": 0.23981481481481481,
+        "center_x": 0.18125,
+        "center_y": 0.23981481481481481,
+        "start_time": 32004,
+        "end_time": 36004,
+        "zoom_factor": 2.0,
+        "is_manual": false,
+        "centers": [
+          {
+            "x": 0.18125,
+            "y": 0.23981481481481481,
+            "time": 33004
+          }
+        ],
+        "kind": "click",
+        "zoom_in_speed": null,
+        "zoom_out_speed": null,
+        "timing_adjusted": false
+      },
+      {
+        "id": "zoom_1",
+        "click_x": 0.571875,
+        "click_y": 0.5638888888888889,
+        "center_x": 0.571875,
+        "center_y": 0.5638888888888889,
+        "start_time": 36959,
+        "end_time": 40959,
+        "zoom_factor": 2.0,
+        "is_manual": false,
+        "centers": [
+          {
+            "x": 0.571875,
+            "y": 0.5638888888888889,
+            "time": 37959
+          }
+        ],
+        "kind": "click",
+        "zoom_in_speed": null,
+        "zoom_out_speed": null,
+        "timing_adjusted": false
+      },
+      {
+        "id": "zoom_2",
+        "click_x": 0.31145833333333334,
+        "click_y": 0.3787037037037037,
+        "center_x": 0.31145833333333334,
+        "center_y": 0.3787037037037037,
+        "start_time": 41911,
+        "end_time": 45911,
+        "zoom_factor": 2.0,
+        "is_manual": false,
+        "centers": [
+          {
+            "x": 0.31145833333333334,
+            "y": 0.3787037037037037,
+            "time": 42911
+          }
+        ],
+        "kind": "click",
+        "zoom_in_speed": null,
+        "zoom_out_speed": null,
+        "timing_adjusted": false
+      },
+      {
+        "id": "zoom_3",
+        "click_x": 0.7541666666666667,
+        "click_y": 0.33240740740740743,
+        "center_x": 0.7541666666666667,
+        "center_y": 0.33240740740740743,
+        "start_time": 46869,
+        "end_time": 50869,
+        "zoom_factor": 2.0,
+        "is_manual": false,
+        "centers": [
+          {
+            "x": 0.7541666666666667,
+            "y": 0.33240740740740743,
+            "time": 47869
+          }
+        ],
+        "kind": "click",
+        "zoom_in_speed": null,
+        "zoom_out_speed": null,
+        "timing_adjusted": false
+      },
+      {
+        "id": "zoom_4",
+        "click_x": 0.46770833333333334,
+        "click_y": 0.7027777777777777,
+        "center_x": 0.46770833333333334,
+        "center_y": 0.7027777777777777,
+        "start_time": 51832,
+        "end_time": 55832,
+        "zoom_factor": 2.0,
+        "is_manual": false,
+        "centers": [
+          {
+            "x": 0.46770833333333334,
+            "y": 0.7027777777777777,
+            "time": 52832
+          }
+        ],
+        "kind": "click",
+        "zoom_in_speed": null,
+        "zoom_out_speed": null,
+        "timing_adjusted": false
+      }
+    ],
+    "mean_resources": {
+      "recorder_cpu_percent": 10.565539521577922,
+      "recorder_rss_mib": 612.8255208333334,
+      "gpu_percent": 23.666666666666668
+    },
+    "resource_samples": [
+      {
+        "elapsed": 1,
+        "recorder_cpu_percent": 9.86251442842887,
+        "recorder_rss_mib": 612.8359375,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 2,
+        "recorder_cpu_percent": 10.86009817362102,
+        "recorder_rss_mib": 612.80078125,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 3,
+        "recorder_cpu_percent": 10.873559165938362,
+        "recorder_rss_mib": 612.8359375,
+        "gpu_percent": 25
+      },
+      {
+        "elapsed": 4,
+        "recorder_cpu_percent": 9.892335510138691,
+        "recorder_rss_mib": 612.80859375,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 5,
+        "recorder_cpu_percent": 10.86101408986898,
+        "recorder_rss_mib": 612.80859375,
+        "gpu_percent": 23
+      },
+      {
+        "elapsed": 6,
+        "recorder_cpu_percent": 9.868102196069218,
+        "recorder_rss_mib": 612.78125,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 7,
+        "recorder_cpu_percent": 9.906127328369065,
+        "recorder_rss_mib": 612.73828125,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 8,
+        "recorder_cpu_percent": 11.818813220382557,
+        "recorder_rss_mib": 612.67578125,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 9,
+        "recorder_cpu_percent": 10.858505754171443,
+        "recorder_rss_mib": 614.3984375,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 10,
+        "recorder_cpu_percent": 8.883016236924085,
+        "recorder_rss_mib": 612.74609375,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 11,
+        "recorder_cpu_percent": 10.874900634926199,
+        "recorder_rss_mib": 612.80078125,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 12,
+        "recorder_cpu_percent": 11.870010329865146,
+        "recorder_rss_mib": 612.87109375,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 13,
+        "recorder_cpu_percent": 10.84029065897719,
+        "recorder_rss_mib": 612.7734375,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 14,
+        "recorder_cpu_percent": 10.882182678086439,
+        "recorder_rss_mib": 612.7734375,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 15,
+        "recorder_cpu_percent": 10.893071011502446,
+        "recorder_rss_mib": 612.73828125,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 16,
+        "recorder_cpu_percent": 9.886453840379911,
+        "recorder_rss_mib": 612.7734375,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 17,
+        "recorder_cpu_percent": 10.862528402798574,
+        "recorder_rss_mib": 612.6484375,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 18,
+        "recorder_cpu_percent": 9.900059415006742,
+        "recorder_rss_mib": 612.703125,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 19,
+        "recorder_cpu_percent": 11.8551870994421,
+        "recorder_rss_mib": 612.67578125,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 20,
+        "recorder_cpu_percent": 9.838874227191969,
+        "recorder_rss_mib": 612.73828125,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 21,
+        "recorder_cpu_percent": 10.8455757362499,
+        "recorder_rss_mib": 612.8984375,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 22,
+        "recorder_cpu_percent": 10.8578934432751,
+        "recorder_rss_mib": 612.80859375,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 23,
+        "recorder_cpu_percent": 10.878112812774502,
+        "recorder_rss_mib": 612.80859375,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 24,
+        "recorder_cpu_percent": 10.84018820026998,
+        "recorder_rss_mib": 612.7734375,
+        "gpu_percent": 16
+      },
+      {
+        "elapsed": 25,
+        "recorder_cpu_percent": 10.856832491592046,
+        "recorder_rss_mib": 612.73828125,
+        "gpu_percent": 22
+      },
+      {
+        "elapsed": 26,
+        "recorder_cpu_percent": 8.8615081328257,
+        "recorder_rss_mib": 612.7734375,
+        "gpu_percent": 24
+      },
+      {
+        "elapsed": 27,
+        "recorder_cpu_percent": 11.841711160105307,
+        "recorder_rss_mib": 612.80859375,
+        "gpu_percent": 26
+      },
+      {
+        "elapsed": 28,
+        "recorder_cpu_percent": 10.864750436663488,
+        "recorder_rss_mib": 612.73828125,
+        "gpu_percent": 23
+      },
+      {
+        "elapsed": 29,
+        "recorder_cpu_percent": 9.882079907455651,
+        "recorder_rss_mib": 612.84375,
+        "gpu_percent": 23
+      },
+      {
+        "elapsed": 30,
+        "recorder_cpu_percent": 9.849888924036952,
+        "recorder_rss_mib": 612.6484375,
+        "gpu_percent": 24
+      }
+    ],
+    "export_comparison": {
+      "fixture": "Five seconds from source timestamp 32s, resampled to exactly 300 frames at 1080p60 before timing",
+      "settings": "Same production GPU export path, high-quality H.264, cursor disabled, padding 32, corner radius 16, shadow enabled, solid background; only zoom blocks differ",
+      "warmup_runs_per_condition": 1,
+      "no_zoom": {
+        "arch": "x86_64",
+        "debug_build": false,
+        "median_fps": 94.71931062770452,
+        "median_seconds": 3.167252781,
+        "os": "linux",
+        "runs": 3,
+        "sorted_seconds": [
+          3.120144337,
+          3.167252781,
+          3.168661647
+        ],
+        "zoom_blocks": 0
+      },
+      "zoom": {
+        "arch": "x86_64",
+        "debug_build": false,
+        "median_fps": 96.49747390585432,
+        "median_seconds": 3.108889672,
+        "os": "linux",
+        "runs": 3,
+        "sorted_seconds": [
+          3.094392558,
+          3.108889672,
+          3.149803577
+        ],
+        "zoom_blocks": 1
+      },
+      "zoom_blocks": [
+        {
+          "start_time_ms": 4,
+          "end_time_ms": 4004,
+          "zoom_level": 2.0,
+          "center_x": 0.18125,
+          "center_y": 0.23981481481481481,
+          "kind": "click",
+          "centers": [
+            {
+              "x": 0.18125,
+              "y": 0.23981481481481481,
+              "time": 1004
+            }
+          ]
+        }
+      ],
+      "sample_output": "/tmp/tarantino-zoom-bench-zoom.mp4",
+      "visual_verification": "Matching frames at 2 seconds visibly show the 2x crop; both samples decoded as 300 frames at 1920x1080",
+      "conclusion": "No export slowdown observed in this short matched comparison; timings overlap and do not establish a speedup."
+    },
+    "preview_limitation": "Editor showed five generated zoom blocks. Playback performance was not measured: app exited via tray Quit before that check."
+  }
+}

@@ -4,8 +4,13 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(target_os = "linux")]
+pub mod linux;
+
 use cpal::Sample;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+#[cfg(not(target_os = "linux"))]
+use cpal::traits::HostTrait;
+use cpal::traits::{DeviceTrait, StreamTrait};
 use tokio::sync::Mutex;
 
 struct WavWriter {
@@ -203,7 +208,11 @@ fn spawn_microphone_task(
     stop_signal: Arc<Mutex<bool>>,
 ) -> tokio::task::JoinHandle<Result<(), String>> {
     tokio::task::spawn_blocking(move || {
+        #[cfg(target_os = "linux")]
+        let device = linux::microphone(_device_id.as_deref())?;
+        #[cfg(not(target_os = "linux"))]
         let host = cpal::default_host();
+        #[cfg(not(target_os = "linux"))]
         let device = host
             .default_input_device()
             .ok_or_else(|| "No default microphone input device available".to_string())?;

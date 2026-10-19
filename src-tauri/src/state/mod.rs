@@ -107,6 +107,17 @@ impl UnifiedAppState {
         // Start recording through recording state manager
         self.recording.start_recording(config).await?;
 
+        #[cfg(target_os = "linux")]
+        {
+            // Never carry input from a prior take into a recording that opts
+            // out of tracking or cannot start its input listener.
+            let tracker = self.get_mouse_tracker();
+            let mut tracker = tracker.lock();
+            tracker.stop_tracking();
+            tracker.events.lock().clear();
+            tracker.key_events.lock().clear();
+        }
+
         if crate::input::pointer_capture_consented() {
             if let Err(e) = self.start_mouse_tracking().await {
                 println!("Warning: Failed to start mouse tracking: {}", e);
@@ -321,6 +332,10 @@ impl UnifiedAppState {
     }
 
     pub async fn set_mic_input(&self, enabled: bool, device_id: Option<String>) -> Result<()> {
+        #[cfg(target_os = "linux")]
+        if enabled {
+            crate::audio::linux::microphone(device_id.as_deref()).map_err(anyhow::Error::msg)?;
+        }
         let mut app = self.app.write();
         app.microphone_config.enabled = enabled;
         app.microphone_config.device_id = device_id;

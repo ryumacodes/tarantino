@@ -145,7 +145,10 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::pointer_coordinate_space;
 #[cfg(target_os = "linux")]
-pub(crate) use linux::{configure_stream_pointer, observe_stream_pointer, stream_pointer_enabled};
+pub(crate) use linux::{
+    configure_stream_geometry, configure_stream_pointer, observe_stream_pointer,
+    stream_pointer_enabled,
+};
 
 #[cfg(not(target_os = "macos"))]
 mod macos {
@@ -621,12 +624,12 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-pub fn raw_pointer_tracking_available() -> bool {
-    linux::raw_pointer_tracking_available()
+pub fn pointer_tracking_available() -> bool {
+    linux::pointer_tracking_available()
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn raw_pointer_tracking_available() -> bool {
+pub fn pointer_tracking_available() -> bool {
     true
 }
 

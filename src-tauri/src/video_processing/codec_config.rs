@@ -8,6 +8,12 @@ use std::process::{Command, Stdio};
 
 use super::types::ExportSettings;
 
+#[cfg(target_os = "linux")]
+#[path = "linux_acceleration.rs"]
+mod linux_acceleration;
+#[cfg(target_os = "linux")]
+use linux_acceleration::select_linux_acceleration;
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ExportAcceleration {
     VideoToolbox,
@@ -95,65 +101,10 @@ fn detect_linux_acceleration(settings: &ExportSettings) -> ExportAcceleration {
         &requested,
         codec,
         &encoders,
-        find_vaapi_device(),
+        find_vaapi_devices(),
         Path::new("/dev/nvidia0").exists(),
         |candidate| verify_linux_encoder(candidate, codec),
     )
-}
-
-#[cfg(target_os = "linux")]
-fn select_linux_acceleration(
-    requested: &str,
-    codec: &str,
-    encoders: &str,
-    va_device: Option<PathBuf>,
-    nvidia_device: bool,
-    mut verify: impl FnMut(&ExportAcceleration) -> bool,
-) -> ExportAcceleration {
-    let has = |name: &str| encoders.split_whitespace().any(|item| item == name);
-    let nvenc = if codec == "h265" {
-        "hevc_nvenc"
-    } else {
-        "h264_nvenc"
-    };
-    let vaapi = if codec == "h265" {
-        "hevc_vaapi"
-    } else {
-        "h264_vaapi"
-    };
-    let amf = if codec == "h265" {
-        "hevc_amf"
-    } else {
-        "h264_amf"
-    };
-
-    let mut choose = |backend: &str| {
-        match backend {
-            "vaapi" if va_device.is_some() && has(vaapi) => Some(ExportAcceleration::Vaapi {
-                device: va_device.clone().unwrap(),
-            }),
-            "nvenc" | "nvidia" if nvidia_device && has(nvenc) => Some(ExportAcceleration::Nvidia),
-            "amf" if va_device.is_some() && has(amf) => Some(ExportAcceleration::AmdAmf),
-            "software" => Some(ExportAcceleration::Software),
-            _ => None,
-        }
-        .filter(|candidate| verify(candidate))
-    };
-
-    if requested != "auto" {
-        if let Some(backend) = choose(&requested) {
-            return backend;
-        }
-        eprintln!(
-            "Requested Linux video backend '{requested}' is unavailable; selecting automatically"
-        );
-    }
-    for backend in ["nvenc", "vaapi", "amf"] {
-        if let Some(selected) = choose(backend) {
-            return selected;
-        }
-    }
-    ExportAcceleration::Software
 }
 
 #[cfg(target_os = "linux")]
@@ -187,13 +138,33 @@ fn verify_linux_encoder(acceleration: &ExportAcceleration, codec: &str) -> bool 
         "-".to_string(),
     ]);
 
-    Command::new("ffmpeg")
+    let Ok(mut child) = Command::new("ffmpeg")
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+        .spawn()
+    else {
+        return false;
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                eprintln!(
+                    "Linux {} encoder probe failed or timed out",
+                    acceleration.label()
+                );
+                return false;
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -207,15 +178,17 @@ fn ffmpeg_encoder_list() -> String {
 }
 
 #[cfg(target_os = "linux")]
-fn find_vaapi_device() -> Option<PathBuf> {
+fn find_vaapi_devices() -> Vec<PathBuf> {
     if let Some(device) = std::env::var_os("TARANTINO_VAAPI_DEVICE") {
         let path = PathBuf::from(device);
         if path.exists() {
-            return Some(path);
+            return vec![path];
         }
     }
-    let mut devices = std::fs::read_dir("/dev/dri")
-        .ok()?
+    let Ok(entries) = std::fs::read_dir("/dev/dri") else {
+        return Vec::new();
+    };
+    let mut devices = entries
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .filter(|path| {
@@ -225,7 +198,7 @@ fn find_vaapi_device() -> Option<PathBuf> {
         })
         .collect::<Vec<_>>();
     devices.sort();
-    devices.into_iter().next()
+    devices
 }
 
 pub fn add_trim_settings(args: &mut Vec<String>, settings: &ExportSettings) {
@@ -408,7 +381,7 @@ mod tests {
             "auto",
             "h264",
             encoders,
-            Some(PathBuf::from("/dev/dri/renderD128")),
+            vec![PathBuf::from("/dev/dri/renderD128")],
             true,
             |_| true,
         );
@@ -418,7 +391,7 @@ mod tests {
             "auto",
             "h264",
             encoders,
-            Some(PathBuf::from("/dev/dri/renderD128")),
+            vec![PathBuf::from("/dev/dri/renderD128")],
             false,
             |_| true,
         );
@@ -432,7 +405,7 @@ mod tests {
             "auto",
             "h264",
             "h264_vaapi h264_amf",
-            Some(PathBuf::from("/dev/dri/renderD128")),
+            vec![PathBuf::from("/dev/dri/renderD128")],
             false,
             |candidate| !matches!(candidate, ExportAcceleration::Vaapi { .. }),
         );

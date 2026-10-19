@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useRef } from 'react';
+import { useLinuxCaptureWindow } from './hooks/useLinuxCaptureWindow';
 import CaptureBar from './components/CaptureBar';
 import './styles/globals.css';
 import './styles/capture-bar.css';
@@ -11,8 +12,10 @@ import './styles/shortcuts.css';
 // It should ONLY render the CaptureBar component.
 // EditorView is rendered in a dedicated editor window (editor.html → editor.tsx)
 function App() {
+  const captureWindow = useRef<HTMLDivElement>(null);
+  useLinuxCaptureWindow(captureWindow);
   return (
-    <div className="app">
+    <div className="app" ref={captureWindow}>
       <CaptureBar />
     </div>
   );
