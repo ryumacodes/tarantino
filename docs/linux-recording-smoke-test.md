@@ -300,3 +300,52 @@ On the SteamOS device in Desktop Mode, run `pnpm test:linux`, then verify:
 
 Container tests do not validate SteamOS's live portal, AMD acceleration, or input
 permissions. Keep the live Desktop Mode checks separate from Gaming Mode.
+
+
+### Accessibility caret regression checks (2026-10-20)
+
+The Linux listener now binds a focused field before typing, including an
+already-focused field that emits no new focus event when clicked. Focus discovery
+is bounded to 512 objects / 700 ms and runs once per captured click. A matching
+window identity, focused/showing state, capture dimensions and clicked-field
+containment are still required. Once bound, delayed typing and pointer movement
+within the captured window do not expire the binding. New recordings reset it.
+
+Electron accessibility can mix a logical native frame with a pixel web tree.
+Client rectangles are accepted only with bounded frame insets and an explicit
+matching ancestor scale/origin. Text/component origin disagreements are corrected
+only when an independent parent-relative text rectangle confirms the offset.
+Unknown geometry remains fallback rather than a guessed accessibility position.
+
+Validation: Linux input unit tests; native GTK entry and Qt input-dialog tests
+cover a pre-focused field without an initial caret signal, a 2.1-second pause,
+moving/hiding the pointer, and producing a typing zoom from the refined caret.
+The external focused-field diagnostic can be run with
+`TARANTINO_ATSPI_EXPECTED_BUS` set to the target app's current accessibility bus
+name and the ignored `native_external_focused_field` test.
+
+Hayase's normal session exposed only application/window objects. Launching Hayase
+with `--force-renderer-accessibility` exposed its web fields. The recorder enables
+the desktop accessibility bridge early, but cannot guarantee that an application
+will publish its renderer tree. No third-party launcher or screen-reader setting
+is changed by the recorder. Apps with disabled/incomplete accessibility, unknown
+window geometry, or no initial captured click can still use fallback. Broader
+GNOME/wlroots, keyboard-only initial binding, and caret-only navigation acceptance
+remain unverified; this is not a claim of universal app support.
+
+Final live Hayase capture: `2026-10-19T15-54-57.mp4`, 2320x1260.
+A three-second pause followed the field click. Of 11 typing/edit events, eight
+had usable accessibility caret samples; the generated typing zoom used those
+eight real centers. Two character events remained unmatched, and clearing the
+field returned empty caret bounds. The final mapped point was (291.5, 113.41),
+consistent with the last glyph beside the visible caret (approximately x=295).
+The trailing-glyph center fallback intentionally does not assert exact insertion
+edge geometry. A previous origin error shifted this to (268.5, 99.42); the final
+video comparison confirmed that shift was removed. The test text was cleared.
+
+Final checks: 24 Linux input unit tests passed; six environment-dependent tests
+were ignored in that unit invocation. GTK and Qt native focus tests and the
+Hayase external-field diagnostic were run separately and passed. Release build,
+formatting, whitespace and repository hygiene checks passed. No macOS-only files
+were changed. Renderer accessibility remains enabled only for the Hayase process
+launched for this test; its installed launcher was not modified.

@@ -122,7 +122,9 @@ Gtk.main()
                 let mut pending = vec![(bus, path)];
                 while let Some((bus, path)) = pending.pop() {
                     let sampled = sample(&connection, &bus, path.as_str(), true).await;
-                    if let Ok(sample) = sampled {
+                    if let Ok(sample) = sampled
+                        && sample.caret_valid
+                    {
                         assert!(sample.point.0 > 0.0 && sample.point.1 > 0.0);
                         assert!(sample.field.contains(sample.point.0 - 1.0, sample.point.1));
                         let size = geometry::client_size(
@@ -206,6 +208,11 @@ async fn check_native_event(
     let text = proxy(connection, bus, path, "org.a11y.atspi.Text")
         .await
         .unwrap();
+    // No focus/caret signal: this field was already focused before the worker
+    // started. Discover it from the captured click, then type after the old
+    // deadline with the pointer elsewhere.
+    tokio::time::sleep(Duration::from_millis(2100)).await;
+    STREAM_POINTER.lock().position = Some((dimensions.0 as f64 - 1.0, dimensions.1 as f64 - 1.0));
     let mut result = None;
     for attempt in 0..8 {
         {

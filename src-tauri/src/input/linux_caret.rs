@@ -1,5 +1,7 @@
 //! Event-driven AT-SPI caret geometry. Never requests or retains text content.
 use super::{MouseTracker, STREAM_POINTER};
+#[path = "linux_caret_focus.rs"]
+mod focus;
 #[path = "linux_caret_geometry.rs"]
 mod geometry;
 use ashpd::zbus::{self, Connection, MatchRule, MessageStream, Proxy, zvariant::OwnedObjectPath};
@@ -40,6 +42,9 @@ pub(crate) fn configure_stream_geometry(
 
 pub(super) fn start(tracker: Weak<Mutex<MouseTracker>>) {
     tauri::async_runtime::spawn(async move {
+        // Enable bridges when the recorder starts, before users open target
+        // apps that only check the desktop accessibility flag at startup.
+        let _ = tokio::time::timeout(Duration::from_secs(1), connect()).await;
         let mut last_error = None;
         loop {
             let Some(current) = tracker.upgrade() else {
@@ -118,7 +123,15 @@ async fn listen(tracker: &Weak<Mutex<MouseTracker>>) -> anyhow::Result<()> {
         .interface("org.a11y.atspi.Event.Object")?
         .member("TextCaretMoved")?
         .build();
-    let mut events = MessageStream::for_match_rule(rule, &connection, Some(32)).await?;
+    let caret_events = MessageStream::for_match_rule(rule, &connection, Some(32)).await?;
+    let focus_rule = MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.a11y.atspi.Event.Object")?
+        .member("StateChanged")?
+        .arg(0, "focused")?
+        .build();
+    let focus_events = MessageStream::for_match_rule(focus_rule, &connection, Some(32)).await?;
+    let mut events = futures::stream::select(caret_events, focus_events);
     let registry = proxy(
         &connection,
         "org.a11y.atspi.Registry",
@@ -126,20 +139,53 @@ async fn listen(tracker: &Weak<Mutex<MouseTracker>>) -> anyhow::Result<()> {
         "org.a11y.atspi.Registry",
     )
     .await?;
-    tokio::time::timeout(
-        Duration::from_secs(1),
-        registry.call::<_, _, ()>(
-            "RegisterEvent",
-            &("object:text-caret-moved", Vec::<String>::new(), ""),
-        ),
-    )
-    .await??;
+    for event in ["object:text-caret-moved", "object:state-changed:focused"] {
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            registry.call::<_, _, ()>("RegisterEvent", &(event, Vec::<String>::new(), "")),
+        )
+        .await??;
+    }
     let mut window_binding: Option<(String, String)> = None;
+    let mut inspected_click = None;
     while active(tracker, source.generation) {
-        let message = match tokio::time::timeout(Duration::from_millis(100), events.next()).await {
-            Ok(Some(Ok(message))) => message,
+        let target = match tokio::time::timeout(Duration::from_millis(100), events.next()).await {
+            Ok(Some(Ok(message))) => {
+                let header = message.header();
+                header
+                    .sender()
+                    .zip(header.path())
+                    .map(|(sender, path)| (sender.to_string(), path.to_string()))
+            }
             Ok(_) => break,
-            Err(_) => continue,
+            Err(_) => {
+                // Some applications emit no focus/caret signal when clicking an
+                // already-focused empty field. Resolve focus once per captured
+                // click, not by polling the accessibility tree every frame.
+                let click = tracker.upgrade().and_then(|tracker| {
+                    tracker
+                        .lock()
+                        .events
+                        .lock()
+                        .iter()
+                        .rev()
+                        .find(|event| {
+                            matches!(event.event_type, super::MouseEventType::ButtonPress { .. })
+                        })
+                        .map(|event| event.timestamp)
+                });
+                if click.is_none() || click == inspected_click {
+                    continue;
+                }
+                inspected_click = click;
+                tokio::time::timeout(Duration::from_millis(700), focus::find(&connection))
+                    .await
+                    .ok()
+                    .flatten()
+            }
+        };
+        let Some((sender, path)) = target else {
+            continue;
         };
         let received = now_ms();
         // Let the evdev worker publish the corresponding key before refinement.
@@ -159,11 +205,6 @@ async fn listen(tracker: &Weak<Mutex<MouseTracker>>) -> anyhow::Result<()> {
         if debug {
             eprintln!("Caret signal: recent key={key_time:?}");
         }
-        let Some(key_time) = key_time else { continue };
-        let header = message.header();
-        let (Some(sender), Some(path)) = (header.sender(), header.path()) else {
-            continue;
-        };
         let sample = tokio::time::timeout(
             Duration::from_millis(150),
             sample(&connection, sender.as_str(), path.as_str(), source.window),
@@ -182,9 +223,17 @@ async fn listen(tracker: &Weak<Mutex<MouseTracker>>) -> anyhow::Result<()> {
                 return None;
             }
             let mut mapped_source = source;
+            let mut point = sample.point;
             if source.window {
-                let coordinates =
-                    geometry::coordinate_size(source.size, dimensions, sample.window_bounds?)?;
+                let (origin, coordinates) = geometry::coordinate_frame(
+                    source.size,
+                    dimensions,
+                    sample.window_bounds?,
+                    &sample.ancestors,
+                )?;
+                point = geometry::text_point(point, sample.component_point, origin);
+                point.0 -= origin.0 as f64;
+                point.1 -= origin.1 as f64;
                 mapped_source.size = Some(coordinates);
                 let identity = (sender.to_string(), sample.window_path.clone()?);
                 if window_binding
@@ -216,8 +265,8 @@ async fn listen(tracker: &Weak<Mutex<MouseTracker>>) -> anyhow::Result<()> {
                         || (point.0 - click.x).abs() > 2.0
                         || (point.1 - click.y).abs() > 2.0
                         || !sample.field.contains(
-                            point.0 * logical.0 as f64 / dimensions.0 as f64,
-                            point.1 * logical.1 as f64 / dimensions.1 as f64,
+                            point.0 * logical.0 as f64 / dimensions.0 as f64 + origin.0 as f64,
+                            point.1 * logical.1 as f64 / dimensions.1 as f64 + origin.1 as f64,
                         )
                     {
                         return None;
@@ -225,14 +274,21 @@ async fn listen(tracker: &Weak<Mutex<MouseTracker>>) -> anyhow::Result<()> {
                     window_binding = Some(identity);
                 }
             }
-            map_point(mapped_source, dimensions, sample.point)
+            map_point(mapped_source, dimensions, point)
         });
         if debug {
             eprintln!(
                 "Caret mapping: dimensions={dimensions:?} pointer={position:?} result={mapped:?}"
             );
         }
+        // Focus/caret signals emitted by the click establish the window binding
+        // before typing. A later key can then arrive after an arbitrary pause,
+        // or after Tab focus and pointer movement within that same window.
         let Some((x, y)) = mapped else { continue };
+        if !sample.caret_valid {
+            continue;
+        }
+        let Some(key_time) = key_time else { continue };
         let tracker = tracker.lock();
         if !tracker.is_tracking || SOURCE.lock().generation != source.generation {
             continue;
@@ -250,11 +306,13 @@ async fn listen(tracker: &Weak<Mutex<MouseTracker>>) -> anyhow::Result<()> {
     }
     // Closing this private bus connection also removes registrations if a daemon
     // is too old to accept the app_bus_name argument on DeregisterEvent.
-    let _ = tokio::time::timeout(
-        Duration::from_millis(150),
-        registry.call::<_, _, ()>("DeregisterEvent", &("object:text-caret-moved", "")),
-    )
-    .await;
+    for event in ["object:text-caret-moved", "object:state-changed:focused"] {
+        let _ = tokio::time::timeout(
+            Duration::from_millis(150),
+            registry.call::<_, _, ()>("DeregisterEvent", &(event, "")),
+        )
+        .await;
+    }
     Ok(())
 }
 
@@ -290,9 +348,12 @@ impl Rect {
 #[derive(Debug)]
 struct Sample {
     point: (f64, f64),
+    caret_valid: bool,
+    component_point: Option<(f64, f64)>,
     field: Rect,
     window_path: Option<String>,
     window_bounds: Option<(i32, i32, i32, i32)>,
+    ancestors: Vec<(i32, i32, i32, i32)>,
 }
 
 async fn sample(
@@ -311,6 +372,11 @@ async fn sample(
     }
     let text = proxy(connection, sender, path, "org.a11y.atspi.Text").await?;
     let offset: i32 = text.get_property("CaretOffset").await?;
+    if offset < 0 {
+        return Err(zbus::Error::Failure(
+            "Focused object has no text caret".into(),
+        ));
+    }
     let coord = u32::from(window);
     let rect: (i32, i32, i32, i32) = text.call("GetCharacterExtents", &(offset, coord)).await?;
     let mut rect = Rect::from(rect);
@@ -324,12 +390,11 @@ async fn sample(
         rect = previous.into();
         trailing = true;
     }
-    if !rect.valid() {
-        return Err(zbus::Error::Failure("Caret bounds unavailable".into()));
-    }
     let component = proxy(connection, sender, path, "org.a11y.atspi.Component").await?;
     let (field,): ((i32, i32, i32, i32),) = component.call("GetExtents", &(coord,)).await?;
     let mut result = Sample {
+        caret_valid: rect.valid(),
+        component_point: None,
         point: (
             rect.x as f64
                 + if trailing {
@@ -342,8 +407,37 @@ async fn sample(
         field: field.into(),
         window_path: None,
         window_bounds: None,
+        ancestors: Vec::new(),
     };
     if window {
+        // Chromium can return Text WINDOW bounds in client pixels while its
+        // Component WINDOW bounds include the shell offset. Cross-check PARENT
+        // text bounds against the component instead of assuming one origin.
+        let parent_rect = text
+            .call::<_, _, (i32, i32, i32, i32)>(
+                "GetCharacterExtents",
+                &(if trailing { offset - 1 } else { offset }, 2u32),
+            )
+            .await;
+        if let Ok(parent_rect) = parent_rect {
+            let parent_rect = Rect::from(parent_rect);
+            if rect.valid()
+                && parent_rect.valid()
+                && (i64::from(parent_rect.width) - i64::from(rect.width)).abs() <= 1
+                && (i64::from(parent_rect.height) - i64::from(rect.height)).abs() <= 1
+            {
+                result.component_point = Some((
+                    field.0 as f64
+                        + parent_rect.x as f64
+                        + if trailing {
+                            parent_rect.width as f64 / 2.0
+                        } else {
+                            0.0
+                        },
+                    field.1 as f64 + parent_rect.y as f64 + parent_rect.height as f64 / 2.0,
+                ));
+            }
+        }
         let mut current = path.to_owned();
         for _ in 0..32 {
             let object = proxy(
@@ -353,6 +447,21 @@ async fn sample(
                 "org.a11y.atspi.Accessible",
             )
             .await?;
+            if let Ok(component) = proxy(
+                connection,
+                sender,
+                current.as_str(),
+                "org.a11y.atspi.Component",
+            )
+            .await
+            {
+                if let Ok((bounds,)) = component
+                    .call::<_, _, ((i32, i32, i32, i32),)>("GetExtents", &(1u32,))
+                    .await
+                {
+                    result.ancestors.push(bounds);
+                }
+            }
             let (bus, parent): (String, OwnedObjectPath) = object.get_property("Parent").await?;
             if bus != sender || parent.as_str() == "/org/a11y/atspi/null" {
                 break;
