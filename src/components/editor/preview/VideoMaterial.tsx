@@ -435,8 +435,7 @@ export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = (
     const context = canvas.getContext('2d', { alpha: false });
     if (!context) return;
 
-    // GPU texture storage cannot grow after its first upload. Wait for the
-    // first decoded frame instead of allocating a 2x2 placeholder texture.
+    // Allocate the texture after decoding; GPU texture storage cannot grow.
     let texture: THREE.CanvasTexture | null = null;
 
     const video = document.createElement('video');
@@ -479,8 +478,7 @@ export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = (
         if (!prefetchOnly) {
           lastRequestedBucket = bucket;
           drawFrame(cached);
-          // Decode ahead while cached frames continue to render. Waiting for
-          // a cache miss creates a visible pause at every batch boundary.
+          // Prefetch the next batch to avoid pauses at cache boundaries.
           const nextBatch = (Math.floor(bucket / LINUX_PREVIEW_BATCH_SIZE) + 1) * LINUX_PREVIEW_BATCH_SIZE;
           if (useEditorStore.getState().isPlaying && !inFlight
               && nextBatch < Math.ceil(duration * LINUX_PREVIEW_FPS / 1000)

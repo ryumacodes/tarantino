@@ -1,9 +1,4 @@
-//! Linux source discovery for portal-based PipeWire capture.
-//!
-//! Wayland intentionally does not expose a global display/window list. The
-//! desktop portal owns source selection, so these entries represent the two
-//! choices the application can request. The compositor presents the concrete
-//! screen or window picker when recording starts.
+//! Portal source choices; the compositor selects the actual display or window.
 
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
@@ -30,32 +25,8 @@ impl PipeWireBackend {
 #[async_trait::async_trait]
 impl NativeCaptureBackend for PipeWireBackend {
     async fn enumerate_sources(&self) -> Result<Vec<CaptureSourceInfo>> {
-        Ok(vec![
-            CaptureSourceInfo {
-                id: 1,
-                name: "Current display".to_string(),
-                source_type: CaptureSourceType::Display,
-                width: 0,
-                height: 0,
-                x: 0,
-                y: 0,
-                scale_factor: 1.0,
-                is_primary: true,
-                owner_name: String::new(),
-            },
-            CaptureSourceInfo {
-                id: 2,
-                name: "Choose a window…".to_string(),
-                source_type: CaptureSourceType::Window,
-                width: 0,
-                height: 0,
-                x: 0,
-                y: 0,
-                scale_factor: 1.0,
-                is_primary: false,
-                owner_name: String::new(),
-            },
-        ])
+        let types = crate::recording::linux::portal_source_types().await?;
+        Ok(sources_for_types(types))
     }
 
     async fn check_permissions(&self) -> Result<PermissionStatus> {
@@ -93,19 +64,68 @@ impl NativeCaptureBackend for PipeWireBackend {
     }
 }
 
+fn sources_for_types(types: u32) -> Vec<CaptureSourceInfo> {
+    vec![
+        CaptureSourceInfo {
+            id: 1,
+            name: "Current display".to_string(),
+            source_type: CaptureSourceType::Display,
+            width: 0,
+            height: 0,
+            x: 0,
+            y: 0,
+            scale_factor: 1.0,
+            is_primary: true,
+            owner_name: String::new(),
+        },
+        CaptureSourceInfo {
+            id: 2,
+            name: "Choose a window…".to_string(),
+            source_type: CaptureSourceType::Window,
+            width: 0,
+            height: 0,
+            x: 0,
+            y: 0,
+            scale_factor: 1.0,
+            is_primary: false,
+            owner_name: String::new(),
+        },
+    ]
+    .into_iter()
+    .filter(|source| match source.source_type {
+        CaptureSourceType::Display => types & 1 != 0,
+        CaptureSourceType::Window => types & 2 != 0,
+        _ => false,
+    })
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn exposes_portal_source_choices_without_compositor_enumeration() {
-        let backend = PipeWireBackend::new().unwrap();
-        let sources = backend.enumerate_sources().await.unwrap();
-        assert_eq!(sources.len(), 2);
+    #[test]
+    fn monitor_only_portal_does_not_offer_windows() {
+        let sources = sources_for_types(1);
+        assert_eq!(sources.len(), 1);
         assert!(matches!(sources[0].source_type, CaptureSourceType::Display));
+    }
+
+    #[test]
+    fn kde_portal_keeps_display_and_window_choices() {
+        let sources = sources_for_types(3);
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[0].id, 1);
+        assert_eq!(sources[1].id, 2);
         assert!(matches!(sources[1].source_type, CaptureSourceType::Window));
-        assert_eq!(sources[0].name, "Current display");
-        assert!(sources[0].is_primary);
-        assert_eq!(sources[1].name, "Choose a window…");
+    }
+
+    #[test]
+    fn window_only_and_unsupported_portals_do_not_offer_displays() {
+        let sources = sources_for_types(2);
+        assert_eq!(sources.len(), 1);
+        assert!(matches!(sources[0].source_type, CaptureSourceType::Window));
+        assert!(sources_for_types(0).is_empty());
+        assert!(sources_for_types(4).is_empty());
     }
 }

@@ -2,6 +2,8 @@ pub mod artifacts;
 pub mod types;
 
 mod encoder_loop;
+#[cfg(target_os = "linux")]
+mod failure;
 mod finalization;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux;
@@ -190,7 +192,6 @@ impl RecordingAPI {
 
         #[cfg(target_os = "windows")]
         {
-            // Temporary Windows fallback until the native capture backend is ready.
             use tokio::process::Command;
             let mut cmd = Command::new("ffmpeg");
             cmd.arg("-y")
@@ -221,12 +222,7 @@ impl RecordingAPI {
             return *self.video_start_time.lock();
         }
 
-        #[cfg(target_os = "linux")]
-        {
-            None
-        }
-
-        #[cfg(target_os = "windows")]
+        #[cfg(not(target_os = "macos"))]
         {
             None
         }
@@ -343,7 +339,6 @@ impl RecordingAPI {
             }
         }
 
-        // Join the temporary FFmpeg child on Windows.
         #[cfg(target_os = "windows")]
         if let Some(mut child) = self.child.take() {
             match child.wait().await {

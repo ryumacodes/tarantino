@@ -4,6 +4,9 @@ export type RecordingState = 'idle' | 'prerecord' | 'recording' | 'paused' | 're
 
 interface RecordingStore {
   state: RecordingState;
+  recordingError: string | null;
+  failRecording: (error: string) => void;
+  confirmRecordingStarted: () => boolean;
   startTime: number | null;
   duration: number;
   filePath: string | null;
@@ -20,11 +23,18 @@ interface VideoMetadata {
 
 export const useRecordingStore = create<RecordingStore>((set) => ({
   state: 'idle',
+  recordingError: null,
+  failRecording: (recordingError) => set({ state: 'idle', recordingError, startTime: null }),
+  confirmRecordingStarted: () => {
+    if (useRecordingStore.getState().state !== 'prerecord') return false;
+    set({ state: 'recording' });
+    return true;
+  },
   startTime: null,
   duration: 0,
   filePath: null,
   
-  setRecordingState: (state) => set({ state }),
+  setRecordingState: (state) => set({ state, ...(state === 'prerecord' ? { recordingError: null } : {}) }),
   
   startRecording: () => set({ 
     state: 'recording', 

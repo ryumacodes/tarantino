@@ -273,3 +273,30 @@ The later physical-controller recording `/tmp/2026-10-19T14-00-07.mp4` contained
 21 clicks and generated 7 automatic zoom blocks after the XTEST request fix.
 This verifies physical R2 input reaches zoom generation; visual preview/export
 acceptance of that particular recording remains separate.
+
+### Portal portability and recording failure regressions
+
+`pnpm test:linux` includes headless regressions for asynchronous pipeline errors,
+normal versus unexpected EOS, monitor lifetime, portal source filtering, and
+persistent/nonpersistent window selections. It also checks unavailable portals
+using an isolated, nonexistent session-bus address. Frontend tests cover a failure
+arriving before the start command returns and starting another take after failure.
+
+On the SteamOS device in Desktop Mode, run `pnpm test:linux`, then verify:
+
+1. Choose a window, record, stop, and export. Repeat with a different window to
+   verify that the saved portal token follows the new selection.
+2. Restart an active recording and stop normally. Neither action should show a
+   recording-failed warning.
+3. During capture, stop sharing through the desktop's sharing controls. If the
+   portal ends the stream with an error or EOS, the capture bar should return,
+   the tray timer should stop, and the failure details should be visible. A new
+   recording should then start successfully.
+4. On a portal without persistence, selecting a window must succeed; Record may
+   ask for the window again. A previous saved window must not be reused.
+5. On a monitor-only portal, Window must be unavailable while Display still
+   records. Without a ScreenCast portal, the capture bar must show recording as
+   unavailable; after restoring the service, “Check again” must refresh sources.
+
+Container tests do not validate SteamOS's live portal, AMD acceleration, or input
+permissions. Keep the live Desktop Mode checks separate from Gaming Mode.

@@ -73,6 +73,8 @@ cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 echo "[5/7] Rust and Linux native unit tests"
 run_cargo cargo test --locked --all-targets --manifest-path src-tauri/Cargo.toml
 
+run_cargo env DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/tarantino-test-bus cargo test --locked --manifest-path src-tauri/Cargo.toml missing_portal_disables_recording -- --ignored
+
 echo "[6/7] Rust and Linux native compile check"
 run_cargo cargo check --locked --all-targets --manifest-path src-tauri/Cargo.toml
 

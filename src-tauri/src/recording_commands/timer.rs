@@ -76,4 +76,6 @@ pub(super) async fn start_recording_timer(
     if let Err(e) = app.emit("recording:started", payload) {
         println!("Warning: failed to emit recording:started: {}", e);
     }
+    #[cfg(target_os = "linux")]
+    super::failure::watch_recording(app, state).await;
 }

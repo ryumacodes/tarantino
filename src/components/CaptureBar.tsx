@@ -14,7 +14,6 @@ import { useCaptureShortcuts } from '../hooks/useCaptureShortcuts';
 import { isLinuxRuntime } from '../utils/platform';
 import { optimisticNativeCapabilities, type RecordingCapabilities } from '../utils/recordingCapabilities';
 import { type CaptureMode, type WebcamShape, type CameraDevice, isRecordableWindow, createSelectionItems, popupNativeMenu, handleCaptureBarDrag, exitCaptureBar, initialCaptureConfig } from './captureBarHelpers';
-
 const CaptureBar: React.FC = () => {
   const [captureMode, setCaptureMode] = useState<CaptureMode>('display');
   const [cameraEnabled, setCameraEnabled] = useState(false);
@@ -47,7 +46,7 @@ const CaptureBar: React.FC = () => {
   const windowRefreshRef = useRef<Promise<any[]> | null>(null);
   const startInFlightRef = useRef(false);
   const stopInFlightRef = useRef(false);
-  const { state, setRecordingState, stopRecording } = useRecordingStore();
+  const { state, setRecordingState, stopRecording, recordingError, failRecording, confirmRecordingStarted } = useRecordingStore();
   const isRecording = state === 'recording', isStarting = state === 'prerecord';
   const appWindows = windows.filter(isRecordableWindow);
   const windowModeReady = !windowsLoading && appWindows.length > 0;
@@ -55,7 +54,7 @@ const CaptureBar: React.FC = () => {
   const selectedTargetReady = captureMode === 'window'
     ? windowModeReady && selectedWindow !== null
     : captureMode === 'display'
-      ? selectedDisplay !== null
+      ? displays.some(display => display.id === selectedDisplay?.id)
       : selectedDevice !== null;
   const systemAudioAvailable = recordingCapabilities?.systemAudioAvailable ?? !isLinuxRuntime;
   const systemAudioUnavailableReason = "System audio requires the GStreamer PulseAudio and WAV plugins.";
@@ -64,7 +63,9 @@ const CaptureBar: React.FC = () => {
   const checkRecordingSupport = async () => {
     setCheckingRecordingSupport(true);
     try {
-      setRecordingCapabilities(await invoke<RecordingCapabilities>('get_recording_capabilities'));
+      const capabilities = await invoke<RecordingCapabilities>('get_recording_capabilities');
+      setRecordingCapabilities(capabilities);
+      if (capabilities.recordingAvailable) await loadDevices();
     } catch (error) {
       setRecordingCapabilities({
         recordingAvailable: false,
@@ -79,7 +80,6 @@ const CaptureBar: React.FC = () => {
     }
   };
   useEffect(() => {
-    loadDevices();
     checkRecordingSupport();
   }, []);
   useEffect(() => {
@@ -88,10 +88,12 @@ const CaptureBar: React.FC = () => {
         await stopRecording(event.payload);
       }
     });
+    const unlistenFailure = listen<string>('recording:failed', (event) => failRecording(event.payload));
     return () => {
       unlisten.then(fn => fn());
+      unlistenFailure.then(fn => fn());
     };
-  }, [stopRecording]);
+  }, [stopRecording, failRecording]);
   const loadDevices = async () => {
     try {
       const [displayList, deviceList, audioList] = await Promise.all([
@@ -416,8 +418,8 @@ const CaptureBar: React.FC = () => {
         capturePointerEvents: capturePointerEvents ?? true,
         webcamShape,
         outputPath: path });
-      setRecordingState('recording');
-      await Window.getCurrent().hide();
+      if (!confirmRecordingStarted()) return;
+      if (!isLinuxRuntime) await Window.getCurrent().hide();
     } catch (error) {
       console.error('Failed to start recording:', error);
       setRecordingState('idle');
@@ -439,7 +441,7 @@ const CaptureBar: React.FC = () => {
       setRecordingState('review');
     } catch (error) {
       console.error('Failed to stop recording:', error);
-      setRecordingState('recording');
+      if (!useRecordingStore.getState().recordingError) setRecordingState('recording');
     } finally {
       stopInFlightRef.current = false;
     }
@@ -452,13 +454,14 @@ const CaptureBar: React.FC = () => {
     }
     if (stopInFlightRef.current || startInFlightRef.current) return;
     stopInFlightRef.current = true;
+    setRecordingState('prerecord');
     try {
       await invoke('record_restart_new');
-      setRecordingState('recording');
-      await Window.getCurrent().hide().catch(() => {});
+      if (!confirmRecordingStarted()) return;
+      if (!isLinuxRuntime) await Window.getCurrent().hide().catch(() => {});
     } catch (error) {
       console.error('Failed to restart recording:', error);
-      setRecordingState('recording');
+      if (!useRecordingStore.getState().recordingError) setRecordingState('recording');
     } finally {
       stopInFlightRef.current = false;
     }
@@ -468,7 +471,6 @@ const CaptureBar: React.FC = () => {
     if (isRecording) await finishRecordingNow();
     else await startRecordingNow();
   };
-
 
   useCaptureShortcuts({
     isRecording,
@@ -485,6 +487,8 @@ const CaptureBar: React.FC = () => {
 
   return (
     <div className="capture-bar-pill" onMouseDown={handleCaptureBarDrag}>
+      {recordingError && <button className="capture-bar__runtime-warning" role="alert"
+        title={recordingError} onClick={() => alert(recordingError)}>Recording failed — details</button>}
       <div
         className={cn('capture-bar__record', { recording: isRecording || isStarting, disabled: !canRecord })}
         onClick={handleRecord}
@@ -516,7 +520,7 @@ const CaptureBar: React.FC = () => {
       ) : <div className="capture-bar__modes">
         <button
           className={cn('capture-bar__mode', { active: captureMode === 'display' })}
-          disabled={isStarting || isRecording}
+          disabled={displays.length === 0 || isStarting || isRecording}
           onClick={() => {
             if (isStarting || isRecording) return;
             handleModeChange('display');

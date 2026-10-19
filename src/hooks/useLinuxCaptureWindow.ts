@@ -3,8 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { PhysicalSize } from '@tauri-apps/api/dpi';
 import { isLinuxRuntime } from '../utils/platform';
 
-// GTK's window scale and WebKit's CSS pixel scale can differ on scaled desktops.
-// Measure their relationship instead of treating CSS pixels as Tauri logical pixels.
+// GTK's window scale can differ from WebKit's CSS pixel scale.
 export function useLinuxCaptureWindow(ref: RefObject<HTMLDivElement | null>) {
   useEffect(() => {
     if (!isLinuxRuntime || !ref.current) return;

@@ -1,2 +1,1 @@
-export const isLinuxRuntime = typeof navigator !== 'undefined'
-  && /Linux/i.test(`${navigator.platform} ${navigator.userAgent}`);
+export const isLinuxRuntime = /Linux/i.test(`${navigator.platform} ${navigator.userAgent}`);

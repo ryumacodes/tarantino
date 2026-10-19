@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -83,7 +83,6 @@ function EditorShell() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [processingStatus, setProcessingStatus] = useState<string>('Loading...');
-  const editorInitialized = useRef(false);
 
   const { initializeEditor, updateVisualSettings } = useEditorStore();
 
@@ -128,11 +127,8 @@ function EditorShell() {
     hasSystemAudio = false,
     hasWebcam = false,
     webcamShape: WebcamShape = 'circle',
-    webcamTransform = { webcamX: 0.895, webcamY: 0.895, webcamSize: 0.15 },
-    showError = true,
+    webcamTransform = { webcamX: 0.895, webcamY: 0.895, webcamSize: 0.15 }
   ) => {
-    if (editorInitialized.current) return true;
-
     try {
       const videoInfo = await invoke<any>('get_video_metadata', { filePath: path });
 
@@ -148,13 +144,9 @@ function EditorShell() {
         updateVisualSettings({ webcamShape, ...webcamTransform });
       }
 
-      editorInitialized.current = true;
       setIsLoading(false);
-      return true;
     } catch (err) {
       console.error('Error initializing editor with final path:', err);
-
-      if (!showError) return false;
 
       let errorMessage = 'Unknown error occurred';
       const errorStr = String(err);
@@ -171,7 +163,6 @@ function EditorShell() {
 
       setError(errorMessage);
       setIsLoading(false);
-      return false;
     }
   };
 
@@ -189,37 +180,11 @@ function EditorShell() {
       const tempPath = params.get('temp_path');
 
       if (loading && tempPath) {
-        const decodedTempPath = decodeURIComponent(tempPath);
-        setMediaPath(decodedTempPath);
+        setMediaPath(decodeURIComponent(tempPath));
         setProcessingStatus('Processing recording...');
         setIsLoading(true);
 
         setupProcessingEventListeners();
-
-        // The recording can finish before a newly-created Linux WebKit window
-        // has subscribed to Tauri events. Polling the finalized path provides
-        // a reliable handoff while keeping the event path as the fast path.
-        void (async () => {
-          await new Promise((resolve) => window.setTimeout(resolve, 300));
-          for (let attempt = 0; attempt < 30 && !editorInitialized.current; attempt += 1) {
-            const ready = await initializeEditorWithPath(
-              decodedTempPath,
-              hasMic,
-              hasSystemAudio,
-              hasWebcam,
-              webcamShape,
-              webcamTransform,
-              false,
-            );
-            if (ready) return;
-            await new Promise((resolve) => window.setTimeout(resolve, 500));
-          }
-
-          if (!editorInitialized.current) {
-            setError('Recording finished, but the editor could not open the video.');
-            setIsLoading(false);
-          }
-        })();
         return;
       }
 

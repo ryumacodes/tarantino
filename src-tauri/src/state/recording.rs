@@ -118,6 +118,29 @@ impl RecordingStateManager {
         Ok(final_path)
     }
 
+    #[cfg(target_os = "linux")]
+    pub(crate) async fn failure_receiver(
+        &self,
+    ) -> Option<tokio::sync::watch::Receiver<Option<String>>> {
+        self.recording_api.lock().await.failure_receiver()
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) async fn abort_failed_recording(
+        &self,
+        failure: &tokio::sync::watch::Receiver<Option<String>>,
+    ) -> Option<String> {
+        let mut api = self.recording_api.lock().await;
+        if !api.abort_failed_recording(failure).await {
+            return None;
+        }
+        *self.cached_state.write() = CoreRecordingState::Error;
+        self.current_config
+            .write()
+            .take()
+            .map(|config| config.output_path)
+    }
+
     /// Pause current recording
     pub async fn pause_recording(&self) -> Result<()> {
         let mut api = self.recording_api.lock().await;

@@ -40,12 +40,10 @@ impl UnifiedAppState {
             crate::capture::backends::macos::ScreenCaptureKitBackend::enumerate_displays_only();
 
         #[cfg(not(target_os = "macos"))]
-        let sources_result = CaptureBackendFactory::create_backend().and_then(|backend| {
-            futures::executor::block_on(async move {
-                let sources = backend.enumerate_sources().await?;
-                Ok::<_, anyhow::Error>(sources)
-            })
-        });
+        let sources_result = match CaptureBackendFactory::create_backend() {
+            Ok(backend) => backend.enumerate_sources().await,
+            Err(error) => Err(error),
+        };
 
         let displays: Vec<Display> = match sources_result {
             Ok(sources) => sources
@@ -75,7 +73,7 @@ impl UnifiedAppState {
                 Vec::new()
             }
         };
-        if !displays.is_empty() {
+        if cfg!(target_os = "linux") || !displays.is_empty() {
             self.app.update_displays(displays.clone());
         }
 
@@ -128,12 +126,10 @@ impl UnifiedAppState {
         #[cfg(not(target_os = "macos"))]
         let sources_result = {
             use crate::capture::backends::CaptureBackendFactory;
-            CaptureBackendFactory::create_backend().and_then(|backend| {
-                futures::executor::block_on(async move {
-                    let sources = backend.enumerate_sources().await?;
-                    Ok::<_, anyhow::Error>(sources)
-                })
-            })
+            match CaptureBackendFactory::create_backend() {
+                Ok(backend) => backend.enumerate_sources().await,
+                Err(error) => Err(error),
+            }
         };
 
         let windows: Vec<Window> = match sources_result {
@@ -159,7 +155,11 @@ impl UnifiedAppState {
                 .collect(),
             Err(err) => {
                 println!("get_windows: enumeration failed: {}", err);
-                let cached = self.app.read().windows.clone();
+                let cached = if cfg!(target_os = "linux") {
+                    Vec::new()
+                } else {
+                    self.app.read().windows.clone()
+                };
                 if !cached.is_empty() {
                     println!(
                         "=== UNIFIED_STATE: Returning {} cached windows after enumeration failure ===",
@@ -169,7 +169,7 @@ impl UnifiedAppState {
                 cached
             }
         };
-        if !windows.is_empty() {
+        if cfg!(target_os = "linux") || !windows.is_empty() {
             self.app.update_windows(windows.clone());
         }
 
@@ -257,53 +257,50 @@ impl UnifiedAppState {
         };
 
         #[cfg(not(target_os = "macos"))]
-        let (displays, windows) =
-            match CaptureBackendFactory::create_backend().and_then(|backend| {
-                futures::executor::block_on(async move {
-                    let sources = backend.enumerate_sources().await?;
-                    Ok::<_, anyhow::Error>(sources)
-                })
-            }) {
-                Ok(sources) => {
-                    let mut displays_out = Vec::new();
-                    let mut windows_out = Vec::new();
-                    for src in sources {
-                        match src.source_type {
-                            CaptureSourceType::Display => {
-                                displays_out.push(super::app::Display {
-                                    id: src.id.to_string(),
-                                    name: src.name,
-                                    width: src.width,
-                                    height: src.height,
-                                    scale_factor: src.scale_factor as f32,
-                                    refresh_rate: 60, // Backend does not expose; placeholder
-                                    is_primary: src.is_primary,
-                                    thumbnail: None,
-                                    #[cfg(target_os = "macos")]
-                                    cg_display_id: src.id as u32,
-                                });
-                            }
-                            CaptureSourceType::Window => {
-                                windows_out.push(super::app::Window {
-                                    id: src.id.to_string(),
-                                    title: src.name,
-                                    app_name: String::new(),
-                                    x: src.x,
-                                    y: src.y,
-                                    width: src.width,
-                                    height: src.height,
-                                    is_minimized: false,
-                                });
-                            }
+        let (displays, windows) = match match CaptureBackendFactory::create_backend() {
+            Ok(backend) => backend.enumerate_sources().await,
+            Err(error) => Err(error),
+        } {
+            Ok(sources) => {
+                let mut displays_out = Vec::new();
+                let mut windows_out = Vec::new();
+                for src in sources {
+                    match src.source_type {
+                        CaptureSourceType::Display => {
+                            displays_out.push(super::app::Display {
+                                id: src.id.to_string(),
+                                name: src.name,
+                                width: src.width,
+                                height: src.height,
+                                scale_factor: src.scale_factor as f32,
+                                refresh_rate: 60, // Backend does not expose; placeholder
+                                is_primary: src.is_primary,
+                                thumbnail: None,
+                                #[cfg(target_os = "macos")]
+                                cg_display_id: src.id as u32,
+                            });
+                        }
+                        CaptureSourceType::Window => {
+                            windows_out.push(super::app::Window {
+                                id: src.id.to_string(),
+                                title: src.name,
+                                app_name: String::new(),
+                                x: src.x,
+                                y: src.y,
+                                width: src.width,
+                                height: src.height,
+                                is_minimized: false,
+                            });
                         }
                     }
-                    (displays_out, windows_out)
                 }
-                Err(err) => {
-                    println!("Device enumeration failed, using empty lists: {}", err);
-                    (Vec::new(), Vec::new())
-                }
-            };
+                (displays_out, windows_out)
+            }
+            Err(err) => {
+                println!("Device enumeration failed, using empty lists: {}", err);
+                (Vec::new(), Vec::new())
+            }
+        };
 
         self.app.update_displays(displays);
         self.app.update_windows(windows);

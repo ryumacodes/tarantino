@@ -1,7 +1,7 @@
 //! In-process Linux recording through the XDG ScreenCast portal and PipeWire.
 
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use ashpd::desktop::{
@@ -16,57 +16,24 @@ use super::{QualityPreset, RecordingConfig, RecordingTarget};
 mod audio;
 #[path = "linux_cursor.rs"]
 mod cursor;
+#[path = "linux_monitor.rs"]
+mod monitor;
+#[path = "linux_portal.rs"]
+mod portal;
+use portal::{load_restore_token, save_restore_token};
+pub(crate) use portal::{portal_source_types, prepare_window_source};
 
 pub(crate) fn system_audio_available() -> bool {
     audio::available()
 }
 
-/// Open the compositor's real window chooser before recording and persist the
-/// approved source for the recording session that follows.
-pub(crate) async fn prepare_window_source() -> Result<()> {
-    let portal = Screencast::new()
-        .await
-        .context("Failed to connect to xdg-desktop-portal ScreenCast")?;
-    let session = portal
-        .create_session(Default::default())
-        .await
-        .context("Failed to create a desktop-portal screen-cast session")?;
-
-    portal
-        .select_sources(
-            &session,
-            SelectSourcesOptions::default()
-                .set_cursor_mode(CursorMode::Embedded)
-                .set_sources(Some(SourceType::Window.into()))
-                .set_multiple(false)
-                .set_persist_mode(PersistMode::ExplicitlyRevoked),
-        )
-        .await
-        .context("Failed to configure the desktop-portal window picker")?;
-
-    let response = portal
-        .start(&session, None, Default::default())
-        .await
-        .context("Failed to open the desktop-portal window picker")?
-        .response()
-        .context("Window selection was cancelled")?;
-    if response.streams().is_empty() {
-        anyhow::bail!("The desktop portal returned no window stream");
-    }
-    let token = response
-        .restore_token()
-        .context("The desktop portal did not return a reusable window selection")?;
-    save_restore_token("window", token)
-        .context("Failed to save the selected desktop-portal window")?;
-    Ok(())
-}
-
 pub struct LinuxRecording {
     pipeline: gst::Pipeline,
+    monitor: monitor::PipelineMonitor,
     _cursor_reader: Option<cursor::CursorReader>,
     // Portal ownership grants access to the PipeWire node for the recording lifetime.
     _portal: Screencast,
-    _session: Session<Screencast>,
+    session: Option<Session<Screencast>>,
     _pipewire_fd: OwnedFd,
 }
 
@@ -134,7 +101,7 @@ impl LinuxRecording {
             .response()
             .context("Screen or window selection was cancelled")?;
         if let Some(token) = response.restore_token()
-            && let Err(error) = save_restore_token(source_key, token)
+            && let Err(error) = save_restore_token(source_key, Some(token))
         {
             eprintln!("Failed to save Linux portal source choice: {error:#}");
         }
@@ -173,11 +140,13 @@ impl LinuxRecording {
             stream.pipe_wire_node_id(),
             pipewire_fd.as_raw_fd(),
         )?;
+        let monitor = monitor::PipelineMonitor::new(&pipeline);
         let recording = Self {
             pipeline,
+            monitor,
             _cursor_reader: cursor_reader,
             _portal: portal,
-            _session: session,
+            session: Some(session),
             _pipewire_fd: pipewire_fd,
         };
         // Own the resources before startup, so Drop tears down partial audio or
@@ -189,71 +158,44 @@ impl LinuxRecording {
         Ok(recording)
     }
 
+    pub fn failure(&self) -> tokio::sync::watch::Receiver<Option<String>> {
+        self.monitor.failure()
+    }
+
     pub fn signal_stop(&mut self) -> Result<()> {
+        self.monitor.stopping();
         if !self.pipeline.send_event(gst::event::Eos::new()) {
             anyhow::bail!("Failed to send end-of-stream to the Linux recorder");
         }
         Ok(())
     }
 
-    pub async fn wait(self) -> Result<()> {
+    pub async fn wait(mut self) -> Result<()> {
         let pipeline = self.pipeline.clone();
-        let wait_result = tokio::task::spawn_blocking(move || wait_for_pipeline(&pipeline))
-            .await
-            .context("Linux recording finalization task panicked")?;
-        self.pipeline
-            .set_state(gst::State::Null)
-            .context("Failed to release the native Linux recording pipeline")?;
-        wait_result
+        let result = tokio::task::spawn_blocking(move || wait_for_pipeline(&pipeline)).await;
+        self.close().await;
+        result.context("Linux recording finalization task panicked")?
     }
-}
 
-fn restore_token_path(source_key: &str) -> Option<PathBuf> {
-    let config_root = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    Some(
-        config_root
-            .join("tarantino")
-            .join(format!("linux-screencast-{source_key}.token")),
-    )
-}
-
-fn load_restore_token(source_key: &str) -> Option<String> {
-    let token = std::fs::read_to_string(restore_token_path(source_key)?).ok()?;
-    let token = token.trim();
-    (!token.is_empty()).then(|| token.to_string())
-}
-
-fn save_restore_token(source_key: &str, token: &str) -> Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-
-    let path = restore_token_path(source_key)
-        .context("Neither XDG_CONFIG_HOME nor HOME is available for portal persistence")?;
-    let parent = path.parent().context("Portal token path has no parent")?;
-    std::fs::create_dir_all(parent)
-        .with_context(|| format!("Failed to create {}", parent.display()))?;
-    if let Err(error) = std::fs::remove_file(&path)
-        && error.kind() != std::io::ErrorKind::NotFound
-    {
-        return Err(error).with_context(|| format!("Failed to replace {}", path.display()));
+    pub async fn close(&mut self) {
+        self.monitor.stopping();
+        let _ = self.pipeline.set_state(gst::State::Null);
+        if let Some(session) = self.session.take() {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), session.close()).await;
+        }
     }
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&path)
-        .with_context(|| format!("Failed to create {}", path.display()))?;
-    file.write_all(token.as_bytes())
-        .with_context(|| format!("Failed to write {}", path.display()))?;
-    Ok(())
 }
 
 impl Drop for LinuxRecording {
     fn drop(&mut self) {
+        self.monitor.stopping();
         let _ = self.pipeline.set_state(gst::State::Null);
+        if let Some(session) = self.session.take() {
+            tauri::async_runtime::spawn(async move {
+                let _ =
+                    tokio::time::timeout(std::time::Duration::from_secs(3), session.close()).await;
+            });
+        }
     }
 }
 

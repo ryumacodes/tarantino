@@ -32,7 +32,8 @@ export function useCaptureSettingsWindow(ref: RefObject<HTMLElement | null>) {
     return () => {
       disposed = true;
       observer?.disconnect();
-      if (original) void pending.then(() => win.setSize(original!)).catch(console.error);
+      const size = original;
+      if (size) void pending.then(() => win.setSize(size)).catch(console.error);
     };
   }, [ref]);
 }
