@@ -1,4 +1,9 @@
-// Zoom Actions
+import { shortcutsFromSidecar } from "../../../utils/shortcuts/sidecar";
+import { typingRanges } from "../../../utils/timeline/typingRanges";
+import { createRecordingLoadGuard } from '../recordingLoadGuard';
+import { edit } from '../history';
+import { mergeRebuiltZooms } from '../rebuildZooms';
+
 import { invoke } from '@tauri-apps/api/core';
 import type {
   EditorState,
@@ -14,57 +19,62 @@ import type {
 type SetFn = (fn: (state: EditorState & EditorActions) => void) => void;
 type GetFn = () => EditorState & EditorActions;
 
-export const createZoomActions = (set: SetFn, get: GetFn) => ({
-  // Zoom Keyframe Actions
-  addZoomKeyframe: (keyframe: ZoomKeyframe) => set((state) => {
+export const createZoomActions = (set: SetFn, get: GetFn) => {
+  const beginLoad = createRecordingLoadGuard(get);
+  return ({
+
+  addZoomKeyframe: (keyframe: ZoomKeyframe) => edit(set, (state) => {
     state.zoomKeyframes.push(keyframe);
     state.selectedKeyframe = keyframe;
-    state.history.push({ ...state });
-    state.historyIndex++;
   }),
 
-  updateZoomKeyframe: (id: string, updates: Partial<ZoomKeyframe>) => set((state) => {
+  updateZoomKeyframe: (id: string, updates: Partial<ZoomKeyframe>) => edit(set, (state) => {
     const index = state.zoomKeyframes.findIndex(kf => kf.id === id);
     if (index !== -1) {
       Object.assign(state.zoomKeyframes[index], updates);
-      state.history.push({ ...state });
-      state.historyIndex++;
     }
   }),
 
-  deleteZoomKeyframe: (id: string) => set((state) => {
+  deleteZoomKeyframe: (id: string) => edit(set, (state) => {
     state.zoomKeyframes = state.zoomKeyframes.filter(kf => kf.id !== id);
     if (state.selectedKeyframe?.id === id) {
       state.selectedKeyframe = null;
     }
-    state.history.push({ ...state });
-    state.historyIndex++;
   }),
 
-  // Webcam Keyframe Actions
-  addWebcamKeyframe: (keyframe: WebcamKeyframe) => set((state) => {
+  addWebcamKeyframe: (keyframe: WebcamKeyframe) => edit(set, (state) => {
     state.webcamKeyframes.push(keyframe);
-    state.history.push({ ...state });
-    state.historyIndex++;
   }),
 
-  updateWebcamKeyframe: (id: string, updates: Partial<WebcamKeyframe>) => set((state) => {
+  updateWebcamKeyframe: (id: string, updates: Partial<WebcamKeyframe>) => edit(set, (state) => {
     const index = state.webcamKeyframes.findIndex(kf => kf.id === id);
     if (index !== -1) {
       Object.assign(state.webcamKeyframes[index], updates);
-      state.history.push({ ...state });
-      state.historyIndex++;
     }
   }),
 
-  deleteWebcamKeyframe: (id: string) => set((state) => {
+  deleteWebcamKeyframe: (id: string) => edit(set, (state) => {
     state.webcamKeyframes = state.webcamKeyframes.filter(kf => kf.id !== id);
-    state.history.push({ ...state });
-    state.historyIndex++;
   }),
 
-  // Zoom Block Actions
+  regenerateZooms: async () => {
+    const { videoFilePath, zoomAnalysis: before } = get();
+    if (!videoFilePath) throw new Error('Open a recording first.');
+    const current = beginLoad('loadZoomData');
+    const analysis = await invoke<ZoomAnalysis>('regenerate_auto_zoom_data', { videoPath: videoFilePath });
+    if (!current()) return false;
+    if (get().zoomAnalysis !== before) throw new Error('Zooms changed during analysis. Try again to use your latest edits.');
+    edit(set, state => {
+      state.zoomAnalysis = mergeRebuiltZooms(analysis,before);
+      state.selectedBlockId = null;
+      state.zoomLoading = false;
+    });
+    return true;
+  },
   loadZoomData: async (filePath: string) => {
+    if (get().videoFilePath && get().videoFilePath !== filePath) return;
+    const current = beginLoad('loadZoomData');
+    const originalAnalysis = get().zoomAnalysis;
     set((state) => { state.zoomLoading = true; });
 
     try {
@@ -72,6 +82,11 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
         videoPath: filePath
       });
 
+      if (!current()) return;
+      if (get().zoomAnalysis !== originalAnalysis) {
+        set(state => { state.zoomLoading = false; });
+        return;
+      }
       set((state) => {
         if (analysis && analysis.zoom_blocks) {
           const videoDuration = state.duration;
@@ -87,15 +102,17 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
         state.zoomLoading = false;
       });
     } catch (error) {
+      if (!current()) return;
       console.error('[ZOOM] Failed to load zoom data:', error);
+
       set((state) => {
-        state.zoomAnalysis = null;
+        if (get().zoomAnalysis === originalAnalysis) state.zoomAnalysis = null;
         state.zoomLoading = false;
       });
     }
   },
 
-  updateZoomBlock: (blockId: string, updates: Partial<ZoomBlock>) => set((state) => {
+  updateZoomBlock: (blockId: string, updates: Partial<ZoomBlock>) => edit(set, (state) => {
     if (!state.zoomAnalysis) return;
 
     const blockIndex = state.zoomAnalysis.zoom_blocks.findIndex(block => block.id === blockId);
@@ -113,15 +130,12 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
       state.zoomAnalysis.zoom_blocks[blockIndex].timing_adjusted = true;
     }
 
-    if (updates.center_x !== undefined || updates.center_y !== undefined) {
+    if (updates.is_manual === undefined && (updates.center_x !== undefined || updates.center_y !== undefined)) {
       state.zoomAnalysis.zoom_blocks[blockIndex].is_manual = true;
     }
-
-    state.history.push({ ...state });
-    state.historyIndex++;
   }),
 
-  deleteZoomBlock: (blockId: string) => set((state) => {
+  deleteZoomBlock: (blockId: string) => edit(set, (state) => {
     if (!state.zoomAnalysis) return;
 
     state.zoomAnalysis.zoom_blocks = state.zoomAnalysis.zoom_blocks.filter(
@@ -131,12 +145,9 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
     if (state.selectedBlockId === blockId) {
       state.selectedBlockId = null;
     }
-
-    state.history.push({ ...state });
-    state.historyIndex++;
   }),
 
-  addZoomBlock: (block: ZoomBlock) => set((state) => {
+  addZoomBlock: (block: ZoomBlock) => edit(set, (state) => {
     if (!state.zoomAnalysis) {
       state.zoomAnalysis = {
         zoom_blocks: [],
@@ -157,11 +168,9 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
     };
 
     state.zoomAnalysis.zoom_blocks.push(clampedBlock);
-    state.history.push({ ...state });
-    state.historyIndex++;
   }),
 
-  splitZoomBlocksAtTime: (time: number) => set((state) => {
+  splitZoomBlocksAtTime: (time: number) => edit(set, (state) => {
     if (!state.zoomAnalysis) return;
 
     const blocksToSplit = state.zoomAnalysis.zoom_blocks.filter(
@@ -178,20 +187,16 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
         start_time: time,
         end_time: originalEnd,
         centers: originalCenters.filter(center => center.time >= time),
-        is_manual: true,
         timing_adjusted: true,
       };
 
       block.end_time = time;
       block.centers = originalCenters.filter(center => center.time < time);
-      block.is_manual = true;
       block.timing_adjusted = true;
       state.zoomAnalysis!.zoom_blocks.push(secondBlock);
     });
 
     state.zoomAnalysis.zoom_blocks.sort((a, b) => a.start_time - b.start_time);
-    state.history.push({ ...state });
-    state.historyIndex++;
   }),
 
   saveZoomData: async () => {
@@ -216,8 +221,9 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
     state.selectedBlockId = id;
   }),
 
-  // Preview Zoom Actions
   loadPreviewZoomData: async (filePath: string) => {
+    if (get().videoFilePath && get().videoFilePath !== filePath) return;
+    const current = beginLoad('loadPreviewZoomData');
     set((state) => { state.previewZoomLoading = true; });
 
     try {
@@ -225,12 +231,15 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
         videoPath: filePath
       });
 
+      if (!current()) return;
       set((state) => {
         state.previewZoomAnalysis = analysis;
         state.previewZoomLoading = false;
       });
     } catch (error) {
+      if (!current()) return;
       console.error('Failed to load preview zoom data:', error);
+
       set((state) => {
         state.previewZoomAnalysis = null;
         state.previewZoomLoading = false;
@@ -238,12 +247,13 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
     }
   },
 
-  // Mouse Event Actions
   loadMouseEvents: async (sidecarPath: string) => {
+    const current = beginLoad('loadMouseEvents');
     set((state) => { state.mouseEventsLoading = true; });
 
     try {
       const sidecarContent = await invoke<string>('read_sidecar_file', { path: sidecarPath });
+      if (!current()) return;
       const rawData = JSON.parse(sidecarContent);
 
       let rawEvents: any[];
@@ -294,8 +304,11 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
         };
       }).sort((a, b) => a.base.timestamp - b.base.timestamp);
 
+      if (!current()) return;
       set((state) => {
         state.mouseEvents = data;
+        state.typingRanges = typingRanges(rawData.key_events);
+        state.shortcutIntervals = shortcutsFromSidecar(rawData.key_events);
         state.mouseEventsLoading = false;
         state.scaleFactor = scaleFactor;
         state.recordingArea = recordingArea;
@@ -308,19 +321,20 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
           state.screenResolution = (screenWidth && screenHeight)
             ? { width: screenWidth, height: screenHeight }
             : null;
-          // Window recordings open in Focus by default: original source aspect,
-          // with Desktop mode opting into staged aspect ratios.
-          state.visualSettings.windowLayoutMode = 'focus';
-          state.visualSettings.aspectRatio = 'auto';
+          // Loading input metadata must preserve the user's saved layout choices.
         } else {
           state.displayResolution = { width: displayWidth, height: displayHeight };
           state.screenResolution = null;
         }
       });
     } catch (error) {
+      if (!current()) return;
       console.error('[MOUSE] Failed to load mouse events:', error);
+
       set((state) => {
         state.mouseEvents = null;
+        state.typingRanges = [];
+        state.shortcutIntervals = [];
         state.mouseEventsLoading = false;
       });
     }
@@ -377,3 +391,4 @@ export const createZoomActions = (set: SetFn, get: GetFn) => ({
     };
   },
 });
+};

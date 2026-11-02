@@ -1,3 +1,6 @@
+import { useEditGesture } from '../../../../hooks/useEditGesture';
+import { useEditorStore } from '../../../../stores/editor';
+import { editSourceRange, type SourceRangeView } from '../../../../utils/timeline/sourceRanges';
 import { useState, useEffect, useCallback, RefObject } from 'react';
 
 export type DragType = 'playhead' | 'trim-start' | 'trim-end' | null;
@@ -39,6 +42,13 @@ export function useTimelineDrag({
 }: UseTimelineDragOptions): UseTimelineDragResult {
   const [isDragging, setIsDragging] = useState(false);
   const [dragType, setDragType] = useState<DragType>(null);
+
+  useEffect(() => {
+    if (!isDragging || (dragType !== 'trim-start' && dragType !== 'trim-end')) return;
+    const store = useEditorStore.getState();
+    store.beginHistoryGroup();
+    return () => store.endHistoryGroup();
+  }, [isDragging, dragType]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent, type: DragType) => {
     if (isExporting && (type === 'trim-start' || type === 'trim-end')) {
@@ -94,172 +104,46 @@ export function useTimelineDrag({
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('blur', handleMouseUp);
 
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('blur', handleMouseUp);
     };
   }, [isDragging, dragType, timelineRef, pixelsPerMs, duration, trackHeaderWidth, trimStart, trimEnd, setCurrentTime, setTrimStart, setTrimEnd, seekVideo, getVideoElement]);
 
   return { isDragging, dragType, handleMouseDown };
 }
 
-interface ZoomBlock {
-  id: string;
-  startTime: number;
-  endTime: number;
-  zoomFactor: number;
-  isManual: boolean;
-}
-
+interface ZoomBlock extends SourceRangeView { id: string; zoomFactor: number; isManual: boolean; }
 interface UseZoomBlockDragOptions {
   pixelsPerMs: number;
   duration: number;
   updateZoomBlock: (id: string, updates: { start_time?: number; end_time?: number }) => void;
   isExporting: boolean;
 }
-
-interface DraggingBlockState {
-  blockId: string;
-  startX: number;
-  originalStart: number;
-  originalEnd: number;
-}
-
-interface ResizingBlockState {
-  blockId: string;
-  type: 'start' | 'end';
-  startX: number;
-  originalStart: number;
-  originalEnd: number;
-}
-
-export function useZoomBlockDrag({
-  pixelsPerMs,
-  duration,
-  updateZoomBlock,
-  isExporting,
-}: UseZoomBlockDragOptions) {
-  const [draggingBlock, setDraggingBlock] = useState<DraggingBlockState | null>(null);
-  const [resizingBlock, setResizingBlock] = useState<ResizingBlockState | null>(null);
-
-  const handleDragStart = useCallback((event: React.MouseEvent, block: ZoomBlock) => {
+export function useZoomBlockDrag({ pixelsPerMs, duration, updateZoomBlock, isExporting }: UseZoomBlockDragOptions) {
+  const gesture = useEditGesture();
+  const [edit, setEdit] = useState<{ block: ZoomBlock; startX:number; type:'move'|'start'|'end' } | null>(null);
+  const begin = useCallback((event:React.MouseEvent, block:ZoomBlock, type:'move'|'start'|'end') => {
     if (isExporting) return;
-
-    const target = event.target as HTMLElement;
-    if (target.classList.contains('resize-handle') ||
-        target.classList.contains('resize-handle-left') ||
-        target.classList.contains('resize-handle-right')) {
-      return;
-    }
-
-    event.stopPropagation();
-    event.preventDefault();
-
-    setDraggingBlock({
-      blockId: block.id,
-      startX: event.clientX,
-      originalStart: block.startTime,
-      originalEnd: block.endTime,
-    });
-  }, [isExporting]);
-
-  const handleResizeStart = useCallback((event: React.MouseEvent, block: ZoomBlock, type: 'start' | 'end') => {
-    if (isExporting) return;
-    event.stopPropagation();
-    event.preventDefault();
-
-    setResizingBlock({
-      blockId: block.id,
-      type,
-      startX: event.clientX,
-      originalStart: block.startTime,
-      originalEnd: block.endTime,
-    });
-  }, [isExporting]);
-
-  // Handle resize
+    event.stopPropagation(); event.preventDefault();
+    gesture.begin();
+    setEdit({block,startX:event.clientX,type});
+  },[isExporting,gesture.begin]);
+  const handleDragStart=useCallback((event:React.MouseEvent,block:ZoomBlock) => {
+    if ((event.target as HTMLElement).classList.contains('resize-handle')) return;
+    begin(event,block,'move');
+  },[begin]);
+  const handleResizeStart=useCallback((event:React.MouseEvent,block:ZoomBlock,type:'start'|'end') => begin(event,block,type),[begin]);
   useEffect(() => {
-    if (!resizingBlock) return;
-
-    const handleMouseMove = (event: MouseEvent) => {
-      const deltaX = event.clientX - resizingBlock.startX;
-      const deltaTime = deltaX / pixelsPerMs;
-
-      if (resizingBlock.type === 'start') {
-        const newStart = Math.max(0, resizingBlock.originalStart + deltaTime);
-        const newEnd = resizingBlock.originalEnd;
-
-        if (newEnd - newStart >= 200) {
-          updateZoomBlock(resizingBlock.blockId, {
-            start_time: newStart,
-            end_time: newEnd,
-          });
-        }
-      } else {
-        const newStart = resizingBlock.originalStart;
-        const newEnd = Math.min(duration, resizingBlock.originalEnd + deltaTime);
-
-        if (newEnd - newStart >= 200) {
-          updateZoomBlock(resizingBlock.blockId, {
-            start_time: newStart,
-            end_time: newEnd,
-          });
-        }
-      }
-    };
-
-    const handleMouseUp = () => {
-      setResizingBlock(null);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [resizingBlock, pixelsPerMs, duration, updateZoomBlock]);
-
-  // Handle drag
-  useEffect(() => {
-    if (!draggingBlock) return;
-
-    const handleMouseMove = (event: MouseEvent) => {
-      const deltaX = event.clientX - draggingBlock.startX;
-      const deltaTime = deltaX / pixelsPerMs;
-      const blockDuration = draggingBlock.originalEnd - draggingBlock.originalStart;
-
-      const newStart = Math.max(0, Math.min(
-        duration - blockDuration,
-        draggingBlock.originalStart + deltaTime
-      ));
-      const newEnd = newStart + blockDuration;
-
-      updateZoomBlock(draggingBlock.blockId, {
-        start_time: newStart,
-        end_time: newEnd,
-      });
-    };
-
-    const handleMouseUp = () => {
-      setDraggingBlock(null);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [draggingBlock, pixelsPerMs, duration, updateZoomBlock]);
-
-  return {
-    draggingBlock,
-    resizingBlock,
-    handleDragStart,
-    handleResizeStart,
-  };
+    if (!edit) return;
+    const move=(event:MouseEvent) => updateZoomBlock(edit.block.id,
+      editSourceRange(edit.block,(event.clientX-edit.startX)/pixelsPerMs,edit.type,duration));
+    const stop=() => { gesture.end(); setEdit(null); };
+    document.addEventListener('mousemove',move); document.addEventListener('mouseup',stop); window.addEventListener('blur',stop);
+    return () => { document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',stop); window.removeEventListener('blur',stop); };
+  },[edit,pixelsPerMs,duration,updateZoomBlock,gesture.end]);
+  return {handleDragStart,handleResizeStart};
 }

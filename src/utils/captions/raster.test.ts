@@ -1,0 +1,22 @@
+import {afterEach,expect,it,vi} from 'vitest';
+import {CaptionTextAtlas} from './raster';
+import {DEFAULT_CAPTION_SETTINGS} from './settings';
+afterEach(()=>vi.unstubAllGlobals());
+it('bounds measurements for long transcripts while retaining recently reused words',()=>{
+  const measureText=vi.fn((text:string)=>({width:text.length*8,fontBoundingBoxAscent:12,fontBoundingBoxDescent:4}));
+  vi.stubGlobal('document',{createElement:()=>({getContext:()=>({measureText,font:''})})});
+  const atlas=new CaptionTextAtlas(DEFAULT_CAPTION_SETTINGS,16);
+  const first=atlas.measure('first');
+  for(let i=0;i<4095;i++)atlas.measure(`word-${i}`);
+  expect(atlas.metricCount).toBe(4096);
+  expect(atlas.measure('first')).toEqual(first);
+  atlas.measure('new word');
+  const count=measureText.mock.calls.length;
+  expect(atlas.measure('first')).toEqual(first);
+  expect(measureText).toHaveBeenCalledTimes(count);
+  expect(atlas.measure('word-0')).toEqual({width:48,height:16});
+  expect(measureText).toHaveBeenCalledTimes(count+1);
+  for(let i=0;i<20_000;i++)atlas.measure(`later-${i}`);
+  expect(atlas.metricCount).toBe(4096);
+  expect(atlas.measure('first')).toEqual(first);
+});

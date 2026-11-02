@@ -1,3 +1,6 @@
+import MasksTab from './properties/MasksTab';
+import CaptionsTab from "./properties/CaptionsTab";
+import ShortcutsTab from "./properties/ShortcutsTab";
 import React, { useState, useEffect } from 'react';
 import {
   Volume2,
@@ -5,7 +8,10 @@ import {
   Sparkles,
   Monitor,
   Target,
-  Film
+  Film,
+  Keyboard,
+  Captions,
+  Scan
 } from 'lucide-react';
 import CursorSettingsPanel from './CursorSettingsPanel';
 import { ZoomTab, ClipsTab, BackgroundTab, MotionTab, AudioTab, type TabType } from './properties';
@@ -14,17 +20,20 @@ import '../../styles/properties-panel.css';
 import '../../styles/properties-panel-clips-export.css';
 
 interface PropertiesPanelProps {
+  audioImportRevision?: number;
   onShowMouseOverlay?: (show: boolean) => void;
   showMouseOverlay?: boolean;
   isExporting?: boolean;
 }
 
 const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
+  audioImportRevision = 0,
   onShowMouseOverlay,
   showMouseOverlay = true,
   isExporting = false
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('zoom');
+  useEffect(()=>{if(audioImportRevision>0)setActiveTab('audio');},[audioImportRevision]);
 
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
@@ -35,7 +44,10 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           '3': 'background',
           '4': 'cursor',
           '5': 'motion',
-          '6': 'audio'
+          '6': 'audio',
+          '7': 'shortcuts',
+          '8': 'captions',
+          '9': 'masks'
         };
 
         if (keyMap[e.key]) {
@@ -55,7 +67,10 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     { id: 'background', name: 'Background', icon: Monitor, description: 'Canvas and export' },
     { id: 'cursor', name: 'Cursor', icon: MousePointer, description: 'Cursor style & behavior' },
     { id: 'motion', name: 'Motion', icon: Sparkles, description: 'Animation & easing' },
-    { id: 'audio', name: 'Audio', icon: Volume2, description: 'Audio processing' }
+    { id: 'audio', name: 'Audio', icon: Volume2, description: 'Audio processing' },
+    { id: 'masks', name: 'Masks', icon: Scan, description: 'Cover sensitive areas & highlight details' },
+    { id: 'captions', name: 'Captions', icon: Captions, description: 'Transcript appearance & motion' },
+    { id: 'shortcuts', name: 'Shortcuts', icon: Keyboard, description: 'Recorded keyboard shortcuts' }
   ];
 
   const renderCursorTab = () => (
@@ -78,6 +93,12 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         return renderCursorTab();
       case 'motion':
         return <MotionTab isExporting={isExporting} />;
+      case 'masks':
+        return <MasksTab isExporting={isExporting} />;
+      case 'captions':
+        return <CaptionsTab isExporting={isExporting} />;
+      case 'shortcuts':
+        return <ShortcutsTab isExporting={isExporting} />;
       case 'audio':
         return <AudioTab isExporting={isExporting} />;
       default:
@@ -121,4 +142,4 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   );
 };
 
-export default PropertiesPanel;
+export default React.memo(PropertiesPanel);

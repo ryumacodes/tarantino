@@ -24,6 +24,7 @@ const CaptureShortcutOverlays: React.FC<CaptureShortcutOverlaysProps> = ({
           <div className="shortcut-list">
             <div className="shortcut-row"><span>Start / finish recording</span><kbd>⌘ ⌥ ⌃ R</kbd></div>
             <div className="shortcut-row"><span>Restart recording</span><kbd>⌘ ⌥ ⌃ ⇧ R</kbd></div>
+            <p>On macOS, finish and restart also work while another app is focused when Accessibility access is enabled. Starting requires the capture bar to be focused.</p>
             <div className="shortcut-row"><span>Show speaker notes</span><kbd>⌘ ⌥ /</kbd></div>
             <div className="shortcut-row"><span>Show shortcuts</span><kbd>⌘ /</kbd></div>
             <div className="shortcut-row"><span>Record entire display</span><kbd>Customizable</kbd></div>

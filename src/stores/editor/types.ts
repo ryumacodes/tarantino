@@ -21,6 +21,10 @@ export interface TimelineClip {
   sourceIn: number; // In point in source media
   sourceOut: number; // Out point in source media
   sourceFilePath?: string;
+  hideCursor?: boolean;
+  disableCursorSmoothing?: boolean;
+  micVolume?: number; // Linear clip gain; defaults to 1
+  systemVolume?: number;
   enabled: boolean;
   locked: boolean;
   color?: string;
@@ -62,6 +66,7 @@ export interface TimelineViewState {
 }
 
 export interface WebcamKeyframe {
+  layout?: 'overlay' | 'fullscreen' | 'hidden';
   id: string;
   time: number;
   x: number;
@@ -82,6 +87,9 @@ export interface Overlay {
 }
 
 export interface AudioSettings {
+  backgroundAudio?: import('../../utils/audio/backgroundAudio').BackgroundAudio;
+  micMuted?: boolean;
+  systemMuted?: boolean;
   micGain: number;
   systemGain: number;
   noiseGate: boolean;
@@ -118,6 +126,7 @@ export interface GradientStop {
 }
 
 export interface VisualSettings {
+  sourceCrop?: import('../../utils/sourceCrop').SourceCrop;
   // Background
   backgroundType: BackgroundType;
   backgroundColor: string;
@@ -154,6 +163,7 @@ export interface VisualSettings {
 
   // Cursor Style & Behavior
   cursorStyle: 'pointer' | 'circle' | 'filled' | 'outline' | 'dotted';
+  optimizeCursorTypes?: boolean;
   alwaysUsePointer: boolean; // Don't change cursor style even when selecting text
   hideCursor: boolean; // Completely hide cursor
   loopCursorPosition: boolean; // Return cursor to start position at video end
@@ -169,12 +179,16 @@ export interface VisualSettings {
   // Advanced Cursor Options
   stopCursorAtEnd: boolean; // Freeze cursor before video end
   stopCursorDuration: number; // ms before end to stop cursor
-  removeCursorShakes: boolean; // Filter micro-movements
+  removeCursorShakes: boolean; // Remove isolated pointer jumps
   shakesThreshold: number; // Pixel threshold for shake detection
   optimizeCursorChanges: boolean; // Minimize rapid cursor type changes
 
   // Animation
+  zoomLeadInMs?: number;
+  screenMotionStyle?: 'focused' | 'smooth';
+  zoomEffectsEnabled?: boolean;
   zoomSpeedPreset: 'slow' | 'mellow' | 'quick' | 'rapid';
+  cursorMotionStyle?: 'smooth' | 'medium' | 'rapid' | 'none';
   cursorSpeedPreset: 'slow' | 'mellow' | 'quick' | 'rapid'; // Separate from zoom
 
   // Motion Blur
@@ -194,8 +208,12 @@ export interface VisualSettings {
   webcamCorner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
   webcamX: number; // normalized center X, 0-1
   webcamY: number; // normalized center Y, 0-1
+  webcamEnabled?: boolean;
+  webcamHideSilenceMs?: number | null;
+  webcamLayout?: 'overlay' | 'fullscreen' | 'hidden';
   webcamSize: number; // 0.08-0.25 (fraction of video width)
   webcamShape: 'circle' | 'roundrect';
+  webcamMirrored?: boolean;
 }
 
 // Simplified zoom types (matching new Rust backend)
@@ -212,6 +230,14 @@ export interface ZoomCenter {
   time: number;            // When to pan to this center (ms)
 }
 
+export interface LoupeStyle {
+  radius: number;
+  glass: boolean;
+  bevel: number;
+  chromatic_aberration: number;
+  shadow_alpha: number;
+}
+
 export interface ZoomBlock {
   id: string;
   click_x: number;         // First click position X
@@ -226,6 +252,9 @@ export interface ZoomBlock {
   kind?: 'click' | 'typing';
   zoom_in_speed?: 'slow' | 'mellow' | 'quick' | 'rapid';   // per-block, falls back to global zoomSpeedPreset
   zoom_out_speed?: 'slow' | 'mellow' | 'quick' | 'rapid';  // per-block, falls back to global zoomSpeedPreset
+  instant_animation?: boolean;
+  is_disabled?: boolean;
+  loupe?: LoupeStyle | null;
   timing_adjusted?: boolean;
 }
 
@@ -271,11 +300,13 @@ export interface MouseEventData {
 }
 
 export interface EditorState {
+  recordingRevision: number;
   videoFilePath: string | null;
   projectTitle: string;
   recordedAt: number | null; // Timestamp in milliseconds
   duration: number;
   currentTime: number;
+  playbackRevision: number;
   trimStart: number;
   trimEnd: number;
   zoomKeyframes: ZoomKeyframe[];
@@ -285,8 +316,9 @@ export interface EditorState {
   selectedKeyframe: ZoomKeyframe | null;
   thumbnails: string[];
   thumbnailsLoading: boolean;
-  history: any[];
+  history: import('./history').EditSnapshot[];
   historyIndex: number;
+  historyGroup: { depth: number; recorded: boolean } | null;
   hasWebcam: boolean;
   hasMicrophone: boolean;
   hasSystemAudio: boolean;
@@ -300,6 +332,13 @@ export interface EditorState {
   previewZoomAnalysis: PreviewZoomAnalysis | null;
   previewZoomLoading: boolean;
   // Mouse events for cursor panning
+  dismissedTypingRanges: number[];
+  captionSettings: import("../../utils/captions/settings").CaptionSettings;
+  masks: import("../../utils/masks/document").RecordingMask[];
+  transcripts: import("../../utils/captions/document").TranscriptSession[];
+  shortcutSettings: import("../../utils/shortcuts/settings").ShortcutSettings;
+  shortcutIntervals: import("../../utils/shortcuts/intervals").ShortcutInterval[];
+  typingRanges: import("../../utils/timeline/typingRanges").TypingRange[];
   mouseEvents: MouseEventData[] | null;
   mouseEventsLoading: boolean;
   videoWidth: number | null;
@@ -329,7 +368,7 @@ export interface EditorActions {
   setProjectTitle: (title: string) => void;
   loadThumbnails: (filePath: string) => Promise<void>;
   setIsPlaying: (isPlaying: boolean) => void;
-  setCurrentTime: (time: number) => void;
+  setCurrentTime: (time: number, origin?: 'seek' | 'playback') => void;
   setDuration: (duration: number) => void;
   setTrimStart: (time: number) => void;
   setTrimEnd: (time: number) => void;
@@ -344,12 +383,15 @@ export interface EditorActions {
   deleteOverlay: (id: string) => void;
   updateAudioSettings: (settings: Partial<AudioSettings>) => void;
   selectKeyframe: (keyframe: ZoomKeyframe | null) => void;
+  beginHistoryGroup: () => void;
+  endHistoryGroup: () => void;
   undo: () => void;
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
   // Zoom actions
   loadZoomData: (filePath: string) => Promise<void>;
+  regenerateZooms: () => Promise<boolean>;
   updateZoomBlock: (blockId: string, updates: Partial<ZoomBlock>) => void;
   deleteZoomBlock: (blockId: string) => void;
   addZoomBlock: (block: ZoomBlock) => void;
@@ -364,6 +406,7 @@ export interface EditorActions {
   // Timeline actions
   setCurrentTool: (tool: TimelineTool) => void;
   addTrack: (track: TimelineTrack) => void;
+  setVideoTracksVisible: (visible: boolean) => void;
   updateTrack: (id: string, updates: Partial<TimelineTrack>) => void;
   deleteTrack: (id: string) => void;
   addClip: (clip: TimelineClip) => void;
@@ -373,6 +416,14 @@ export interface EditorActions {
   cutClipsAtTime: (time: number, trackId?: string) => string[];
   getClipsAtTime: (time: number, trackId?: string) => TimelineClip[];
   setClipPlaybackRate: (clipId: string, rate: number) => void;
+  speedUpAllTypingRanges: (rate: number) => void;
+  dismissTypingRange: (start: number) => void;
+  speedUpTypingRange: (clipId: string, from: number, to: number, rate: number) => void;
+  removePreviousClip: () => void;
+  trimClip: (clipId: string, side: 'start' | 'end', sourceTime: number) => void;
+  resetClipTrim: (clipId: string, side?: 'start' | 'end') => void;
+  mergeClip: (clipId: string, direction: 'previous' | 'next') => void;
+  applyClipSpeedToTrack: (clipId: string) => void;
   moveClip: (clipId: string, newStartTime: number, newTrackId?: string) => void;
   selectClips: (clipIds: string[], addToSelection?: boolean) => void;
   clearSelection: () => void;
@@ -380,6 +431,19 @@ export interface EditorActions {
   updateSnappingTargets: () => void;
   setViewState: (updates: Partial<TimelineViewState>) => void;
   // Visual settings actions
+  applyStylePreset: (preset: import('../../utils/presets/stylePreset').StylePreset) => void;
+  updateCaptionSettings: (settings:Partial<import("../../utils/captions/settings").CaptionSettings>) => void;
+  addMask: (input: import("../../utils/masks/editing").AddMaskInput) => import("../../utils/masks/editing").AddMaskResult;
+  updateMask: (id:string,patch:import("../../utils/masks/editing").MaskEdit) => void;
+  removeMask: (id:string) => void;
+  applyMaskOpacityToAll: (id:string) => void;
+  disableAllMasks: () => void;
+  removeAllMasks: () => void;
+  setMasks: (masks: import("../../utils/masks/document").RecordingMask[]) => void;
+  setTranscriptSession: (session: import("../../utils/captions/document").TranscriptSession) => void;
+  setTranscriptWordHidden: (sessionId:string, wordId:string, hidden:boolean) => void;
+  updateTranscriptText: (sessionId:string, wordId:string, text:string) => void;
+  updateShortcutSettings: (settings: Partial<import("../../utils/shortcuts/settings").ShortcutSettings>) => void;
   updateVisualSettings: (settings: Partial<VisualSettings>) => void;
   resetVisualSettings: () => void;
   applyWallpaper: (wallpaperId: string) => void;

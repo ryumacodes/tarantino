@@ -12,10 +12,13 @@ pub struct AppState {
     /// Display and window management
     #[serde(default = "default_capture_mode")]
     pub capture_mode: String,
+    #[serde(skip)]
     pub displays: Vec<Display>,
+    #[serde(skip)]
     pub selected_display_id: Option<String>,
+    #[serde(skip)]
     pub windows: Vec<Window>,
-    #[serde(default)]
+    #[serde(skip)]
     pub selected_window_id: Option<String>,
     #[serde(default)]
     pub selected_device_id: Option<String>,

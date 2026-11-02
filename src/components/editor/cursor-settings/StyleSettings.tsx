@@ -132,6 +132,23 @@ export const StyleSettings: React.FC<StyleSettingsProps> = ({
       <div className="cursor-setting-section">
         <div className="toggle-row">
           <div className="toggle-info">
+            <label className="cursor-setting-label">Simplify cursor changes</label>
+            <span className="toggle-description">Keep shape changes around clicks and drags.</span>
+          </div>
+          <label className="toggle-switch">
+            <input type="checkbox"
+              checked={visualSettings.optimizeCursorTypes ?? true}
+              onChange={(e)=>updateVisualSettings({optimizeCursorTypes:e.target.checked})}
+              disabled={isExporting || visualSettings.alwaysUsePointer}
+              data-testid="simplify-cursor-types-toggle" />
+            <span className="toggle-slider" />
+          </label>
+        </div>
+      </div>
+
+      <div className="cursor-setting-section">
+        <div className="toggle-row">
+          <div className="toggle-info">
             <label className="cursor-setting-label">Hide cursor if not moving</label>
           </div>
           <label className="toggle-switch">

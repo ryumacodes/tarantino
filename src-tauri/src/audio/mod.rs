@@ -1,5 +1,7 @@
 //! Shared system-audio and microphone recording tasks.
 
+mod system;
+
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -99,6 +101,7 @@ pub fn spawn_audio_tasks(
     mic_audio_path: Option<PathBuf>,
     microphone_device: Option<String>,
     stop_signal: Arc<Mutex<bool>>,
+    video_origin: Option<tokio::sync::watch::Receiver<Option<u64>>>,
 ) -> Option<tokio::task::JoinHandle<Result<(), String>>> {
     if system_audio_path.is_none() && mic_audio_path.is_none() {
         return None;
@@ -109,7 +112,7 @@ pub fn spawn_audio_tasks(
         let mic_stop = Arc::clone(&stop_signal);
 
         let system_task =
-            system_audio_path.and_then(|path| spawn_system_audio_task(audio_rx, path, system_stop));
+            system_audio_path.and_then(|path| system::spawn(audio_rx, path, system_stop, video_origin));
         let mic_task =
             mic_audio_path.map(|path| spawn_microphone_task(path, microphone_device, mic_stop));
 
@@ -119,85 +122,6 @@ pub fn spawn_audio_tasks(
         if let Some(task) = mic_task {
             task.await.map_err(|e| e.to_string())??;
         }
-        Ok(())
-    }))
-}
-
-/// Spawn the system audio capture task.
-fn spawn_system_audio_task(
-    audio_rx: Option<tokio::sync::broadcast::Receiver<crate::capture::backends::CapturedAudio>>,
-    audio_path: PathBuf,
-    stop_signal: Arc<Mutex<bool>>,
-) -> Option<tokio::task::JoinHandle<Result<(), String>>> {
-    let mut audio_rx = audio_rx?;
-
-    Some(tokio::spawn(async move {
-        println!(
-            "Audio capture task started, writing to: {}",
-            audio_path.display()
-        );
-
-        let mut wav_file: Option<WavWriter> = None;
-        #[allow(unused_assignments)]
-        let mut sample_rate: u32 = 0;
-        #[allow(unused_assignments)]
-        let mut channels: u16 = 0;
-
-        loop {
-            // Check stop signal
-            if *stop_signal.lock().await {
-                println!("Audio stop signal received");
-                break;
-            }
-
-            // Receive audio with timeout
-            let next =
-                tokio::time::timeout(std::time::Duration::from_millis(100), audio_rx.recv()).await;
-
-            let audio = match next {
-                Ok(Ok(a)) => a,
-                Ok(Err(_)) => break, // Channel closed
-                Err(_) => continue,  // Timeout, check stop signal again
-            };
-
-            // Initialize WAV file on first audio sample
-            if wav_file.is_none() {
-                sample_rate = audio.sample_rate;
-                channels = audio.channels as u16;
-
-                match WavWriter::create(&audio_path, sample_rate, channels) {
-                    Ok(writer) => {
-                        wav_file = Some(writer);
-                        println!(
-                            "WAV file initialized: {}Hz, {} channels",
-                            sample_rate, channels
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to create audio file: {}", e);
-                        break;
-                    }
-                }
-            }
-
-            // Write audio data
-            if let Some(writer) = wav_file.as_mut() {
-                if let Err(e) = writer.write_bytes(&audio.data) {
-                    eprintln!("Failed to write audio data: {}", e);
-                }
-            }
-        }
-
-        // Finalize WAV file - update header with actual sizes
-        if let Some(writer) = wav_file {
-            let data_written = writer.data_written;
-            let _ = writer.finalize();
-            println!(
-                "Audio capture finished: {} bytes written to WAV",
-                data_written
-            );
-        }
-
         Ok(())
     }))
 }

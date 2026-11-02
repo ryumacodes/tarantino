@@ -1,24 +1,29 @@
-import React from 'react';
-import { Film, Eye } from 'lucide-react';
+import TypingMarkers from './TypingMarkers';
+import { useSourceThumbnails } from './hooks/useSourceThumbnails';
+import { useClipTrim } from './hooks/useClipTrim';
+import React, { useMemo } from 'react';
+import { thumbnailTiles } from '../../../utils/timeline/thumbnailTiles';
+import { Film, Eye, EyeOff } from 'lucide-react';
 
-interface Clip {
-  id: string;
-  trackId: string;
-  startTime: number;
-  duration: number;
-}
+import type { TimelineClip, TimelineTrack } from '../../../stores/editor/types';
 
 interface VideoTrackProps {
   timelineWidth: number;
+  viewportLeft: number;
+  viewportRight: number;
   pixelsPerMs: number;
   thumbnails: string[];
   thumbnailsLoading: boolean;
   trimStart: number;
   trimEnd: number;
   duration: number;
-  clips: Clip[];
+  sourceDuration: number;
+  sourcePath: string | null;
+  tracks: TimelineTrack[];
+  clips: TimelineClip[];
   selectedClipIds: string[];
   isExporting: boolean;
+  visible: boolean;
   onToggleVisibility: () => void;
   onTrimStartDrag: (e: React.MouseEvent) => void;
   onTrimEndDrag: (e: React.MouseEvent) => void;
@@ -27,21 +32,33 @@ interface VideoTrackProps {
 
 const VideoTrack: React.FC<VideoTrackProps> = ({
   timelineWidth,
+  viewportLeft,
+  viewportRight,
   pixelsPerMs,
   thumbnails,
   thumbnailsLoading,
   trimStart,
   trimEnd,
   duration,
+  sourceDuration,
+  sourcePath,
+  tracks,
   clips,
   selectedClipIds,
   isExporting,
+  visible,
   onToggleVisibility,
   onTrimStartDrag,
   onTrimEndDrag,
   onClipClick,
 }) => {
-  const videoClips = clips?.filter(c => c.trackId === 'video-track-main') || [];
+  const beginClipTrim = useClipTrim(pixelsPerMs, isExporting);
+  const videoClips = clips?.filter(c => c.type === 'video' || c.type === 'screen') || [];
+
+  const tiles = useMemo(() => thumbnailTiles({clips,tracks,duration:sourceDuration},sourcePath,thumbnails.length,pixelsPerMs,100,{left:viewportLeft,right:viewportRight}),
+    [clips,tracks,sourceDuration,sourcePath,thumbnails.length,pixelsPerMs,viewportLeft,viewportRight]);
+
+  const sourceThumbnail = useSourceThumbnails(sourcePath, tiles);
 
   return (
     <div className="timeline-track">
@@ -52,13 +69,16 @@ const VideoTrack: React.FC<VideoTrackProps> = ({
         </div>
         <button
           className={`track-toggle ${isExporting ? 'disabled' : ''}`}
-          onClick={onToggleVisibility}
+          aria-label="Enable video tracks"
+          aria-pressed={visible}
+          title={visible ? 'Hide video tracks' : 'Show video tracks'}
+          onClick={event => { event.stopPropagation(); onToggleVisibility(); }}
           disabled={isExporting}
         >
-          <Eye size={12} />
+          {visible ? <Eye size={12} /> : <EyeOff size={12} />}
         </button>
       </div>
-      <div className="track-content">
+      <div className="track-content" style={{ opacity: visible ? 1 : 0.45 }}>
         {/* Video thumbnails */}
         <div className="video-thumbnails timeline-track--golden" style={{ width: `${timelineWidth}px` }}>
           {thumbnailsLoading ? (
@@ -66,30 +86,17 @@ const VideoTrack: React.FC<VideoTrackProps> = ({
               <div className="editor-spinner" />
             </div>
           ) : (
-            thumbnails.map((thumbnailSource, index) => {
-              const thumbnailWidth = timelineWidth / thumbnails.length;
-              const thumbnailLeft = index * thumbnailWidth;
-              return (
-                <img
-                  key={index}
-                  src={thumbnailSource}
-                  alt={`Frame ${index}`}
-                  className="video-thumbnail"
-                  onError={(e) => {
-                    console.error(`Failed to load thumbnail ${index}`);
-                    e.currentTarget.style.opacity = '0.3';
-                  }}
-                  style={{
-                    left: `${thumbnailLeft}px`,
-                    width: `${thumbnailWidth + 1}px`,
-                    height: '60px',
-                    objectFit: 'cover'
-                  }}
-                />
-              );
-            })
+            tiles.filter(tile => !tile.needsSourceSample || sourceThumbnail(tile)).map(tile => (
+              <img key={tile.key} src={tile.needsSourceSample ? sourceThumbnail(tile) : thumbnails[tile.index]}
+                alt={`Source frame near ${(tile.sourceTime/1000).toFixed(1)} seconds`}
+                className="video-thumbnail" draggable={false}
+                style={{left:`${tile.left}px`,width:`${tile.width}px`,height:'60px',objectFit:'cover'}} />
+            ))
           )}
         </div>
+
+        <TypingMarkers pixelsPerMs={pixelsPerMs} viewportLeft={viewportLeft} viewportRight={viewportRight}
+          trimStart={trimStart} trimEnd={trimEnd} isExporting={isExporting} />
 
         {/* Trim handles */}
         <div
@@ -138,7 +145,15 @@ const VideoTrack: React.FC<VideoTrackProps> = ({
               }}
               onClick={(e) => onClipClick(clip.id, e)}
               title={`${index === 0 ? 'Clip' : `Clip ${index + 1}`} • ${(clip.duration / 1000).toFixed(2)}s`}
-            />
+            >
+              {isSelected && (['start','end'] as const).map(side => (
+                <button key={side} className={`clip-trim-handle clip-trim-handle--${side}`}
+                  aria-label={`Trim clip ${index+1} ${side}`} title={`Trim clip ${side}`}
+                  disabled={isExporting || clip.locked}
+                  onClick={event => event.stopPropagation()}
+                  onMouseDown={event => beginClipTrim(event,clip.id,side)} />
+              ))}
+            </div>
           );
         })}
 

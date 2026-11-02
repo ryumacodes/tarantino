@@ -1,3 +1,5 @@
+#include "audio_pcm.h"
+
 @interface SCKCaptureSession : NSObject <SCStreamOutput, SCStreamDelegate>
 @property (nonatomic, strong) SCStream* stream;
 @property (nonatomic, strong) SCContentFilter* filter;
@@ -114,28 +116,25 @@
                     return;
                 }
 
-                // Get audio buffer list from sample buffer
-                CMBlockBufferRef blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer);
-                if (!blockBuffer) {
-                    return;
-                }
-
-                // Get audio format description
                 CMFormatDescriptionRef formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer);
-                const AudioStreamBasicDescription* audioDesc = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc);
-
-                if (!audioDesc) {
-                    return;
-                }
-
-                // Get audio data pointer and size
-                char* dataPointer = NULL;
-                size_t dataLength = 0;
-
-                OSStatus status = CMBlockBufferGetDataPointer(blockBuffer, 0, NULL, &dataLength, &dataPointer);
-                if (status != kCMBlockBufferNoErr || !dataPointer) {
-                    return;
-                }
+                const AudioStreamBasicDescription* audioDesc =
+                    formatDesc ? CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc) : nullptr;
+                if (!audioDesc || !audioDesc->mChannelsPerFrame || audioDesc->mChannelsPerFrame > 32) return;
+                const CMItemCount sampleCount = CMSampleBufferGetNumSamples(sampleBuffer);
+                if (sampleCount <= 0) return;
+                const size_t listSize = offsetof(AudioBufferList, mBuffers) +
+                    audioDesc->mChannelsPerFrame * sizeof(AudioBuffer);
+                std::vector<uint8_t> storage(listSize);
+                auto* buffers = reinterpret_cast<AudioBufferList*>(storage.data());
+                CMBlockBufferRef retained = nullptr;
+                OSStatus status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+                    sampleBuffer, nullptr, buffers, listSize, kCFAllocatorDefault,
+                    kCFAllocatorDefault, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &retained);
+                std::vector<int16_t> pcm;
+                const bool converted = status == noErr &&
+                    interleave_pcm16(*audioDesc, *buffers, (size_t)sampleCount, pcm);
+                if (retained) CFRelease(retained);
+                if (!converted) return;
 
                 // Get timestamp
                 CMTime presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
@@ -150,8 +149,8 @@
 
                 // Create audio data
                 SCKAudioData audio = {
-                    .data = (const uint8_t*)dataPointer,
-                    .data_len = dataLength,
+                    .data = reinterpret_cast<const uint8_t*>(pcm.data()),
+                    .data_len = pcm.size() * sizeof(int16_t),
                     .sample_rate = (uint32_t)audioDesc->mSampleRate,
                     .channels = audioDesc->mChannelsPerFrame,
                     .timestamp_us = timestamp_us

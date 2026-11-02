@@ -189,7 +189,10 @@ impl PostProcessor {
         width: u32,
         height: u32,
     ) -> Result<String> {
-        if zoom_blocks.is_empty() {
+        if zoom_blocks.iter().any(|block| !block.is_disabled && block.loupe.is_some()) {
+            anyhow::bail!("Magnifier export rendering is not available yet");
+        }
+        if zoom_blocks.iter().all(|block| block.is_disabled) {
             return Ok("[0:v]copy[output]".to_string());
         }
 
@@ -201,7 +204,7 @@ impl PostProcessor {
         let mut x_expr_parts: Vec<String> = Vec::new();
         let mut y_expr_parts: Vec<String> = Vec::new();
 
-        for block in zoom_blocks.iter() {
+        for block in zoom_blocks.iter().filter(|block| !block.is_disabled) {
             let start_time = block.start_time as f64 / 1000.0;
             let end_time = block.end_time as f64 / 1000.0;
             let duration = end_time - start_time;
@@ -485,6 +488,9 @@ mod tests {
             zoom_in_speed: None,
             zoom_out_speed: None,
             timing_adjusted: false,
+            instant_animation: false,
+            is_disabled: false,
+            loupe: None,
         }];
 
         let filter = processor

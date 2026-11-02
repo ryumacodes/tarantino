@@ -1,7 +1,7 @@
 use crate::event_capture::EnhancedMouseEvent;
 use crate::input::{KeyEvent, KeyMotion, MouseEventType};
 
-use super::{ZoomBlock, ZoomCenter};
+use super::{ZoomBlock, ZoomCenter, point_in_capture};
 
 const SYNTHETIC_PAN_EDGE_PADDING: f64 = 0.08;
 const SYNTHETIC_CHAR_ADVANCE: f64 = 0.008;
@@ -55,7 +55,7 @@ pub(super) fn detect_typing_sessions(
     config: &TypingZoomConfig,
 ) -> Vec<TypingSession> {
     // Filter to typing-only key events
-    let typing_keys: Vec<&KeyEvent> = key_events.iter().filter(|k| k.is_typing).collect();
+    let typing_keys: Vec<&KeyEvent> = key_events.iter().filter(|k| !k.is_release && k.is_typing && typing_target_in_capture(k, mouse_events, metadata)).collect();
     if typing_keys.is_empty() {
         return vec![];
     }
@@ -73,7 +73,7 @@ pub(super) fn detect_typing_sessions(
     let mut session_keys = vec![typing_keys[0]];
 
     for key in &typing_keys[1..] {
-        let has_new_anchor = has_click_between(mouse_events, session_end, key.timestamp);
+        let has_new_anchor = has_click_between(mouse_events, session_end, key.timestamp, metadata);
         if !has_new_anchor && key.timestamp.saturating_sub(session_end) <= config.session_gap_ms {
             // Continue current session
             session_end = key.timestamp;
@@ -146,14 +146,34 @@ pub(super) fn detect_typing_sessions(
     sessions
 }
 
+fn typing_target_in_capture(key: &KeyEvent, mouse_events: &[EnhancedMouseEvent],
+    metadata: &crate::event_capture::SessionMetadata) -> bool {
+    // A known caret is authoritative even if the pointer is in another window.
+    // Do not fall back to an inside pointer when the caret is known to be outside.
+    let point = key.caret_x.zip(key.caret_y).or_else(|| key.cursor_x.zip(key.cursor_y))
+        .or_else(|| {
+            let index = mouse_events.partition_point(|event| event.base.timestamp <= key.timestamp);
+            index.checked_sub(1).map(|i| (mouse_events[i].base.x, mouse_events[i].base.y))
+        });
+    // Legacy recordings without any location retain their centered fallback.
+    point.is_none_or(|(x,y)| point_in_capture(x,y,metadata))
+}
+
 fn has_click_between(
     mouse_events: &[EnhancedMouseEvent],
     after_ms: u64,
     before_or_at_ms: u64,
+    metadata: &crate::event_capture::SessionMetadata,
 ) -> bool {
-    mouse_events.iter().any(|event| {
-        event.base.timestamp > after_ms
-            && event.base.timestamp <= before_or_at_ms
+    // Pointer samples are chronological, as required by the position lookups.
+    // Search only the interval between these keys, not the entire recording.
+    if before_or_at_ms <= after_ms {
+        return false;
+    }
+    let start = mouse_events.partition_point(|event| event.base.timestamp <= after_ms);
+    let end = mouse_events.partition_point(|event| event.base.timestamp <= before_or_at_ms);
+    mouse_events[start..end].iter().any(|event| {
+        point_in_capture(event.base.x, event.base.y, metadata)
             && matches!(event.base.event_type, MouseEventType::ButtonPress { .. })
     })
 }
@@ -172,19 +192,16 @@ fn build_typing_block_centers(
         .filter_map(|key| typing_caret_center(key, metadata))
         .collect();
 
-    if centers_have_movement(&caret_centers) {
+    // Recorded caret positions remain authoritative when stationary too (for
+    // example, replacing a selection or typing into a horizontally scrolling
+    // field). Only infer a path when the recording has no caret observations.
+    if !caret_centers.is_empty() {
         return caret_centers;
     }
 
     let first_key = session_keys[0];
-    let start = caret_centers.first().cloned().unwrap_or_else(|| {
-        let (x, y) = lookup_typing_anchor_position(first_key, mouse_events, metadata);
-        ZoomCenter {
-            x,
-            y,
-            time: first_key.timestamp,
-        }
-    });
+    let (x, y) = lookup_typing_anchor_position(first_key, mouse_events, metadata);
+    let start = ZoomCenter { x, y, time: first_key.timestamp };
 
     if session_keys.len() == 1 {
         return vec![start];
@@ -425,6 +442,9 @@ pub(super) fn create_typing_zoom_blocks(
                 zoom_in_speed: None,
                 zoom_out_speed: None,
                 timing_adjusted: false,
+                instant_animation: false,
+                is_disabled: false,
+                loupe: None,
             })
         })
         .collect()
@@ -452,3 +472,7 @@ pub fn validate_zoom_blocks(blocks: &mut Vec<ZoomBlock>, duration_ms: u64) {
     // Remove blocks shorter than 500ms
     blocks.retain(|b| b.end_time > b.start_time + 500);
 }
+
+#[cfg(test)]
+#[path = "typing_interval_tests.rs"]
+mod interval_tests;

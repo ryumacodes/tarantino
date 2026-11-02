@@ -1,10 +1,22 @@
+import {CaptionPreviewOverlay} from "./CaptionPreviewOverlay";
+import {ShortcutPreviewOverlay} from "./ShortcutPreviewOverlay";
+import {CameraPreviewSource} from './CameraPreviewSource';
+import {CameraPreviewEffect} from './CameraPreviewEffect';
+import {useCameraOpacityTrajectory} from './hooks/useCameraTrajectory';
+import {useCameraSilence} from '../../../hooks/useCameraSilence';
+import type {PreviewCameraMotion} from '../../../utils/motion/cursorShutter';
+import { useShallow } from 'zustand/react/shallow';
+import { selectPreviewInputs } from './hooks/videoInputs';
+import { timelineDuration } from '../../../utils/timeline/previewTimeline';
 import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { EffectComposer } from '@react-three/postprocessing';
+import { usePreviewAudioStore } from '../../../stores/previewAudio';
 import { useEditorStore } from '../../../stores/editor';
 import { VideoViewer } from './VideoViewer';
 import { MotionBlurEffect } from './MotionBlurEffect';
-import { CursorEffect } from './CursorEffect';
+import { CursorEffect, type CursorEffectImpl } from './CursorEffect';
+import { LoupeEffect } from './LoupeEffect';
 import { WebcamPreviewOverlay } from './WebcamPreviewOverlay';
 import { ViewControls, PlaybackControls } from './PreviewControls';
 import './preview.css';
@@ -26,18 +38,32 @@ interface VideoPreviewPanelProps {
   showMouseOverlay: boolean;
 }
 
-export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
+export const VideoPreviewPanel = React.memo(function VideoPreviewPanel({
   isPlaying,
   onPlayPause,
   onSeek,
   showMouseOverlay
-}) => {
-  const { duration, currentTime, visualSettings, videoFilePath, displayResolution, captureMode, hasWebcam } = useEditorStore();
+}: VideoPreviewPanelProps) {
+  const duration = useEditorStore(timelineDuration);
+  const hasLoupe = useEditorStore(state => state.visualSettings.zoomEffectsEnabled !== false && (state.zoomAnalysis?.zoom_blocks.some(block => block.loupe && !block.is_disabled) ?? false));
+  const { visualSettings, videoFilePath, displayResolution, outputWidth, outputHeight, hasWebcam } = useEditorStore(useShallow(selectPreviewInputs));
 
-  const [isMuted, setIsMuted] = useState(true);
+  const gpuCamera=hasWebcam && visualSettings.webcamEnabled !== false;
+  const cameraSource=useMemo(()=>new CameraPreviewSource(),[]);
+  const cameraSilence=useCameraSilence();
+  const cameraOpacity=useCameraOpacityTrajectory(gpuCamera && !cameraSilence.loading,cameraSilence.ranges);
+  cameraSource.ready=!cameraOpacity.pending && !cameraOpacity.error && !cameraSilence.loading && !cameraSilence.error;
+  cameraSource.opacity=cameraOpacity.frames;
+  cameraSource.silence=cameraSilence.ranges;
+  useEffect(()=>()=>cameraSource.dispose(),[cameraSource]);
+  const isMuted = usePreviewAudioStore(state => state.muted);
+  const toggleMute = usePreviewAudioStore(state => state.toggle);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const cursorEffectRef = useRef<CursorEffectImpl | null>(null);
+  const cameraMotionRef=useRef<PreviewCameraMotion|null>(null);
+  const temporalWindowActive=useRef(false);
   const velocityRef = useRef({ scale: 0, x: 0, y: 0 });
 
   const videoTransformRef = useRef<VideoTransform>({
@@ -89,23 +115,7 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Focus window recordings keep the source aspect. Desktop window recordings
-  // use the export canvas aspect ratio so background staging is visible.
-  const ASPECT_RATIOS_NUM: Record<string, number> = {
-    '16:9': 16/9, '9:16': 9/16, '4:3': 4/3,
-    '1:1': 1, '21:9': 21/9,
-  };
-  const sourceAspectNum = displayResolution
-    ? displayResolution.width / displayResolution.height
-    : 16 / 9;
-  const isWindowFocus = captureMode === 'window' && visualSettings.windowLayoutMode === 'focus';
-  const videoAspectNum = isWindowFocus
-    ? sourceAspectNum
-    : captureMode === 'window'
-      ? (ASPECT_RATIOS_NUM[visualSettings.aspectRatio] || sourceAspectNum)
-    : displayResolution
-      ? displayResolution.width / displayResolution.height
-      : 16 / 9;
+  const videoAspectNum = outputWidth / outputHeight;
 
   // Calculate frame dimensions that maintain aspect ratio within the container.
   // Pure CSS aspect-ratio + width:100% + max-height:100% breaks when height-constrained.
@@ -145,13 +155,15 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
             <ambientLight intensity={0.5} />
             <pointLight position={[10, 10, 10]} />
             <VideoViewer
+              cameraMotionRef={cameraMotionRef}
               showMouseOverlay={showMouseOverlay}
               isPlaying={isPlaying}
+              temporalWindowActive={temporalWindowActive}
               velocityRef={velocityRef}
               videoTransformRef={videoTransformRef}
             />
 
-            {(visualSettings.motionBlurEnabled || (showMouseOverlay && sidecarPath)) && (
+            {(hasLoupe || visualSettings.motionBlurEnabled || (showMouseOverlay && sidecarPath)) && (
               <EffectComposer>
                 {visualSettings.motionBlurEnabled ? (
                   <MotionBlurEffect
@@ -159,10 +171,13 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
                     zoomIntensity={visualSettings.motionBlurZoomIntensity}
                     velocityRef={velocityRef}
                     enabled={visualSettings.motionBlurEnabled}
+                    temporalWindowActive={temporalWindowActive}
                   />
                 ) : <></>}
                 {showMouseOverlay && sidecarPath ? (
                   <CursorEffect
+                    cameraMotionRef={cameraMotionRef}
+                    effectRef={cursorEffectRef}
                     sidecarPath={sidecarPath}
                     videoWidth={displayResolution?.width ?? 1920}
                     videoHeight={displayResolution?.height ?? 1080}
@@ -170,12 +185,22 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
                     videoTransformRef={videoTransformRef}
                   />
                 ) : <></>}
+                {gpuCamera ? <CameraPreviewEffect source={cameraSource}/> : <></>}
+                {hasLoupe ? <LoupeEffect cameraSource={gpuCamera?cameraSource:undefined} videoTransformRef={videoTransformRef} cursorEffectRef={cursorEffectRef} /> : <></>}
               </EffectComposer>
             )}
           </Canvas>
+          <ShortcutPreviewOverlay />
+          <CaptionPreviewOverlay />
+          {gpuCamera && (cameraOpacity.error || cameraSilence.error || cameraOpacity.pending || cameraSilence.loading) &&
+            <div role="status" style={{position:'absolute',bottom:12,left:12,zIndex:20,padding:'6px 10px',background:'var(--editor-bg-secondary)',borderRadius:6}}>
+              {cameraOpacity.error || cameraSilence.error ? 'Camera preview unavailable. Try reopening the project.' : 'Preparing camera preview…'}
+            </div>}
 
-          {hasWebcam && videoFilePath && (
+
+          {hasWebcam && visualSettings.webcamEnabled !== false && videoFilePath && (
             <WebcamPreviewOverlay
+              gpuVideo={gpuCamera?cameraSource.setVideo:undefined}
               videoFilePath={videoFilePath}
               x={visualSettings.webcamX ?? 0.895}
               y={visualSettings.webcamY ?? 0.895}
@@ -196,15 +221,14 @@ export const VideoPreviewPanel: React.FC<VideoPreviewPanelProps> = ({
       <PlaybackControls
         isPlaying={isPlaying}
         isMuted={isMuted}
-        currentTime={currentTime}
         duration={duration}
         onPlayPause={onPlayPause}
         onSeekBackward={handleSeekToStart}
         onSeekForward={handleSeekToEnd}
-        onMuteToggle={() => setIsMuted(!isMuted)}
+        onMuteToggle={toggleMute}
       />
     </div>
   );
-};
+});
 
 export default VideoPreviewPanel;

@@ -131,8 +131,8 @@ fn record_typing(tracker: &Mutex<MouseTracker>, motion: TypingMotion, timestamp:
         return;
     }
     let position = tracker.events.lock().back().map(|event| (event.x, event.y));
-    tracker.add_key_event(KeyEvent {
-        timestamp: timestamp
+    tracker.add_key_event(KeyEvent { shortcut: None,
+        is_release: false, timestamp: timestamp
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64,

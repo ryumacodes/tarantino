@@ -4,6 +4,8 @@ import {
   Pencil,
   Check
 } from 'lucide-react';
+import HistoryControls from './HistoryControls';
+import ProjectControls from './ProjectControls';
 import '../../styles/dracula-theme.css';
 import '../../styles/editor-top-bar.css';
 
@@ -14,6 +16,9 @@ interface EditorTopBarProps {
   onClose: () => void;
   isExporting?: boolean;
   exportProgress?: number;
+  onCancelExport?: () => void;
+  canCancelExport?: boolean;
+  isCancellingExport?: boolean;
 }
 
 const EditorTopBar: React.FC<EditorTopBarProps> = ({
@@ -22,7 +27,8 @@ const EditorTopBar: React.FC<EditorTopBarProps> = ({
   onExport,
   onClose,
   isExporting = false,
-  exportProgress = 0
+  exportProgress = 0,
+  onCancelExport, canCancelExport = false, isCancellingExport = false
 }) => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(projectName);
@@ -110,6 +116,12 @@ const EditorTopBar: React.FC<EditorTopBarProps> = ({
       </div>
 
       <div className="top-bar-right">
+        <HistoryControls disabled={isExporting} />
+        <ProjectControls disabled={isExporting} />
+        {isExporting && <button className="editor-btn" onClick={onCancelExport}
+          disabled={!canCancelExport || isCancellingExport}>
+          {isCancellingExport ? 'Cancelling…' : 'Cancel export'}
+        </button>}
         <button
           className={`export-button ${isExporting ? 'exporting' : ''}`}
           onClick={onExport}

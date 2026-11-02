@@ -56,6 +56,7 @@ pub async fn extract_thumbnails(
     // Limit concurrent FFmpeg processes to avoid GPU/CPU contention
     let semaphore = Arc::new(Semaphore::new(3));
 
+    let request_id = uuid::Uuid::new_v4();
     for i in 0..thumbnail_count {
         let time_offset = if thumbnail_count > 1 {
             let raw_offset = (i as f64 / (thumbnail_count - 1) as f64) * duration_seconds;
@@ -77,7 +78,7 @@ pub async fn extract_thumbnails(
             duration_seconds / 2.0 // Middle frame if only one thumbnail
         };
 
-        let output_path = thumb_dir.join(format!("thumb_{:04}.jpg", i));
+        let output_path = thumb_dir.join(format!("thumb_{request_id}_{i:04}.jpg"));
 
         let thumbnail_operation = FFmpegOperation::Thumbnail {
             input: video_path.clone(),

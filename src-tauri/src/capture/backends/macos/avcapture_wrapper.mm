@@ -3,6 +3,7 @@
 
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h>
+#import <CoreMediaIO/CoreMediaIO.h>
 #import <CoreVideo/CoreVideo.h>
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
@@ -72,6 +73,8 @@ static CGFloat avc_preview_corner_radius(NSRect bounds, NSString* shape) {
 @property (nonatomic, strong) AVCaptureSession* session;
 @property (nonatomic, strong) AVCaptureDeviceInput* input;
 @property (nonatomic, strong) AVCaptureVideoDataOutput* output;
+@property (nonatomic, strong) dispatch_queue_t frameQueue;
+@property (nonatomic, assign) BOOL deviceScreen;
 @property (nonatomic, assign) AVCCallbackContext* callbackContext;
 @property (nonatomic, assign) BOOL isCapturing;
 @property (nonatomic, assign) BOOL isRecording; // true when encoding frames, false for preview-only
@@ -102,7 +105,7 @@ static CGFloat avc_preview_corner_radius(NSRect bounds, NSString* shape) {
     if (deviceId && deviceId.length > 0) {
         device = [AVCaptureDevice deviceWithUniqueID:deviceId];
     }
-    if (!device) {
+    if (!device && !deviceId.length) {
         device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
     }
     if (!device) {
@@ -113,7 +116,7 @@ static CGFloat avc_preview_corner_radius(NSRect bounds, NSString* shape) {
 
     // Create capture session
     self.session = [[AVCaptureSession alloc] init];
-    self.session.sessionPreset = AVCaptureSessionPreset1280x720;
+    self.session.sessionPreset = self.deviceScreen ? AVCaptureSessionPresetHigh : AVCaptureSessionPreset1280x720;
 
     // Add input
     NSError* error = nil;
@@ -129,11 +132,15 @@ static CGFloat avc_preview_corner_radius(NSRect bounds, NSString* shape) {
         return NO;
     }
 
-    // Configure camera frame rate
-    [device lockForConfiguration:&error];
-    if (!error) {
-        device.activeVideoMinFrameDuration = CMTimeMake(1, fps);
-        device.activeVideoMaxFrameDuration = CMTimeMake(1, fps);
+    // Negotiate a supported rate. Muxed screen sources own their timing.
+    if (!self.deviceScreen && [device lockForConfiguration:&error]) {
+        for (AVFrameRateRange* range in device.activeFormat.videoSupportedFrameRateRanges) {
+            if (fps >= range.minFrameRate && fps <= range.maxFrameRate) {
+                device.activeVideoMinFrameDuration = CMTimeMake(1, fps);
+                device.activeVideoMaxFrameDuration = CMTimeMake(1, fps);
+                break;
+            }
+        }
         [device unlockForConfiguration];
     }
 
@@ -145,6 +152,7 @@ static CGFloat avc_preview_corner_radius(NSRect bounds, NSString* shape) {
     self.output.alwaysDiscardsLateVideoFrames = YES;
 
     dispatch_queue_t queue = dispatch_queue_create("com.tarantino.webcam", DISPATCH_QUEUE_SERIAL);
+    self.frameQueue = queue;
     [self.output setSampleBufferDelegate:self queue:queue];
 
     if ([self.session canAddOutput:self.output]) {
@@ -241,20 +249,23 @@ static CGFloat avc_preview_corner_radius(NSRect bounds, NSString* shape) {
 }
 
 - (void)startRecordingWithCallback:(AVCCallbackContext*)ctx {
-    self.callbackContext = ctx;
-    self.isRecording = YES;
-    self.frameCount = 0;
+    dispatch_sync(self.frameQueue, ^{
+        self.callbackContext = ctx;
+        self.isRecording = YES;
+        self.frameCount = 0;
+    });
     NSLog(@"[AVC] Frame recording started");
 }
 
 - (void)stopRecording {
-    self.isRecording = NO;
+    dispatch_sync(self.frameQueue, ^{ self.isRecording = NO; });
     NSLog(@"[AVC] Frame recording stopped after %llu frames", self.frameCount);
 }
 
 - (void)stop {
     if (self.isCapturing) {
         [self hidePreview];
+        [self stopRecording];
         [self.session stopRunning];
         self.isCapturing = NO;
         self.isRecording = NO;
@@ -282,15 +293,14 @@ static CGFloat avc_preview_corner_radius(NSRect bounds, NSString* shape) {
     size_t dataLen = stride * height;
 
     CMTime pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
-    uint64_t timestamp_us = (uint64_t)((double)pts.value / (double)pts.timescale * 1000000.0);
+    uint64_t timestamp_us = CMTIME_IS_NUMERIC(pts) && pts.timescale > 0 && pts.value >= 0
+        ? (uint64_t)CMTimeConvertScale(pts, 1000000, kCMTimeRoundingMethod_Default).value : 0;
 
-    // Copy pixel data — buffer only valid during callback
-    uint8_t* dataCopy = (uint8_t*)malloc(dataLen);
-    if (dataCopy) {
-        memcpy(dataCopy, baseAddress, dataLen);
-
+    // Rust copies synchronously before this pixel buffer is unlocked.
+    // Avoid a second full-frame allocation/copy on the native callback queue.
+    if (baseAddress && dataLen > 0 && CMTIME_IS_NUMERIC(pts) && pts.timescale > 0) {
         AVCFrameData frame = {
-            .data = dataCopy,
+            .data = (const uint8_t*)baseAddress,
             .data_len = dataLen,
             .width = (uint32_t)width,
             .height = (uint32_t)height,
@@ -298,9 +308,7 @@ static CGFloat avc_preview_corner_radius(NSRect bounds, NSString* shape) {
             .timestamp_us = timestamp_us,
             .stride = (uint32_t)stride,
         };
-
         self.callbackContext->frame_callback(self.callbackContext->rust_context, frame);
-        free(dataCopy);
     }
 
     CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
@@ -360,6 +368,49 @@ size_t avc_enumerate_video_devices(void* context, AVCDeviceCallback callback) {
         }
 
         return devices.count;
+    }
+}
+
+// USB screen sources are separate from webcam/Continuity Camera sources.
+size_t avc_enumerate_screen_devices(void* context, AVCDeviceCallback callback) {
+    @autoreleasepool {
+        CMIOObjectPropertyAddress address = {
+            kCMIOHardwarePropertyAllowScreenCaptureDevices,
+            kCMIOObjectPropertyScopeGlobal, kCMIOObjectPropertyElementMain
+        };
+        UInt32 enabled = 1;
+        if (CMIOObjectSetPropertyData(kCMIOObjectSystemObject, &address, 0, NULL,
+                                     sizeof(enabled), &enabled) != noErr) return 0;
+        AVCaptureDeviceType type;
+        if (@available(macOS 14.0, *)) type = AVCaptureDeviceTypeExternal;
+        else type = @"AVCaptureDeviceTypeExternalUnknown";
+        NSArray<AVCaptureDevice*>* devices = [AVCaptureDeviceDiscoverySession
+            discoverySessionWithDeviceTypes:@[type] mediaType:AVMediaTypeMuxed
+            position:AVCaptureDevicePositionUnspecified].devices;
+        for (AVCaptureDevice* device in devices) {
+            if (callback) callback(context, device.uniqueID.UTF8String,
+                                   device.localizedName.UTF8String, false);
+        }
+        return devices.count;
+    }
+}
+
+void* avc_start_screen_device(const char* device_id, int fps, void* context,
+                              void (*callback)(void*, AVCFrameData)) {
+    if (!device_id || !callback) return NULL;
+    @autoreleasepool {
+        NSString* uid = [NSString stringWithUTF8String:device_id];
+        AVCaptureDevice* device = [AVCaptureDevice deviceWithUniqueID:uid];
+        if (!device || ![device hasMediaType:AVMediaTypeMuxed]) return NULL;
+        AVCCameraSession* session = [[AVCCameraSession alloc] init];
+        session.deviceScreen = YES;
+        if (![session startWithDeviceId:uid fps:fps]) return NULL;
+        AVCCallbackContext* ctx = (AVCCallbackContext*)malloc(sizeof(AVCCallbackContext));
+        if (!ctx) { [session stop]; return NULL; }
+        ctx->rust_context = context;
+        ctx->frame_callback = callback;
+        [session startRecordingWithCallback:ctx];
+        return (__bridge_retained void*)session;
     }
 }
 

@@ -57,13 +57,15 @@ pub struct VisualSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CursorSettings {
+    pub shake_threshold: Option<f64>,
     pub enabled: Option<bool>,
     pub size: Option<f64>,
     pub highlight_clicks: Option<bool>,
     pub smoothing: Option<f64>,
     // Visual style settings
     pub style: Option<String>, // "pointer" | "circle" | "filled" | "outline" | "dotted"
-    pub always_use_pointer: Option<bool>, // Force pointer style
+    pub optimize_cursor_types: Option<bool>,
+    pub always_use_pointer: Option<bool>, // Fix pointer shape while retaining the selected appearance
     pub color: Option<String>, // hex color e.g. "#ffffff"
     pub highlight_color: Option<String>, // hex color for click highlight
     pub ripple_color: Option<String>, // hex color for ripple effect
@@ -95,6 +97,8 @@ pub struct CursorSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioSettingsExport {
+    pub mic_muted: Option<bool>,
+    pub system_muted: Option<bool>,
     pub mic_gain: Option<f64>,
     pub system_gain: Option<f64>,
     pub noise_gate: Option<bool>,
@@ -110,6 +114,8 @@ pub struct ZoomCenter {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZoomBlock {
+    #[serde(default)]
+    pub is_manual: bool,
     pub start_time_ms: u64,
     pub end_time_ms: u64,
     pub zoom_level: f64,
@@ -124,11 +130,32 @@ pub struct ZoomBlock {
     #[serde(default)]
     pub timing_adjusted: bool,
     #[serde(default)]
+    pub instant_animation: bool,
+    #[serde(default)]
+    pub is_disabled: bool,
+    #[serde(default)]
+    pub loupe: Option<crate::video_processing::loupe::LoupeStyle>,
+    #[serde(default)]
+    pub animation_lead_in_ms: u64,
+    #[serde(default)]
     pub centers: Vec<ZoomCenter>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackgroundAudioExport {
+    pub path: String,
+    pub volume: Option<f64>,
+    pub muted: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportSettings {
+    pub mask_overlay: Option<super::mask_export::MaskExport>,
+    pub caption_overlay: Option<super::caption_overlay::CaptionOverlay>,
+    pub shortcut_overlay: Option<super::shortcut_overlay::ShortcutOverlay>,
+    pub background_audio: Option<BackgroundAudioExport>,
+    #[serde(skip)]
+    pub cancellation: Option<std::sync::Arc<super::export_control::ExportControl>>,
     // Output path (optional - will generate default if null)
     pub output_path: Option<String>,
     // Project title (used for output filename if output_path is null)
@@ -143,6 +170,8 @@ pub struct ExportSettings {
     pub format: Option<String>,
     // Codec (h264, prores, vp9)
     pub codec: Option<String>,
+    // Edited primary-recording clips; absent preserves legacy contiguous exports.
+    pub timeline_clips: Option<Vec<super::timeline::EditClip>>,
     // Trim settings
     pub trim_start: Option<u64>,
     pub trim_end: Option<u64>,
@@ -155,13 +184,20 @@ pub struct ExportSettings {
     // Zoom blocks for effects
     pub zoom_blocks: Option<Vec<ZoomBlock>>,
     // Source video dimensions for aspect-correct scaling
+    pub source_crop: Option<super::source_crop::SourceCrop>,
     pub source_width: Option<u32>,
     pub source_height: Option<u32>,
     // Animation speed preset + actual spring values from frontend (source of truth)
     pub animation_speed: Option<String>,
+    pub screen_motion_style: Option<String>,
     pub zoom_spring_tension: Option<f64>,
     pub zoom_spring_friction: Option<f64>,
     pub zoom_spring_mass: Option<f64>,
+    pub webcam_layout: Option<String>,
+    pub webcam_enabled: Option<bool>,
+    pub webcam_mirrored: Option<bool>,
+    pub webcam_silence_ranges: Option<Vec<super::webcam_timeline::SilenceRange>>,
+    pub webcam_keyframes: Option<Vec<super::webcam_timeline::WebcamKeyframe>>,
     // Webcam overlay settings
     pub webcam_corner: Option<String>, // "top-left", "top-right", "bottom-left", "bottom-right"
     pub webcam_x: Option<f64>,         // normalized center X (0.0-1.0)
@@ -213,8 +249,8 @@ pub fn validate_export_zoom_blocks(blocks: &mut Vec<ZoomBlock>, duration_ms: u64
         }
     }
 
-    // Remove blocks shorter than 500ms
-    blocks.retain(|b| b.end_time_ms > b.start_time_ms + 500);
+    // Preserve intentional short ranges; analysis owns automatic duration policy.
+    blocks.retain(|b| b.end_time_ms > b.start_time_ms);
 
     println!(
         "Validated {} zoom blocks (duration: {}ms)",
@@ -234,14 +270,12 @@ pub fn load_zoom_blocks_from_sidecar(video_path: &std::path::Path) -> Option<Vec
     }
 
     match auto_zoom::load_analysis(&zoom_path) {
-        Ok(mut analysis) => {
-            // Validate blocks loaded from sidecar
-            auto_zoom::validate_zoom_blocks(&mut analysis.zoom_blocks, analysis.session_duration);
-
-            let blocks: Vec<ZoomBlock> = analysis
+        Ok(analysis) => {
+            let mut blocks: Vec<ZoomBlock> = analysis
                 .zoom_blocks
                 .into_iter()
                 .map(|b| ZoomBlock {
+                    is_manual: b.is_manual,
                     start_time_ms: b.start_time,
                     end_time_ms: b.end_time,
                     zoom_level: b.zoom_factor as f64,
@@ -251,6 +285,10 @@ pub fn load_zoom_blocks_from_sidecar(video_path: &std::path::Path) -> Option<Vec
                     zoom_in_speed: b.zoom_in_speed,
                     zoom_out_speed: b.zoom_out_speed,
                     timing_adjusted: b.timing_adjusted,
+                    instant_animation: b.instant_animation,
+                    is_disabled: b.is_disabled,
+                    loupe: b.loupe,
+                    animation_lead_in_ms: 0,
                     centers: b
                         .centers
                         .into_iter()
@@ -262,8 +300,54 @@ pub fn load_zoom_blocks_from_sidecar(video_path: &std::path::Path) -> Option<Vec
                         .collect(),
                 })
                 .collect();
+            // Saved ranges are playback data, not candidates for automatic analysis.
+            validate_export_zoom_blocks(&mut blocks, analysis.session_duration);
             Some(blocks)
         }
         Err(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod export_zoom_validation_tests {
+    use super::*;
+    #[test]
+    fn saved_short_zoom_ranges_use_the_same_validation_as_explicit_ranges() {
+        let directory = std::env::temp_dir().join(format!("tarantino-zoom-load-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let video = directory.join("recording.mp4");
+        let ranges = [(800, 1200), (200, 700), (0, 100), (750, 750), (1200, 1300)];
+        let analysis = crate::auto_zoom::ZoomAnalysis {
+            zoom_blocks: ranges.iter().enumerate().map(|(index, &(start, end))| {
+                serde_json::from_value(serde_json::json!({
+                    "id":index.to_string(), "click_x":0.3,"click_y":0.4,
+                    "center_x":0.3,"center_y":0.4,"start_time":start,"end_time":end,
+                    "zoom_factor":2,"is_manual":index == 1,"kind":"typing",
+                    "centers":[{"x":0.3,"y":0.4,"time":start}],"instant_animation":true
+                })).unwrap()
+            }).collect(),
+            total_clicks: 0,
+            session_duration: 1000,
+            config: crate::auto_zoom::ZoomConfig::default(),
+        };
+        std::fs::write(RecordingArtifacts::new(&video).auto_zoom(), serde_json::to_vec(&analysis).unwrap()).unwrap();
+        let blocks = load_zoom_blocks_from_sidecar(&video).unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+        assert_eq!(blocks.iter().map(|b| (b.start_time_ms,b.end_time_ms)).collect::<Vec<_>>(),
+            [(0,100),(200,700),(800,1000)]);
+        assert!(blocks[1].is_manual);
+        assert!(blocks.iter().all(|b| b.kind.as_deref() == Some("typing") && b.instant_animation
+            && b.centers.len() == 1 && b.center_x == 0.3 && b.center_y == 0.4));
+    }
+    #[test]
+    fn short_and_exact_half_second_zoom_ranges_survive_export() {
+        let mut blocks:Vec<ZoomBlock>=serde_json::from_value(serde_json::json!([
+            {"start_time_ms":0,"end_time_ms":100,"zoom_level":2,"center_x":0.5,"center_y":0.5},
+            {"start_time_ms":200,"end_time_ms":700,"zoom_level":2,"center_x":0.5,"center_y":0.5,"is_manual":true},
+            {"start_time_ms":800,"end_time_ms":800,"zoom_level":2,"center_x":0.5,"center_y":0.5},
+            {"start_time_ms":1200,"end_time_ms":1300,"zoom_level":2,"center_x":0.5,"center_y":0.5}
+        ])).unwrap();
+        validate_export_zoom_blocks(&mut blocks,1000);
+        assert_eq!(blocks.iter().map(|b|(b.start_time_ms,b.end_time_ms)).collect::<Vec<_>>(),[(0,100),(200,700)]);
     }
 }

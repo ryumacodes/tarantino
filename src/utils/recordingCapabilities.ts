@@ -1,6 +1,7 @@
 import { isLinuxRuntime } from './platform';
 
 export interface RecordingCapabilities {
+  shortcutRecordingAvailable?: boolean;
   recordingAvailable: boolean;
   unavailableReason: string | null;
   usesSystemSourcePicker: boolean;

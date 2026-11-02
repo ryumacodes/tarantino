@@ -155,23 +155,11 @@ impl UnifiedAppState {
                 .collect(),
             Err(err) => {
                 println!("get_windows: enumeration failed: {}", err);
-                let cached = if cfg!(target_os = "linux") {
-                    Vec::new()
-                } else {
-                    self.app.read().windows.clone()
-                };
-                if !cached.is_empty() {
-                    println!(
-                        "=== UNIFIED_STATE: Returning {} cached windows after enumeration failure ===",
-                        cached.len()
-                    );
-                }
-                cached
+                self.app.update_windows(Vec::new());
+                return Err(err);
             }
         };
-        if cfg!(target_os = "linux") || !windows.is_empty() {
-            self.app.update_windows(windows.clone());
-        }
+        self.app.update_windows(windows.clone());
 
         println!("=== UNIFIED_STATE: Refreshed {} windows ===", windows.len());
         Ok(windows)

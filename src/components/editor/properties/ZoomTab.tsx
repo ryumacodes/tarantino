@@ -1,7 +1,10 @@
+import { useShallow } from 'zustand/react/shallow';
 import React, { useState, useRef } from 'react';
 import { Zap, Target, Trash2, RotateCcw } from 'lucide-react';
 import { useEditorStore } from '../../../stores/editor';
 import type { TabProps } from './types';
+import { ZoomPresentationControls } from './ZoomPresentationControls';
+import { RebuildZooms } from './RebuildZooms';
 
 const SPEED_OPTIONS = ['slow', 'mellow', 'quick', 'rapid'] as const;
 
@@ -17,7 +20,18 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
     deleteZoomBlock,
     selectedBlockId,
     visualSettings,
-  } = useEditorStore();
+  } = useEditorStore(useShallow(state => ({
+    selectedKeyframe: state.selectedKeyframe,
+    updateZoomKeyframe: state.updateZoomKeyframe,
+    zoomKeyframes: state.zoomKeyframes,
+    deleteZoomKeyframe: state.deleteZoomKeyframe,
+    zoomAnalysis: state.zoomAnalysis,
+    zoomLoading: state.zoomLoading,
+    updateZoomBlock: state.updateZoomBlock,
+    deleteZoomBlock: state.deleteZoomBlock,
+    selectedBlockId: state.selectedBlockId,
+    visualSettings: state.visualSettings,
+  })));
 
   // Get the currently selected zoom block
   const selectedBlock = selectedBlockId && zoomAnalysis
@@ -28,6 +42,7 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
   const getConstrainedBounds = (zoomFactor: number) => {
     // At 2x zoom, the visible area is 50% of original
     // Center must be at least (visible_area/2) from edges
+    if (selectedBlock?.loupe) return { min: 0, max: 100 };
     const visibleRatio = 1 / zoomFactor;
     const minCenter = visibleRatio / 2;
     const maxCenter = 1 - (visibleRatio / 2);
@@ -84,6 +99,7 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
 
   return (
     <div className="tab-content">
+      <RebuildZooms disabled={isExporting || zoomLoading} />
       {zoomLoading ? (
         <div className="loading-state">
           <div className="editor-spinner" />
@@ -121,6 +137,20 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
               </div>
 
               <div className="control-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={!selectedBlock.is_disabled}
+                    onChange={event => updateZoomBlock(selectedBlock.id, { is_disabled: !event.target.checked })}
+                    disabled={isExporting}
+                  />{' '}Enable zoom
+                </label>
+                <small className="setting-hint">Keep this block’s settings while turning its effect on or off.</small>
+              </div>
+
+              <ZoomPresentationControls block={selectedBlock} disabled={isExporting} />
+
+              <div className="control-group">
                 <label>Zoom Factor</label>
                 <div className="slider-control">
                   <input
@@ -134,6 +164,7 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                       // Auto-constrain center when zoom factor changes
                       updateZoomBlock(selectedBlock.id, {
                         zoom_factor: newZoomFactor,
+                        is_manual: selectedBlock.is_manual,
                         center_x: constrainCenter(selectedBlock.center_x * 100, newZoomFactor) / 100,
                         center_y: constrainCenter(selectedBlock.center_y * 100, newZoomFactor) / 100,
                       });
@@ -156,6 +187,19 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
               )}
 
               <div className="control-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={selectedBlock.instant_animation ?? false}
+                    onChange={event => updateZoomBlock(selectedBlock.id, { instant_animation: event.target.checked })}
+                    disabled={isExporting}
+                  />{' '}Instant zoom
+                </label>
+                <small className="setting-hint">Snap to the zoom and back without an animated transition.</small>
+              </div>
+
+              {!selectedBlock.loupe && <>
+              <div className="control-group">
                 <label>Zoom-In Speed</label>
                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
                   {SPEED_OPTIONS.map((speed) => (
@@ -175,7 +219,7 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                 <small className="setting-hint" style={{ marginTop: '4px', display: 'block' }}>
                   {selectedBlock.zoom_in_speed
                     ? `Override: ${selectedBlock.zoom_in_speed}`
-                    : `Using global: ${visualSettings.zoomSpeedPreset}`}
+                    : `Using global: ${visualSettings.screenMotionStyle ?? visualSettings.zoomSpeedPreset}`}
                 </small>
               </div>
 
@@ -199,9 +243,11 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                 <small className="setting-hint" style={{ marginTop: '4px', display: 'block' }}>
                   {selectedBlock.zoom_out_speed
                     ? `Override: ${selectedBlock.zoom_out_speed}`
-                    : `Using global: ${visualSettings.zoomSpeedPreset}`}
+                    : `Using global: ${visualSettings.screenMotionStyle ?? visualSettings.zoomSpeedPreset}`}
                 </small>
               </div>
+
+              </>}
 
               <div className="control-group">
                 <label>Zoom Position</label>
@@ -254,13 +300,13 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                       position: 'absolute',
                       left: `${selectedBlock.center_x * 100}%`,
                       top: `${selectedBlock.center_y * 100}%`,
-                      width: `${zoomWindowSize}%`,
-                      height: `${zoomWindowSize}%`,
+                      width: selectedBlock.loupe ? '24px' : `${zoomWindowSize}%`,
+                      height: selectedBlock.loupe ? '24px' : `${zoomWindowSize}%`,
                       border: '2px solid var(--accent-primary)',
-                      borderRadius: '4px',
+                      borderRadius: selectedBlock.loupe ? '50%' : '4px',
                       transform: 'translate(-50%, -50%)',
                       background: 'rgba(189, 147, 249, 0.1)',
-                      boxShadow: '0 0 0 2000px rgba(0,0,0,0.4)',
+                      boxShadow: selectedBlock.loupe ? 'none' : '0 0 0 2000px rgba(0,0,0,0.4)',
                       pointerEvents: 'none'
                     }}
                   />
@@ -302,10 +348,11 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
             <div className="section">
               <div className="empty-state" style={{ padding: '24px 16px' }}>
                 <Target size={24} />
-                <p>No block selected</p>
+                <p>{zoomAnalysis.zoom_blocks.length ? 'No block selected' : 'No zoom blocks yet'}</p>
                 <span>
-                  {zoomAnalysis.zoom_blocks.length} zoom block{zoomAnalysis.zoom_blocks.length !== 1 ? 's' : ''} available.
-                  Click one in the timeline to edit.
+                  {zoomAnalysis.zoom_blocks.length
+                    ? `${zoomAnalysis.zoom_blocks.length} zoom blocks available. Click one in the timeline to edit.`
+                    : 'Rebuild automatic zooms from recorded input, or add a block from the toolbar.'}
                 </span>
               </div>
             </div>

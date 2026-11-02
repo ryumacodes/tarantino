@@ -1,11 +1,36 @@
 //! Cursor Renderer - Generates cursor overlay frames for video export
 //!
-//! Ports the spring physics and cursor rendering logic from MouseCursorOverlay.tsx
-//! to produce frame-by-frame cursor animations that match the preview exactly.
+//! Deterministic source-time motion shared with preview sampling. Final shader
+//! appearance still depends on each renderer and requires separate validation.
 
 mod simulation;
+pub(crate) mod image_geometry;
+pub(crate) mod recorded_images;
+pub(crate) mod shape_events;
+pub(crate) mod shape_track;
+pub(crate) use simulation::simulate_cursor_frames_from;
+pub(crate) mod typing_activity;
+pub(crate) use simulation::{simulate_cursor_frames_with_activity, simulate_cursor_range_with_activity};
+mod spring;
+mod press_spring;
+mod press_animation;
+mod edited_press;
+mod angular_spring;
+mod edited_path;
+pub(crate) mod edited_simulation;
+pub(crate) mod loop_path;
+pub(crate) mod rotation;
+pub use spring::spring_step;
+pub(crate) use spring::spring_step_with_precision;
+mod settling;
+pub(crate) mod planner;
+pub(crate) use settling::TargetTolerance;
 
-pub use simulation::{CursorFrameState, parse_cursor_events, simulate_cursor_positions};
+pub use simulation::{
+    CursorFrameState, TrailPoint, parse_cursor_events, simulate_cursor_frames,
+    simulate_cursor_positions_for_range, simulate_cursor_frames_with_rotation,
+    simulate_cursor_positions_for_range_with_rotation,
+};
 
 /// Spring physics state for smooth cursor animation
 #[derive(Clone, Copy, Debug)]
@@ -31,39 +56,6 @@ pub struct SpringConfig {
     pub mass: f64,
 }
 
-/// Spring physics step function matching MouseCursorOverlay.tsx springStep()
-pub fn spring_step(
-    current: f64,
-    target: f64,
-    velocity: f64,
-    config: &SpringConfig,
-    dt: f64,
-) -> SpringState {
-    let safe_dt = dt.min(0.064); // Cap at ~15fps minimum
-
-    let displacement = current - target;
-    let spring_force = -config.tension * displacement;
-    let damping_force = -config.friction * velocity;
-    let acceleration = (spring_force + damping_force) / config.mass;
-
-    let new_velocity = velocity + acceleration * safe_dt;
-    let new_value = current + new_velocity * safe_dt;
-
-    // Snap to target if close enough and velocity is low
-    // Must match preview threshold (0.0001) for sub-pixel precision
-    if displacement.abs() < 0.0001 && new_velocity.abs() < 0.0001 {
-        return SpringState {
-            value: target,
-            velocity: 0.0,
-        };
-    }
-
-    SpringState {
-        value: new_value,
-        velocity: new_velocity,
-    }
-}
-
 /// Parse hex color to RGB components
 pub fn parse_hex_rgb(hex: &str) -> (u8, u8, u8) {
     let hex = hex.trim_start_matches('#');
@@ -76,6 +68,7 @@ pub fn parse_hex_rgb(hex: &str) -> (u8, u8, u8) {
 /// Mouse event from sidecar for processing
 #[derive(Clone, Debug)]
 pub struct CursorEvent {
+    pub is_release: bool,
     pub timestamp_ms: u64,
     pub x: f64, // Normalized 0-1
     pub y: f64, // Normalized 0-1
@@ -108,3 +101,6 @@ mod tests {
         assert_eq!(b, 107);
     }
 }
+
+#[cfg(test)]
+mod benchmark;

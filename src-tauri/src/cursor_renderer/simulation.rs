@@ -1,6 +1,10 @@
 use super::*;
 use crate::video_processing::CursorSettings;
-use crate::video_processing::zoom_trajectory::ZoomFrameState;
+use crate::video_processing::zoom_trajectory::{CAMERA_SIMULATION_FPS, ZoomFrameState};
+
+mod visibility;
+#[cfg(test)]
+mod visibility_tests;
 
 pub fn parse_cursor_events(
     events: &[serde_json::Value],
@@ -10,6 +14,8 @@ pub fn parse_cursor_events(
     effective_width: f64,
     effective_height: f64,
 ) -> Vec<CursorEvent> {
+    if ![effective_x,effective_y,effective_width,effective_height].iter().all(|v|v.is_finite())
+        || effective_width<=0.0 || effective_height<=0.0 { return Vec::new(); }
     let mut parsed = events
         .iter()
         .filter_map(|event| {
@@ -34,10 +40,14 @@ pub fn parse_cursor_events(
             let logical_y = raw_y;
             let adjusted_x = logical_x - effective_x;
             let adjusted_y = logical_y - effective_y;
-            let norm_x = (adjusted_x / effective_width).clamp(0.0, 1.0);
-            let norm_y = (adjusted_y / effective_height).clamp(0.0, 1.0);
+            // Preserve off-window travel for the spring; clipping belongs to
+            // composition, otherwise the pointer sticks to the recording edge.
+            let norm_x = adjusted_x / effective_width;
+            let norm_y = adjusted_y / effective_height;
+            if !norm_x.is_finite() || !norm_y.is_finite() { return None; }
 
-            Some(CursorEvent {
+            Some(CursorEvent { is_release: base.get("event_type").is_some_and(|kind|
+                    kind.as_str()==Some("ButtonRelease") || kind.get("ButtonRelease").is_some()),
                 timestamp_ms: timestamp,
                 x: norm_x,
                 y: norm_y,
@@ -51,7 +61,8 @@ pub fn parse_cursor_events(
 }
 
 /// Trail point data for export (matches preview trail rendering)
-#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TrailPoint {
     pub x: f32,
     pub y: f32,
@@ -60,10 +71,12 @@ pub struct TrailPoint {
 }
 
 /// Per-frame cursor state for GPU rendering (position + effect state, no image data).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct CursorFrameState {
     pub x: f32,
     pub y: f32,
+    pub press_amount: f32, // relative size reduction; zero at rest
+    pub fade_blur_radius: f32, // stage pixels, independent of cursor size
     pub opacity: f32,         // idle fade (0-1)
     pub rotation: f32,        // degrees
     pub is_clicking: f32,     // 0 or 1
@@ -74,7 +87,13 @@ pub struct CursorFrameState {
     pub circle_hl_x: f32,
     pub circle_hl_y: f32,
     pub trail_count: f32,
-    pub trail_points: [TrailPoint; 30],
+    trail_points: Option<std::sync::Arc<[TrailPoint]>>,
+}
+
+impl CursorFrameState {
+    pub fn trail_points(&self) -> &[TrailPoint] {
+        self.trail_points.as_deref().unwrap_or(&[])
+    }
 }
 
 /// Simulate cursor positions with spring physics for GPU rendering.
@@ -82,7 +101,8 @@ pub struct CursorFrameState {
 /// Returns per-frame cursor state without rendering any images.
 /// Cursor coordinates are in zoomed output space when zoom_trajectory is provided.
 /// Now includes idle fade, rotation, circle highlight, click state, and trail.
-pub fn simulate_cursor_positions(
+#[cfg(test)]
+fn simulate_cursor_positions(
     events: &[CursorEvent],
     spring_config: &SpringConfig,
     fps: f64,
@@ -90,9 +110,141 @@ pub fn simulate_cursor_positions(
     zoom_trajectory: &Option<Vec<ZoomFrameState>>,
     cursor_settings: &CursorSettings,
 ) -> Vec<CursorFrameState> {
-    let total_frames = ((duration_ms as f64 * fps) / 1000.0).ceil() as u64;
-    let dt = 1.0 / fps;
-    let mut positions = Vec::with_capacity(total_frames as usize);
+    simulate_cursor_frames(
+        events,
+        spring_config,
+        fps,
+        duration_ms,
+        zoom_trajectory,
+        cursor_settings,
+        Clone::clone,
+    )
+}
+
+/// Project samples directly into the caller's output format to avoid retaining
+/// unused trail/effect fields in compact preview responses.
+pub fn simulate_cursor_frames<T>(
+    events: &[CursorEvent],
+    spring_config: &SpringConfig,
+    fps: f64,
+    duration_ms: u64,
+    zoom_trajectory: &Option<Vec<ZoomFrameState>>,
+    cursor_settings: &CursorSettings,
+    project: impl Fn(&CursorFrameState) -> T,
+) -> Vec<T> {
+    simulate_cursor_frames_with_rotation(events,spring_config,fps,duration_ms,zoom_trajectory,
+        cursor_settings,None,project)
+}
+
+pub fn simulate_cursor_frames_with_rotation<T>(
+    events: &[CursorEvent],
+    spring_config: &SpringConfig,
+    fps: f64,
+    duration_ms: u64,
+    zoom_trajectory: &Option<Vec<ZoomFrameState>>,
+    cursor_settings: &CursorSettings,
+    rotation_keys: Option<&[super::rotation::RotationKey]>,
+    project: impl Fn(&CursorFrameState) -> T,
+) -> Vec<T> {
+    simulate_cursor_frames_with_activity(events, spring_config, fps, duration_ms,
+        zoom_trajectory, cursor_settings, rotation_keys, None, project)
+}
+
+pub(crate) fn simulate_cursor_frames_with_activity<T>(
+    events: &[CursorEvent], spring_config: &SpringConfig, fps: f64, duration_ms: u64,
+    zoom_trajectory: &Option<Vec<ZoomFrameState>>, cursor_settings: &CursorSettings,
+    rotation_keys: Option<&[super::rotation::RotationKey]>,
+    typing: Option<&dyn Fn(f64) -> bool>, project: impl Fn(&CursorFrameState) -> T,
+) -> Vec<T> {
+    simulate_cursor_frames_from(
+        events,
+        spring_config,
+        fps,
+        duration_ms,
+        zoom_trajectory,
+        cursor_settings,
+        0,
+        fps,
+        rotation_keys,
+        typing,
+        None,
+        None,
+        project,
+    )
+}
+
+/// Integrate source history but retain only the requested trimmed output samples.
+pub fn simulate_cursor_positions_for_range(
+    events: &[CursorEvent],
+    spring_config: &SpringConfig,
+    fps: f64,
+    range: crate::video_processing::export_range::ExportRange,
+    source_zoom: &Option<Vec<ZoomFrameState>>,
+    cursor_settings: &CursorSettings,
+) -> Vec<CursorFrameState> {
+    simulate_cursor_positions_for_range_with_rotation(events,spring_config,fps,range,source_zoom,
+        cursor_settings,None)
+}
+
+pub fn simulate_cursor_positions_for_range_with_rotation(
+    events: &[CursorEvent],
+    spring_config: &SpringConfig,
+    fps: f64,
+    range: crate::video_processing::export_range::ExportRange,
+    source_zoom: &Option<Vec<ZoomFrameState>>,
+    cursor_settings: &CursorSettings,
+    rotation_keys: Option<&[super::rotation::RotationKey]>,
+) -> Vec<CursorFrameState> {
+    simulate_cursor_range_with_activity(events, spring_config, fps, range, source_zoom,
+        cursor_settings, rotation_keys, None)
+}
+
+pub(crate) fn simulate_cursor_range_with_activity(
+    events: &[CursorEvent], spring_config: &SpringConfig, fps: f64,
+    range: crate::video_processing::export_range::ExportRange,
+    source_zoom: &Option<Vec<ZoomFrameState>>, cursor_settings: &CursorSettings,
+    rotation_keys: Option<&[super::rotation::RotationKey]>, typing: Option<&dyn Fn(f64) -> bool>,
+) -> Vec<CursorFrameState> {
+    simulate_cursor_frames_from(
+        events,
+        spring_config,
+        fps,
+        range.end_ms,
+        source_zoom,
+        cursor_settings,
+        range.start_ms,
+        CAMERA_SIMULATION_FPS,
+        rotation_keys,
+        typing,
+        None,
+        None,
+        Clone::clone,
+    )
+}
+
+pub(crate) fn simulate_cursor_frames_from<T>(
+    events: &[CursorEvent],
+    spring_config: &SpringConfig,
+    fps: f64,
+    duration_ms: u64,
+    zoom_trajectory: &Option<Vec<ZoomFrameState>>,
+    cursor_settings: &CursorSettings,
+    start_ms: u64,
+    zoom_fps: f64,
+    rotation_keys: Option<&[super::rotation::RotationKey]>,
+    typing: Option<&dyn Fn(f64) -> bool>,
+    planned: Option<&dyn Fn(f64) -> [f64;2]>,
+    pressed: Option<(&dyn Fn(f64) -> bool, f64)>,
+    project: impl Fn(&CursorFrameState) -> T,
+) -> Vec<T> {
+    if !fps.is_finite() || fps <= 0.0 {
+        return Vec::new();
+    }
+    let output_count =
+        ((duration_ms.saturating_sub(start_ms) as f64 * fps) / 1000.0).ceil() as usize;
+    let total_frames = ((duration_ms as f64 * CAMERA_SIMULATION_FPS) / 1000.0).ceil() as u64;
+    let dt = 1.0 / CAMERA_SIMULATION_FPS;
+    let mut positions = Vec::with_capacity(output_count);
 
     let init_x = events.first().map_or(0.5, |e| e.x);
     let init_y = events.first().map_or(0.5, |e| e.y);
@@ -112,7 +264,7 @@ pub fn simulate_cursor_positions(
     let rotate_while_moving = cursor_settings.rotate_while_moving.unwrap_or(false);
     let rotation_intensity = cursor_settings.rotation_intensity.unwrap_or(30.0);
     let trail_enabled = cursor_settings.trail_enabled.unwrap_or(false);
-    let trail_length = cursor_settings.trail_length.unwrap_or(15) as usize;
+    let trail_length = cursor_settings.trail_length.unwrap_or(15).min(30) as usize;
     let trail_opacity = cursor_settings.trail_opacity.unwrap_or(0.5);
     let click_effect = cursor_settings.click_effect.as_deref().unwrap_or("ripple");
     let cursor_scale = cursor_settings.size.unwrap_or(1.0);
@@ -131,15 +283,14 @@ pub fn simulate_cursor_positions(
     } else {
         duration_ms
     };
-    let loop_start_ms = if loop_to_start && loop_duration_ms > 0 {
-        duration_ms.saturating_sub(loop_duration_ms)
-    } else {
-        duration_ms
-    };
-    let loop_from = find_target_at_time(events, loop_start_ms.min(freeze_time_ms));
+    let press_animation=pressed.and_then(|(sample,rate)|super::press_animation::PressAnimation::build(
+        duration_ms as f64,rate,spring_config,|time|sample(time.min(freeze_time_ms as f64))));
+    let looped_events=loop_to_start.then(||super::loop_path::cursor_events(events,duration_ms,loop_duration_ms));
+    let motion_events=looped_events.as_deref().unwrap_or(events);
+    let loop_start_ms=motion_events.last().map_or(duration_ms,|event|event.timestamp_ms);
 
     // Track click events
-    let click_events: Vec<(u64, f64, f64)> = events
+    let click_events: Vec<(u64, f64, f64)> = motion_events
         .iter()
         .filter(|e| e.is_click)
         .map(|e| (e.timestamp_ms, e.x, e.y))
@@ -148,49 +299,36 @@ pub fn simulate_cursor_positions(
     let mut last_click_time: Option<u64> = None;
     let mut active_ripple: Option<(f64, f64, u64)> = None;
     let mut active_circle_hl: Option<(f64, f64, u64)> = None;
-    let ripple_duration_frames = (0.6 * fps) as u64;
-    let circle_hl_duration_frames = (0.3 * fps) as u64;
+    let ripple_duration_frames = (0.6 * CAMERA_SIMULATION_FPS) as u64;
+    let circle_hl_duration_frames = (0.3 * CAMERA_SIMULATION_FPS) as u64;
 
-    // Idle fade state
-    let mut opacity: f64 = 1.0;
-    let mut last_move_time_ms: f64 = 0.0;
+    let mut visibility = visibility::CursorVisibility::new();
 
+    let mut angular_state = super::angular_spring::AngularSpring::new(
+        rotation_keys.map_or(0.0, |keys| super::rotation::sample(keys, 0.0)));
     // Rotation state
     let mut horizontal_velocity: f64 = 0.0;
     let mut last_x_position: f64 = init_x;
 
     // Trail history (pre-zoom positions for trail rendering)
-    let mut trail_history: Vec<(f64, f64)> = Vec::new();
-
-    // Track last target for move detection
-    let mut last_target_x: f64 = init_x;
-    let mut last_target_y: f64 = init_y;
+    let mut trail_history: Vec<(f64, f64)> = Vec::with_capacity(trail_length);
+    let mut trail_cache: Option<(u64, f32, std::sync::Arc<[TrailPoint]>)> = None;
 
     for frame_num in 0..total_frames {
-        let time_ms = ((frame_num as f64 * 1000.0) / fps) as u64;
-        let time_ms_f = frame_num as f64 * 1000.0 / fps;
+        let time_ms = ((frame_num as f64 * 1000.0) / CAMERA_SIMULATION_FPS) as u64;
+        let time_ms_f = frame_num as f64 * 1000.0 / CAMERA_SIMULATION_FPS;
 
         // Find target cursor position
         let effective_time_ms = time_ms.min(freeze_time_ms);
-        let (mut target_x, mut target_y) = find_target_at_time(events, effective_time_ms);
-        if loop_to_start && time_ms >= loop_start_ms && duration_ms > loop_start_ms {
-            let denom = (duration_ms - loop_start_ms).max(1) as f64;
-            let progress = smoothstep(((time_ms - loop_start_ms) as f64 / denom).clamp(0.0, 1.0));
-            target_x = lerp(loop_from.0, init_x, progress);
-            target_y = lerp(loop_from.1, init_y, progress);
-        }
+        let (target_x, target_y) = find_target_at_time(motion_events, effective_time_ms);
 
-        // Detect if cursor moved (for idle tracking)
-        let target_moved =
-            (target_x - last_target_x).abs() > 0.0001 || (target_y - last_target_y).abs() > 0.0001;
-        if target_moved {
-            last_move_time_ms = time_ms_f;
-        }
-        last_target_x = target_x;
-        last_target_y = target_y;
+        // Use actual input activity, not interpolated motion toward a future event.
+        // A stationary click also wakes the pointer after an idle fade.
+        let event_count = events.partition_point(|event| event.timestamp_ms <= effective_time_ms);
+        let latest_event = event_count.checked_sub(1).map(|index| &events[index]);
 
         // Apply spring physics
-        spring_x = spring_step(
+        if planned.is_none() { spring_x = spring_step(
             spring_x.value,
             target_x,
             spring_x.velocity,
@@ -203,22 +341,16 @@ pub fn simulate_cursor_positions(
             spring_y.velocity,
             spring_config,
             dt,
-        );
+        ); }
 
-        let mut cursor_x = spring_x.value;
-        let mut cursor_y = spring_y.value;
+        let position=planned.map_or([spring_x.value,spring_y.value],|sample|sample(time_ms_f));
+        let mut cursor_x = position[0];
+        let mut cursor_y = position[1];
 
-        // Idle fade
-        if hide_when_idle {
-            let time_since_move = time_ms_f - last_move_time_ms;
-            if time_since_move > idle_timeout_ms {
-                opacity = (opacity - dt * 2.0).max(0.0);
-            } else if time_since_move < 100.0 {
-                opacity = (opacity + dt * 5.0).min(1.0);
-            }
-        } else {
-            opacity = 1.0;
-        }
+        let idle = hide_when_idle && latest_event.is_some_and(|event|
+            time_ms_f - event.timestamp_ms as f64 > idle_timeout_ms);
+        let rendered_opacity = visibility.sample(latest_event.is_some(), idle,
+            typing.is_some_and(|active| active(time_ms_f)), dt);
 
         // Rotation
         let dx = cursor_x - last_x_position;
@@ -228,13 +360,25 @@ pub fn simulate_cursor_positions(
         let mut rotation = static_rotation;
         if rotate_while_moving {
             let max_rot = 30.0 * (rotation_intensity / 100.0);
-            rotation += (horizontal_velocity * 2.0).clamp(-max_rot, max_rot);
+            if let Some(keys) = rotation_keys {
+                let mut target = super::rotation::sample(keys, effective_time_ms as f64);
+                // A frozen pointer must settle back to neutral, not retain its
+                // last moving tilt throughout the closing hold.
+                if time_ms > freeze_time_ms {
+                    let resting_ms = (time_ms - freeze_time_ms) as f64;
+                    target *= if resting_ms >= 720.0 {0.0} else {(-resting_ms / 120.0).exp()};
+                }
+                rotation += angular_state.advance(target,dt);
+            } else {
+                rotation += (horizontal_velocity * 2.0).clamp(-max_rot, max_rot);
+            }
         }
 
         // Transform through zoom if active
         if let Some(trajectory) = zoom_trajectory {
             if !trajectory.is_empty() {
-                let tidx = (frame_num as usize).min(trajectory.len() - 1);
+                let tidx = ((time_ms_f * zoom_fps / 1000.0 + 1e-7).floor() as usize)
+                    .min(trajectory.len() - 1);
                 let zs = &trajectory[tidx];
                 if zs.scale > 1.0 {
                     cursor_x = (cursor_x - zs.center_x) * zs.scale + 0.5;
@@ -244,7 +388,8 @@ pub fn simulate_cursor_positions(
         }
 
         // Update trail (post-zoom positions)
-        if trail_enabled {
+        if trail_enabled && latest_event.is_some() && frame_num % 2 == 0 {
+            // A fixed 60 Hz history keeps trail duration independent of output fps.
             trail_history.push((cursor_x, cursor_y));
             while trail_history.len() > trail_length {
                 trail_history.remove(0);
@@ -255,9 +400,13 @@ pub fn simulate_cursor_positions(
         let allow_click_effects = (!stop_at_end || time_ms <= freeze_time_ms)
             && (!loop_to_start || time_ms < loop_start_ms);
         let click_at_time = if allow_click_effects {
+            // Events are ordered. Find the first non-expired click rather than
+            // rescanning the recording's complete click history at every frame.
+            let first =
+                click_events.partition_point(|(t, _, _)| time_ms >= *t && time_ms - *t >= 100);
             click_events
-                .iter()
-                .find(|(t, _, _)| time_ms >= *t && time_ms < *t + 100 && *t <= freeze_time_ms)
+                .get(first)
+                .filter(|(t, _, _)| time_ms >= *t && *t <= freeze_time_ms)
         } else {
             None
         };
@@ -270,7 +419,8 @@ pub fn simulate_cursor_positions(
                 let mut ry = *exact_y;
                 if let Some(trajectory) = zoom_trajectory {
                     if !trajectory.is_empty() {
-                        let tidx = (frame_num as usize).min(trajectory.len() - 1);
+                        let tidx = ((time_ms_f * zoom_fps / 1000.0 + 1e-7).floor() as usize)
+                            .min(trajectory.len() - 1);
                         let zs = &trajectory[tidx];
                         if zs.scale > 1.0 {
                             rx = (rx - zs.center_x) * zs.scale + 0.5;
@@ -323,34 +473,56 @@ pub fn simulate_cursor_positions(
                 (0.0, 0.0, 0.0)
             };
 
-        // Build trail points
-        let mut trail_points = [TrailPoint::default(); 30];
-        let trail_count = if trail_enabled {
-            trail_history.len()
-        } else {
-            0
-        };
-        for (i, &(tx, ty)) in trail_history.iter().enumerate() {
-            if i >= 30 {
-                break;
-            }
-            let progress = if trail_count > 0 {
-                i as f32 / trail_count as f32
-            } else {
-                0.0
-            };
-            trail_points[i] = TrailPoint {
-                x: tx as f32,
-                y: ty as f32,
-                alpha: progress * trail_opacity as f32 * opacity as f32,
-                size: (2.0 + progress * 4.0) * cursor_scale as f32,
-            };
+        // Keep simulation history at its fixed cadence, but do not build render
+        // payloads for frames that the caller will not retain.
+        let next_sample = (start_ms as f64 * CAMERA_SIMULATION_FPS / 1000.0
+            + positions.len() as f64 * CAMERA_SIMULATION_FPS / fps
+            + 1e-7)
+            .floor() as u64;
+        if positions.len() >= output_count || next_sample != frame_num {
+            continue;
         }
+        let trail_count = trail_history.len();
+        let trail_points = if trail_count == 0 {
+            None
+        } else {
+            // History advances at 60 Hz. Consecutive 120 Hz samples can share
+            // immutable trail payloads unless idle fading changes their alpha.
+            let key = (frame_num / 2, rendered_opacity as f32);
+            if let Some((tick, alpha, points)) = &trail_cache {
+                if (*tick, *alpha) == key {
+                    Some(points.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+            .or_else(|| {
+                let points = trail_history
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &(tx, ty))| {
+                        let progress = i as f32 / trail_count as f32;
+                        TrailPoint {
+                            x: tx as f32,
+                            y: ty as f32,
+                            alpha: progress * trail_opacity as f32 * rendered_opacity as f32,
+                            size: (2.0 + progress * 4.0) * cursor_scale as f32,
+                        }
+                    })
+                    .collect::<std::sync::Arc<[TrailPoint]>>();
+                trail_cache = Some((key.0, key.1, points.clone()));
+                Some(points)
+            })
+        };
 
-        positions.push(CursorFrameState {
+        let mut state = CursorFrameState {
+            press_amount: 0.0,
             x: cursor_x as f32,
             y: cursor_y as f32,
-            opacity: opacity as f32,
+            opacity: rendered_opacity as f32,
+            fade_blur_radius: visibility.blur_radius(),
             rotation: rotation as f32,
             is_clicking: if is_clicking { 1.0 } else { 0.0 },
             ripple_progress,
@@ -361,7 +533,20 @@ pub fn simulate_cursor_positions(
             circle_hl_y,
             trail_count: trail_count as f32,
             trail_points,
-        });
+        };
+        // Retain only requested output samples; integrating at 120 Hz need not
+        // allocate a second full-resolution cursor trajectory.
+        while positions.len() < output_count
+            && ((start_ms as f64 * CAMERA_SIMULATION_FPS / 1000.0
+                + positions.len() as f64 * CAMERA_SIMULATION_FPS / fps
+                + 1e-7)
+                .floor() as u64)
+                == frame_num
+        {
+            state.press_amount=press_animation.as_ref().map_or(0.0,|animation|
+                animation.at(start_ms as f64+positions.len() as f64*1000.0/fps) as f32);
+            positions.push(project(&state));
+        }
     }
 
     positions
@@ -369,11 +554,6 @@ pub fn simulate_cursor_positions(
 
 fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t
-}
-
-fn smoothstep(value: f64) -> f64 {
-    let t = value.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
 }
 
 fn find_target_at_time(events: &[CursorEvent], time_ms: u64) -> (f64, f64) {
@@ -400,3 +580,6 @@ fn find_target_at_time(events: &[CursorEvent], time_ms: u64) -> (f64, f64) {
     let t = (time_ms.saturating_sub(previous.timestamp_ms) as f64 / span as f64).clamp(0.0, 1.0);
     (lerp(previous.x, next.x, t), lerp(previous.y, next.y, t))
 }
+
+#[cfg(test)]
+mod cadence_tests;

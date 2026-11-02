@@ -18,7 +18,8 @@
     "tauri:dev:raw": "TARANTINO_DEV_LAUNCH_MODE=raw TARANTINO_RAW_DEV=1 tauri dev",
     "tauri:dev:linux": "sh scripts/run-linux.sh",
     "tauri:build": "tauri build",
-    "build:linux": "node scripts/build-linux.mjs"
+    "build:linux": "node scripts/build-linux.mjs",
+    "build:macos": "sh scripts/build-macos.sh"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

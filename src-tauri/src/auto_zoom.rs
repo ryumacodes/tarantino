@@ -3,6 +3,7 @@ use crate::input::KeyEvent;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 mod typing_zoom;
+mod drag_zoom;
 
 pub use typing_zoom::validate_zoom_blocks;
 use typing_zoom::{TypingZoomConfig, create_typing_zoom_blocks, detect_typing_sessions};
@@ -58,6 +59,12 @@ pub struct ZoomBlock {
     pub zoom_out_speed: Option<String>,
     #[serde(default)]
     pub timing_adjusted: bool,
+    #[serde(default)]
+    pub instant_animation: bool,
+    #[serde(default)]
+    pub is_disabled: bool,
+    #[serde(default)]
+    pub loupe: Option<crate::video_processing::loupe::LoupeStyle>,
 }
 
 fn default_kind() -> String {
@@ -146,6 +153,8 @@ impl ZoomProcessor {
             click_events.len()
         );
 
+        drag_zoom::extend_drag_zooms(&mut zoom_blocks, session);
+
         // Detect typing sessions and create additional zoom blocks
         let typing_config = TypingZoomConfig::default();
         let typing_sessions = detect_typing_sessions(
@@ -199,6 +208,7 @@ impl ZoomProcessor {
                     crate::input::MouseEventType::ButtonPress { .. }
                 )
             })
+            .filter(|event| point_in_capture(event.base.x, event.base.y, &session.metadata))
             .cloned()
             .collect()
     }
@@ -278,6 +288,9 @@ impl ZoomProcessor {
                     zoom_in_speed: None,
                     zoom_out_speed: None,
                     timing_adjusted: false,
+                    instant_animation: false,
+                    is_disabled: false,
+                    loupe: None,
                 });
             }
 
@@ -316,6 +329,14 @@ impl ZoomProcessor {
 
         (norm_x, norm_y)
     }
+}
+
+/// Capture bounds are half-open; outside activity must not become an edge target.
+fn point_in_capture(px: f64, py: f64, metadata: &crate::event_capture::SessionMetadata) -> bool {
+    let (x,y,w,h) = metadata.capture_region
+        .map(|(x,y,w,h)| (x as f64,y as f64,w as f64,h as f64))
+        .unwrap_or((0.0,0.0,metadata.display_resolution.0 as f64,metadata.display_resolution.1 as f64));
+    px.is_finite() && py.is_finite() && px >= x && px < x+w && py >= y && py < y+h
 }
 
 /// Save zoom analysis to file

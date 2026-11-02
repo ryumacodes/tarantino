@@ -1,39 +1,76 @@
-//! Video export with GPU-accelerated compositing.
-//!
-//! All per-frame operations (zoom, cursor blend, rounded corners, shadow,
-//! motion blur, webcam overlay, device frame) run on the GPU via wgpu
-//! compute shaders. FFmpeg is used only for decode and encode.
-
+//! GPU video composition with text overlays and a single encoder readback.
 use anyhow::{Result, anyhow};
 use std::io::{BufReader, BufWriter, Read as IoRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-
-use super::audio_export::{AudioTrackFiles, append_audio_encode_args, append_audio_inputs};
-use super::codec_config::{add_trim_settings, build_codec_args, detect_export_acceleration};
+use super::audio_export::AudioTrackFiles;
+use super::codec_config::{add_trim_settings, detect_export_acceleration};
+use super::export_range::ExportRange;
 use super::gpu_compositor::{GpuCompositor, build_gpu_config_with_webcam};
 use super::types::{
     ExportSettings, ProcessingProgress, VideoInfo, ZoomBlock, load_zoom_blocks_from_sidecar,
     validate_export_zoom_blocks,
 };
 use super::visual_effects::{determine_output_path, get_cursor_config, get_webcam_info};
-use super::zoom_trajectory::{ZoomFrameState, simulate_zoom_trajectory};
-use crate::cursor_renderer::{parse_hex_rgb, simulate_cursor_positions};
-
+use super::zoom_trajectory::{CAMERA_SIMULATION_FPS, ZoomFrameState, simulate_zoom_trajectory_in_viewport, CameraViewport};
+use crate::cursor_renderer::{parse_hex_rgb, simulate_cursor_frames_from};
+pub(crate) mod encoder;
 mod support;
-use support::{get_cursor_spring_config, get_zoom_spring_config, resolve_mouse_events_path};
-pub use support::{load_raw_cursor_events, resolve_spring_preset};
-
+pub(crate) mod resources;
+use resources::{ExportChild, ExportOutput};
+pub(crate) mod timeline_support;
+use super::timeline_decode::{video_decode_args, video_decode_args_with_crop};
+use super::source_crop::remap_motion;
+pub(crate) use support::{get_cursor_spring_config,load_camera_tracks,load_camera_activity};
+pub use support::{load_raw_cursor_events, load_camera_events, load_filtered_cursor_events};
+mod camera_samples;
+pub(crate) use camera_samples::remove_shake as filter_pointer_shakes;
+mod loupe_support;
+pub(crate) use support::{get_zoom_spring_config, resolve_mouse_events_path, load_rotation_points};
+use timeline_support::{PreparedAudio, resolve_plan};
 /// Apply video effects and export using GPU-accelerated compositing.
 pub async fn export_video(
     _temp_dir: &Path,
     input_path: &Path,
-    settings: ExportSettings,
+    mut settings: ExportSettings,
     video_info: &VideoInfo,
     progress_callback: Option<Box<dyn Fn(ProcessingProgress) + Send + Sync>>,
 ) -> Result<PathBuf> {
+    let (shortcut_overlay,caption_overlay)=(settings.shortcut_overlay.take(),settings.caption_overlay.take());
+    let control = settings.cancellation.clone().unwrap_or_default();
+    control.check()?;
     if !input_path.exists() {
         return Err(anyhow!("Input video file not found: {:?}", input_path));
+    }
+
+    let camera_settings=settings.clone();
+    let crop = settings.source_crop.map(|rect| rect.resolve(video_info.width, video_info.height)).transpose()?;
+    if let Some(crop) = crop {
+        let rect = crop.normalized();
+        settings.source_crop = Some(rect);
+        settings.window_width = settings.window_width.map(|width| (width as f64 * rect.width).round().max(1.0) as u32);
+        settings.window_height = settings.window_height.map(|height| (height as f64 * rect.height).round().max(1.0) as u32);
+    }
+    let background_start_ms = settings.trim_start.unwrap_or(0) as f64;
+    let audio_timeline = resolve_plan(&settings, input_path, video_info.duration_ms)?;
+    let cursor_timeline=timeline_support::cursor_plan(&settings,audio_timeline.as_ref())?;
+    let timeline=timeline_support::video_plan(&settings,audio_timeline.as_ref(),video_info.duration_ms);
+    let range = if let Some(plan) = &timeline {
+        ExportRange {
+            start_ms: 0,
+            end_ms: plan.duration_ms.ceil() as u64,
+        }
+    } else {
+        ExportRange::resolve(&settings, video_info.duration_ms)?
+    };
+    settings.trim_start = Some(range.start_ms);
+    settings.trim_end = Some(range.end_ms);
+    if !matches!(settings.frame_rate.unwrap_or(60), 24 | 30 | 60 | 120) {
+        return Err(anyhow!("Unsupported export frame rate"));
+    }
+    // GIF's centisecond delays below 20ms are slowed by common viewers.
+    if settings.format.as_deref() == Some("gif") {
+        settings.frame_rate = Some(settings.frame_rate.unwrap_or(60).min(30));
     }
 
     println!(
@@ -44,93 +81,116 @@ pub async fn export_video(
     let final_output_path = determine_output_path(&settings, input_path)?;
     println!("[Export] Output path will be: {:?}", final_output_path);
 
-    if let Some(parent) = final_output_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+    let output = ExportOutput::new(&final_output_path)?;
+    let output_path = output.path().to_owned();
 
-    // If input and output are the same file, use a temporary file
-    let same_file = input_path.canonicalize().ok() == final_output_path.canonicalize().ok()
-        || input_path == final_output_path;
-    let output_path = if same_file {
-        let stem = final_output_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("export");
-        let ext = final_output_path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("mp4");
-        let temp_name = format!("{}.export_temp.{}", stem, ext);
-        final_output_path
-            .parent()
-            .unwrap_or(Path::new("/tmp"))
-            .join(temp_name)
+    let audio_tracks = if settings.format.as_deref() == Some("gif") {
+        AudioTrackFiles {
+            background: None,
+            mic: None,
+            system: None,
+        }
     } else {
-        final_output_path.clone()
+        AudioTrackFiles::discover(input_path)
     };
-
-    let audio_tracks = AudioTrackFiles::discover(input_path);
     if audio_tracks.has_any() {
         println!("Found audio files for export: {:?}", audio_tracks);
     }
 
-    // Check for webcam sidecar
-    let webcam_info = get_webcam_info(input_path);
+    let prepared_audio = audio_timeline
+        .as_ref()
+        .filter(|_| audio_tracks.has_any())
+        .map(|plan| PreparedAudio::with_control(_temp_dir, plan, &audio_tracks, &control))
+        .transpose()?;
+    let mut audio_tracks = prepared_audio
+        .as_ref()
+        .map(|p| &p.tracks)
+        .unwrap_or(&audio_tracks).clone();
+    let background_audio = if settings.format.as_deref() != Some("gif") {
+        settings.background_audio.as_ref().map(|audio| {
+            super::background_audio::PreparedBackgroundAudio::new(_temp_dir,Path::new(&audio.path),
+                background_start_ms,range.duration_ms() as f64,
+                if audio.muted.unwrap_or(false) {0.0} else {audio.volume.unwrap_or(1.0)},&control)
+        }).transpose()?
+    } else { None };
+    audio_tracks.background = background_audio.as_ref().map(|audio| audio.path.clone());
+    let audio_tracks = &audio_tracks;
+    let mut audio_input_settings = settings.clone();
+    if prepared_audio.is_some() {
+        audio_input_settings.trim_start = None;
+        audio_input_settings.trim_end = None;
+    }
 
+    let webcam_info = if settings.webcam_enabled == Some(false) { None } else { get_webcam_info(input_path) };
     let target_fps = settings.frame_rate.unwrap_or(60);
+    let output_duration_ms=timeline.as_ref().map_or(range.duration_ms() as f64,|plan|plan.duration_ms);
+    let expected_frames=super::export_range::output_frame_count(output_duration_ms,target_fps);
     let acceleration = detect_export_acceleration(&settings);
+    control.check()?;
     println!("[Export] Video acceleration: {}", acceleration.label());
     let (source_width, source_height) = (video_info.width, video_info.height);
     let duration_ms = video_info.duration_ms;
     let is_window_mode = settings.capture_mode.as_deref() == Some("window");
     let mouse_events_path = resolve_mouse_events_path(input_path);
+    let camera_activity=if settings.zoom_blocks.as_ref().is_none_or(|blocks|!blocks.is_empty()) || webcam_info.is_some() {
+        load_camera_activity(&mouse_events_path,input_path,(source_width,source_height),&camera_settings,duration_ms)?
+    } else {super::camera_activity::Tracks::default()};
     let cursor_enabled = settings
         .cursor_settings
         .as_ref()
         .and_then(|c| c.enabled)
         .unwrap_or(true);
 
+    let mut loupe_trajectory = None;
+    let mut source_zoom_blocks = Vec::new();
     // Load and validate zoom blocks
     let zoom_blocks_to_use: Option<Vec<ZoomBlock>> = {
-        let mut blocks = if settings
+        // An explicit empty list means the user removed every zoom. Only an
+        // absent list may fall back to the recording's generated sidecar.
+        let mut blocks = settings
             .zoom_blocks
-            .as_ref()
-            .map_or(false, |zb| !zb.is_empty())
-        {
-            settings.zoom_blocks.clone()
-        } else {
-            load_zoom_blocks_from_sidecar(input_path)
-        };
+            .clone()
+            .or_else(|| load_zoom_blocks_from_sidecar(input_path));
         if let Some(ref mut zb) = blocks {
             validate_export_zoom_blocks(zb, duration_ms);
+            source_zoom_blocks = zb.clone();
+            loupe_trajectory = loupe_support::prepare(zb, &settings, &camera_activity,
+                (source_width,source_height), duration_ms)?;
+            remap_motion(crop, &mut [], zb);
         }
         blocks
     };
 
-    // Pre-simulate zoom trajectory using spring physics
     let zoom_trajectory: Option<Vec<ZoomFrameState>> =
         if let Some(ref zoom_blocks) = zoom_blocks_to_use {
             if !zoom_blocks.is_empty() {
-                let raw_cursor_events =
-                    load_raw_cursor_events(&mouse_events_path, source_width, source_height);
                 let zoom_spring_config = get_zoom_spring_config(&settings);
-                let cursor_spring_config = get_cursor_spring_config(&settings);
 
                 println!(
                     "Simulating zoom trajectory with spring physics ({} blocks, {} cursor events)",
                     zoom_blocks.len(),
-                    raw_cursor_events.len()
+                    camera_activity.grouped.len()
                 );
 
-                let trajectory = simulate_zoom_trajectory(
+                let trajectory = simulate_zoom_trajectory_in_viewport(
                     zoom_blocks,
-                    &raw_cursor_events,
+                    &[],
                     &zoom_spring_config,
-                    &cursor_spring_config,
+                    settings
+                        .screen_motion_style
+                        .as_deref()
+                        .is_some_and(|style| matches!(style, "focused" | "smooth")),
                     settings.animation_speed.as_deref().unwrap_or("mellow"),
-                    target_fps as f64,
-                    duration_ms,
+                    CAMERA_SIMULATION_FPS,
+                    if timeline.is_some() {
+                        duration_ms
+                    } else {
+                        range.end_ms
+                    },
                     is_window_mode,
+                    CameraViewport::from_settings(&settings, (crop.map(|c| c.width).unwrap_or(source_width),
+                        crop.map(|c| c.height).unwrap_or(source_height))),
+                    Some(super::zoom_trajectory::targets::CameraActivity {events:&[],prepared:Some(&camera_activity),smooth:get_cursor_spring_config(&settings).mass>0.0}),
                 );
                 println!("Zoom trajectory: {} frames", trajectory.len());
                 Some(trajectory)
@@ -144,7 +204,10 @@ pub async fn export_video(
     // Simulate cursor positions with spring physics (GPU SDF rendering path — no image generation)
     let cursor_config = get_cursor_config(&settings);
     let cursor_trajectory = if cursor_enabled && mouse_events_path.exists() && duration_ms > 0 {
-        let raw_events = load_raw_cursor_events(&mouse_events_path, source_width, source_height);
+        let activity = crate::cursor_renderer::typing_activity::TypingActivity::load(&mouse_events_path);
+        let typing = |time| activity.active(time);
+        let mut raw_events = load_filtered_cursor_events(&mouse_events_path, source_width, source_height, cursor_config.shake_threshold.unwrap_or(0.0));
+        remap_motion(crop, &mut raw_events, &mut []);
         let cursor_spring = get_cursor_spring_config(&settings);
 
         // Window mode: don't pre-transform cursor through zoom — the shader's inverse-zoom
@@ -154,18 +217,26 @@ pub async fn export_video(
         } else {
             &zoom_trajectory
         };
-        let positions = simulate_cursor_positions(
-            &raw_events,
-            &cursor_spring,
-            target_fps as f64,
-            duration_ms,
-            cursor_zoom_ref,
-            &cursor_config,
-        );
-        println!(
-            "Simulated {} cursor positions (spring physics, SDF rendering)",
-            positions.len()
-        );
+        let rotation_points = if cursor_config.rotate_while_moving.unwrap_or(false) {
+            load_rotation_points(&mouse_events_path,cursor_config.shake_threshold.unwrap_or(0.0))
+        } else {Vec::new()};
+        let planned=crate::cursor_renderer::planner::runtime::prepare(&mouse_events_path,(source_width,source_height),
+            settings.source_crop,cursor_timeline.as_ref(),input_path,duration_ms as f64,&cursor_config,cursor_spring)?;
+        let position=|time|planned.as_ref().unwrap().at(time);
+        let pressed=|time|planned.as_ref().unwrap().pressed_at_source(time,cursor_spring.mass!=0.0);
+        let positions = if let Some(plan)=cursor_timeline.as_ref() {
+            crate::cursor_renderer::edited_simulation::simulate_with_planned_path(&raw_events,&rotation_points,plan,
+                &input_path.to_string_lossy(),&cursor_spring,&cursor_config,cursor_zoom_ref,target_fps as f64,Some(&activity),planned.as_ref(),target_fps as f64)
+        } else {
+            let rotation_points = if cursor_config.loop_to_start.unwrap_or(false) {
+                crate::cursor_renderer::loop_path::rotation_points(&rotation_points,duration_ms,cursor_config.loop_duration_ms.unwrap_or(500))
+            } else {rotation_points};
+            let rotation_keys = crate::cursor_renderer::rotation::horizontal_tilt(&rotation_points,cursor_config.rotation_intensity.unwrap_or(30.0)/100.0);
+            simulate_cursor_frames_from(&raw_events,&cursor_spring,target_fps as f64,range.end_ms,cursor_zoom_ref,
+                &cursor_config,range.start_ms,CAMERA_SIMULATION_FPS,Some(&rotation_keys),Some(&typing),
+                planned.as_ref().map(|_|&position as &dyn Fn(f64)->[f64;2]),planned.as_ref().map(|_|(&pressed as &dyn Fn(f64)->bool,target_fps as f64)),Clone::clone)
+        };
+        println!("Simulated {} cursor positions (spring physics, SDF rendering)", positions.len());
 
         Some(positions)
     } else {
@@ -187,14 +258,24 @@ pub async fn export_video(
     };
 
     // Resolve source dimensions: prefer frontend-provided, fallback to video_info
-    let src_w = settings.source_width.or(Some(source_width));
-    let src_h = settings.source_height.or(Some(source_height));
+    let src_w = crop.map(|c| c.width).or(settings.source_width).or(Some(source_width));
+    let src_h = crop.map(|c| c.height).or(settings.source_height).or(Some(source_height));
 
     // Build GPU compositor config
     let gpu_config = build_gpu_config_with_webcam(&settings, &webcam_info, src_w, src_h);
+    let webcam_timeline = super::webcam_timeline::WebcamTimeline::new(&settings, gpu_config.webcam.clone())?;
+    let camera_opacity = if webcam_info.is_some() {
+        Some(super::loupe::camera_opacity_prepare::prepare_camera_opacity(
+            &source_zoom_blocks, &[], (source_width,source_height),
+            if timeline.is_some() {duration_ms} else {range.end_ms},
+            get_zoom_spring_config(&settings), &settings, &gpu_config,
+            zoom_trajectory.as_deref().unwrap_or(&[]),
+         Some(&camera_activity))?)
+    } else {None};
     let (out_width, out_height) = (gpu_config.output_width, gpu_config.output_height);
+    let shortcuts=super::shortcut_overlay::Prepared::new(shortcut_overlay.as_ref(),out_width,out_height,expected_frames)?;
+    let captions=caption_overlay.map(|input|super::caption_overlay::Prepared::new(input,out_width,out_height,expected_frames)).transpose()?;
     let (input_width, input_height) = (gpu_config.input_width, gpu_config.input_height);
-
     println!("=== GPU EXPORT START ===");
     println!("  Input (decode): {}x{}", input_width, input_height);
     println!("  Output: {}x{} @ {}fps", out_width, out_height, target_fps);
@@ -216,6 +297,7 @@ pub async fn export_video(
     } else {
         None
     };
+    control.check()?;
     let mut compositor = GpuCompositor::new(
         gpu_config,
         cursor_shape_ref,
@@ -223,15 +305,17 @@ pub async fn export_video(
         ripple_color,
         cursor_settings_ref,
     )?;
-
+    compositor.configure_recorded_cursor(&mouse_events_path, &cursor_config)?;
+    let gpu_shortcuts=compositor.configure_shortcuts(shortcuts.as_ref())?;
+    compositor.configure_captions(captions)?;
+    let masks=settings.mask_overlay.take().map(|m|super::mask_export::Prepared::new(m,expected_frames,[input_width,input_height])).transpose()?;
     // Spawn webcam decoder if webcam recording exists
     let webcam_frame_size: Option<(u32, u32)>;
-    let mut webcam_decoder: Option<std::process::Child> = None;
+    let mut webcam_decoder: Option<ExportChild> = None;
     if let Some((ref webcam_path, _, _, _, _)) = webcam_info {
         if webcam_path.exists() {
             // Get webcam dimensions via ffprobe
-            let probe_output = Command::new("ffprobe")
-                .args([
+            let probe_output = control.output(Command::new("ffprobe").args([
                     "-v",
                     "quiet",
                     "-select_streams",
@@ -241,8 +325,8 @@ pub async fn export_video(
                     "-of",
                     "csv=p=0",
                     &webcam_path.to_string_lossy(),
-                ])
-                .output();
+                ]));
+            control.check()?;
             let (wc_w, wc_h) = probe_output
                 .ok()
                 .and_then(|o| String::from_utf8(o.stdout).ok())
@@ -263,26 +347,34 @@ pub async fn export_video(
                 compositor.set_webcam_texture(wc_w, wc_h);
 
                 // Spawn FFmpeg to decode webcam to raw RGBA, same fps as main video
+                let mut wc_args = vec!["-y".to_string()];
+                add_trim_settings(&mut wc_args, &settings);
+                wc_args.extend(["-i".to_string(), webcam_path.to_string_lossy().into_owned()]);
+                wc_args.extend([
+                    "-vf".to_string(),
+                    format!("setpts=PTS-STARTPTS,fps={},tpad=stop_mode=clone:stop=1,trim=end_frame={},scale={}:{}", target_fps, expected_frames, wc_w, wc_h),
+                    "-f".to_string(),
+                    "rawvideo".to_string(),
+                    "-pix_fmt".to_string(),
+                    "rgba".to_string(),
+                    "-".to_string(),
+                ]);
+                if let Some(plan) = &timeline {
+                    let mut linked_plan = plan.clone();
+                    for segment in &mut linked_plan.segments {
+                        segment.source_file_path = None;
+                    }
+                    wc_args = video_decode_args(&linked_plan, &webcam_path, wc_w, wc_h, target_fps);
+                }
                 let wc_decoder = Command::new("ffmpeg")
-                    .args([
-                        "-y",
-                        "-i",
-                        &webcam_path.to_string_lossy(),
-                        "-vf",
-                        &format!("fps={},scale={}:{}", target_fps, wc_w, wc_h),
-                        "-f",
-                        "rawvideo",
-                        "-pix_fmt",
-                        "rgba",
-                        "-",
-                    ])
+                    .args(&wc_args)
                     .stdout(Stdio::piped())
                     .stderr(Stdio::null())
                     .spawn();
 
                 match wc_decoder {
                     Ok(child) => {
-                        webcam_decoder = Some(child);
+                        webcam_decoder = Some(ExportChild::new(child, &control));
                         println!(
                             "  Webcam decoder: {}x{} from {}",
                             wc_w,
@@ -307,12 +399,14 @@ pub async fn export_video(
         webcam_frame_size.map(|(w, h)| vec![0u8; (w * h * 4) as usize]);
     let mut webcam_reader: Option<BufReader<std::process::ChildStdout>> = webcam_decoder
         .as_mut()
-        .and_then(|d| d.stdout.take())
+        .and_then(|d| d.stdout())
         .map(BufReader::new);
 
     // Spawn FFmpeg decoder (raw RGBA output)
     let mut decoder_args = vec!["-y".to_string()];
     acceleration.append_decoder_args(&mut decoder_args);
+    // Seek before decoding; reset timestamps before frame-rate conversion.
+    add_trim_settings(&mut decoder_args, &settings);
     decoder_args.extend([
         "-threads".to_string(),
         "0".to_string(),
@@ -320,13 +414,11 @@ pub async fn export_video(
         input_path.to_string_lossy().to_string(),
     ]);
 
-    // Add trim
-    add_trim_settings(&mut decoder_args, &settings);
 
     // Decode filter: fps + scale to input dims (aspect-correct, all effects on GPU)
     decoder_args.extend([
         "-vf".to_string(),
-        format!("fps={},scale={}:{}", target_fps, input_width, input_height),
+        format!("{}setpts=PTS-STARTPTS,fps={},tpad=stop_mode=clone:stop=1,trim=end_frame={},scale={}:{}", crop.map_or(String::new(), |c| c.decode_filter()), target_fps, expected_frames, input_width, input_height),
         "-f".to_string(),
         "rawvideo".to_string(),
         "-pix_fmt".to_string(),
@@ -334,65 +426,47 @@ pub async fn export_video(
         "-".to_string(),
     ]);
 
+    if let Some(plan) = &timeline {
+        decoder_args = video_decode_args_with_crop(plan, input_path, input_width, input_height, target_fps, crop);
+    }
     println!("  Decoder args: {:?}", decoder_args);
 
-    let mut decoder = Command::new("ffmpeg")
+    control.check()?;
+    let decoder = Command::new("ffmpeg")
         .args(&decoder_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
+        .map(|child| ExportChild::new(child, &control))
         .map_err(|e| anyhow!("Failed to spawn decoder: {}", e))?;
 
-    // Spawn FFmpeg encoder
-    let mut encoder_args = vec!["-y".to_string()];
-    acceleration.append_encoder_input_args(&mut encoder_args);
-    encoder_args.extend([
-        "-f".to_string(),
-        "rawvideo".to_string(),
-        "-pix_fmt".to_string(),
-        "rgba".to_string(),
-        "-s".to_string(),
-        format!("{}x{}", out_width, out_height),
-        "-r".to_string(),
-        format!("{}", target_fps),
-        "-threads".to_string(),
-        "0".to_string(),
-        "-i".to_string(),
-        "-".to_string(),
-    ]);
-
-    if audio_tracks.has_any() {
-        append_audio_inputs(&mut encoder_args, &audio_tracks);
-        append_audio_encode_args(&mut encoder_args, &settings, &audio_tracks);
-    }
-
-    encoder_args.extend(build_codec_args(&settings, &acceleration));
-    encoder_args.extend([
-        "-vf".to_string(),
-        acceleration.encoder_filter(target_fps),
-        "-movflags".to_string(),
-        "+faststart".to_string(),
-    ]);
-    encoder_args.push(output_path.to_string_lossy().to_string());
+    let encoder_args = encoder::encoder_args(
+        &settings,
+        &acceleration,
+        audio_tracks,
+        &audio_input_settings,
+        (out_width, out_height),
+        target_fps,
+        &output_path,
+    );
 
     println!("  Encoder args: {:?}", encoder_args);
 
-    let mut encoder = Command::new("ffmpeg")
+    let encoder = Command::new("ffmpeg")
         .args(&encoder_args)
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
+        .map(|child| ExportChild::new(child, &control))
         .map_err(|e| anyhow!("Failed to spawn encoder: {}", e))?;
 
-    let decoder_stderr = decoder.stderr.take();
-    let encoder_stderr = encoder.stderr.take();
+    let decoder_stderr = decoder.stderr();
+    let encoder_stderr = encoder.stderr();
     let decoder_stdout = decoder
-        .stdout
-        .take()
+        .stdout()
         .ok_or_else(|| anyhow!("Failed to get decoder stdout"))?;
     let encoder_stdin = encoder
-        .stdin
-        .take()
+        .stdin()
         .ok_or_else(|| anyhow!("Failed to get encoder stdin"))?;
 
     let input_frame_size = (input_width * input_height * 4) as usize;
@@ -403,10 +477,6 @@ pub async fn export_video(
     let mut frame_buffer = vec![0u8; input_frame_size];
     let mut frame_idx: usize = 0;
     let start_time = std::time::Instant::now();
-    let expected_frames = ((duration_ms as f64 * target_fps as f64) / 1000.0).ceil() as u64;
-    let max_frames = ((expected_frames as f64) * 1.20)
-        .max(expected_frames as f64 + 120.0)
-        .ceil() as u64;
 
     // Default zoom state (no zoom)
     let default_zoom = ZoomFrameState {
@@ -431,8 +501,10 @@ pub async fn export_video(
         })
     });
 
+    let mut previous_segment = None;
     // Main frame processing loop: decode → GPU composite → encode
     loop {
+        control.check()?;
         match reader.read_exact(&mut frame_buffer) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
@@ -442,24 +514,42 @@ pub async fn export_video(
             Err(e) => return Err(anyhow!("Error reading frame {}: {}", frame_idx, e)),
         }
 
-        // Get zoom state for this frame
+        if frame_idx as u64 >= expected_frames {
+            return Err(anyhow!("Decoder emitted frames beyond the requested export range"));
+        }
+        let mapped = timeline
+            .as_ref()
+            .and_then(|plan| plan.source_at(frame_idx as f64 * 1000.0 / target_fps as f64));
+        let gap = timeline.is_some() && mapped.is_none();
+        compositor.set_recorded_cursor_time(mapped.map(|(_,ms)|ms).or_else(|| timeline.is_none().then_some(range.start_ms as f64 + frame_idx as f64 * 1000.0 / target_fps as f64)));
+        let source_frame_idx = if timeline.is_some() {
+            mapped.map_or(0, |(_, ms)| {
+                (ms * CAMERA_SIMULATION_FPS / 1000.0 + 1e-7).floor() as usize
+            })
+        } else {
+            range.source_sample(frame_idx, target_fps, CAMERA_SIMULATION_FPS)
+        };
+        // Motion remains in source time even when the decoded video is trimmed.
         let zoom_state = zoom_trajectory
             .as_ref()
+            .filter(|_| !gap)
             .and_then(|t| {
                 if t.is_empty() {
                     None
                 } else {
-                    Some(&t[frame_idx.min(t.len() - 1)])
+                    Some(&t[source_frame_idx.min(t.len() - 1)])
                 }
             })
             .unwrap_or(&default_zoom);
 
         // Get cursor state for this frame
-        let cursor_state = cursor_trajectory.as_ref().and_then(|t| {
+        let cursor_state = cursor_trajectory.as_ref().filter(|_| !gap && !mapped.is_some_and(|(segment, _)| segment.hide_cursor)).and_then(|t| {
             if t.is_empty() {
                 None
             } else {
-                Some(&t[frame_idx.min(t.len() - 1)])
+                Some(
+                    &t[frame_idx.min(t.len() - 1)],
+                )
             }
         });
 
@@ -475,23 +565,33 @@ pub async fn export_video(
             }
         }
 
-        // GPU composite: zoom + blur + corners + shadow + cursor + webcam + device frame
-        let composited = compositor.composite_frame(&frame_buffer, zoom_state, cursor_state)?;
+        let segment_start = mapped.map(|(segment, _)| segment.output_start_ms);
+        if timeline.is_some() && segment_start != previous_segment {
+            compositor.reset_motion_history();
+        }
+        previous_segment = segment_start;
+        let source_ms = mapped.map_or(
+            range.start_ms as f64 + frame_idx as f64 * 1000.0 / target_fps as f64,
+            |(_, ms)| ms,
+        );
+        compositor.set_webcam_layout(webcam_timeline.sample_target(source_ms).map(|(config,_)|config));
+        if let Some(frames)=&camera_opacity {
+            compositor.set_camera_frame(frames.sample(source_ms))?;
+        }
+        let lens = loupe_trajectory.as_ref().filter(|_| !gap)
+            .and_then(|frames| frames.get(source_frame_idx)).copied();
+        compositor.set_loupe_target(lens,(source_width,source_height),settings.source_crop,zoom_state)?;
+        compositor.set_caption_frame(frame_idx as u64); compositor.set_source_mask(masks.as_ref().and_then(|m|m.sample(frame_idx as u64)))?;
+        if gpu_shortcuts {compositor.set_shortcut_frame(shortcuts.as_ref().unwrap(),frame_idx as u64); }
+        let mut composited =
+            compositor.composite_timeline_frame(&frame_buffer, zoom_state, cursor_state, !gap)?;
 
+        if !gpu_shortcuts {if let Some(shortcuts)=&shortcuts {shortcuts.composite(frame_idx as u64,&mut composited)?;}}
         writer
             .write_all(&composited)
             .map_err(|e| anyhow!("Error writing frame {}: {}", frame_idx, e))?;
 
         frame_idx += 1;
-
-        if frame_idx as u64 > max_frames {
-            println!(
-                "  WARNING: Frame count {} exceeded max limit {}, stopping",
-                frame_idx, max_frames
-            );
-            let _ = decoder.kill();
-            break;
-        }
 
         // Progress callback every 30 frames
         if frame_idx % 30 == 0 {
@@ -524,9 +624,10 @@ pub async fn export_video(
         }
     }
 
+    writer.flush().map_err(|e| anyhow!("Failed to finish writing export frames: {}", e))?;
     drop(writer);
     drop(webcam_reader);
-    if let Some(mut wc) = webcam_decoder {
+    if let Some(wc) = webcam_decoder {
         let _ = wc.kill();
         let _ = wc.wait();
     }
@@ -566,11 +667,13 @@ pub async fn export_video(
         .wait()
         .map_err(|e| anyhow!("Decoder wait failed: {}", e))?;
     if !decoder_status.success() {
-        println!(
-            "  Decoder finished with status: {} (may have been terminated early)",
-            decoder_status
-        );
+        return Err(anyhow!("Decoder failed with status: {}", decoder_status));
     }
+
+    if frame_idx as u64 != expected_frames {
+        return Err(anyhow!("Export frame count mismatch: expected {}, decoded {}",expected_frames,frame_idx));
+    }
+    let final_output_path = control.commit(|| output.commit())?;
 
     if let Some(ref cb) = progress_callback {
         cb(ProcessingProgress {
@@ -589,11 +692,6 @@ pub async fn export_video(
         elapsed.as_secs_f64(),
         fps
     );
-
-    // Rename temp file if needed
-    if same_file {
-        std::fs::rename(&output_path, &final_output_path)?;
-    }
 
     Ok(final_output_path)
 }

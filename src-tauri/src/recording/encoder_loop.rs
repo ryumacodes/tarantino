@@ -15,10 +15,12 @@ pub fn spawn_video_task(
     fps: u32,
     stop_signal: Arc<Mutex<bool>>,
     video_start_time: Arc<parking_lot::Mutex<Option<std::time::SystemTime>>>,
+    video_origin: tokio::sync::watch::Sender<Option<u64>>,
 ) -> tokio::task::JoinHandle<Result<(), String>> {
     tokio::spawn(async move {
         println!("Recording task started");
         let mut frame_count = 0u64;
+        let mut source_dimensions = None;
 
         // Lazily initialize encoder + muxer on first frame
         let mut encoder: Option<Encoder> = None;
@@ -49,6 +51,12 @@ pub fn spawn_video_task(
 
             let frame = match next {
                 Ok(Ok(f)) => f,
+                Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped))) => {
+                    // Keep source timestamps so overload drops frames instead of
+                    // aborting the whole recording or speeding up the result.
+                    eprintln!("Capture consumer fell behind; skipped {skipped} frames");
+                    continue;
+                }
                 Ok(Err(e)) => {
                     let stopping = should_stop || *stop_signal.lock().await;
                     if stopping {
@@ -69,11 +77,18 @@ pub fn spawn_video_task(
                 }
             };
 
+            let dimensions = (frame.width, frame.height);
+            if source_dimensions.is_some_and(|previous| previous != dimensions) {
+                error_msg = Some("Capture dimensions changed during recording. Keep the device orientation fixed and start a new take.".into());
+                break;
+            }
+            source_dimensions = Some(dimensions);
             frame_count += 1;
             if first_frame_received_at.is_none() {
                 first_frame_received_at = Some(std::time::Instant::now());
                 let first_frame_wall_time = frame.captured_at;
                 *video_start_time.lock() = Some(first_frame_wall_time);
+                video_origin.send_replace(Some(frame.timestamp_us));
             }
             if frame_count % 60 == 0 {
                 println!("Captured {} frames", frame_count);

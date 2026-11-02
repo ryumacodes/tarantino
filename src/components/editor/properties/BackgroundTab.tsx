@@ -1,3 +1,6 @@
+import StylePresetControls from './StylePresetControls';
+import { useShallow } from 'zustand/react/shallow';
+import { SourceCropControls } from './SourceCropControls';
 import React, { useRef } from 'react';
 import { Image, Layers, Monitor, Palette } from 'lucide-react';
 import {
@@ -76,12 +79,22 @@ const BackgroundTab: React.FC<TabProps> = ({ isExporting = false }) => {
     applyWallpaper,
     applyCustomWallpaper,
     captureMode,
-  } = useEditorStore();
+  } = useEditorStore(useShallow(state => ({
+    visualSettings: state.visualSettings,
+    updateVisualSettings: state.updateVisualSettings,
+    exportSettings: state.exportSettings,
+    updateExportSettings: state.updateExportSettings,
+    applyWallpaper: state.applyWallpaper,
+    applyCustomWallpaper: state.applyCustomWallpaper,
+    captureMode: state.captureMode,
+  })));
   const imageInputRef = useRef<HTMLInputElement>(null);
   const isWindowFocus = captureMode === 'window' && visualSettings.windowLayoutMode === 'focus';
   const showAspectRatio = captureMode !== 'window' || visualSettings.windowLayoutMode === 'desktop';
   return (
     <div className="tab-content">
+      <StylePresetControls disabled={isExporting} />
+      <SourceCropControls disabled={isExporting} />
       <div className="section">
         <div className="section-header">
           <h3>Background Style</h3>
@@ -215,11 +228,11 @@ const BackgroundTab: React.FC<TabProps> = ({ isExporting = false }) => {
           <label>Frame Rate</label>
           <select
             className="editor-input"
-            value={exportSettings.frameRate}
+            value={exportSettings.format === 'gif' ? Math.min(exportSettings.frameRate, 30) : exportSettings.frameRate}
             onChange={(e) => updateExportSettings({ frameRate: parseInt(e.target.value) as ExportFrameRate })}
             disabled={isExporting}
           >
-            <option value={60}>60 FPS</option>
+            <option value={60} disabled={exportSettings.format === 'gif'}>60 FPS</option>
             <option value={30}>30 FPS</option>
             <option value={24}>24 FPS (Cinematic)</option>
           </select>
@@ -260,7 +273,7 @@ const BackgroundTab: React.FC<TabProps> = ({ isExporting = false }) => {
           <select
             className="editor-input"
             value={exportSettings.format}
-            onChange={(e) => updateExportSettings({ format: e.target.value as ExportFormat })}
+            onChange={(e) => updateExportSettings({ format: e.target.value as ExportFormat, ...(e.target.value === 'gif' && { frameRate: Math.min(exportSettings.frameRate, 30) as ExportFrameRate }) })}
             disabled={isExporting}
           >
             <option value="mp4">MP4 (H.264)</option>
@@ -268,6 +281,7 @@ const BackgroundTab: React.FC<TabProps> = ({ isExporting = false }) => {
             <option value="webm">WebM (VP9)</option>
             <option value="gif">GIF (Animated)</option>
           </select>
+          {exportSettings.format === 'gif' && <small>Loops continuously without audio. Up to 30 FPS for consistent playback.</small>}
         </div>
       </div>
 
@@ -282,7 +296,7 @@ const BackgroundTab: React.FC<TabProps> = ({ isExporting = false }) => {
               {exportSettings.resolution === 'custom'
                 ? `${exportSettings.customWidth || '?'}×${exportSettings.customHeight || '?'}`
                 : `${RESOLUTION_DIMENSIONS[exportSettings.resolution as keyof typeof RESOLUTION_DIMENSIONS]?.width}×${RESOLUTION_DIMENSIONS[exportSettings.resolution as keyof typeof RESOLUTION_DIMENSIONS]?.height}`
-              } @ {exportSettings.frameRate}fps
+              } @ {exportSettings.format === 'gif' ? Math.min(exportSettings.frameRate, 30) : exportSettings.frameRate}fps
             </span>
           </div>
           <div className="summary-row">

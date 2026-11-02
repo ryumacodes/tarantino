@@ -422,6 +422,7 @@ pub async fn record_stop_instant(
 
     match stop_result {
         Ok((temp_path, recording_start_time)) => {
+            if let Some(hud) = app.get_webview_window("recording-hud") { let _ = hud.close(); }
             println!("Recording stop signaled, temp path: {}", temp_path);
             println!(
                 "🖱️ [STOP_INSTANT] Captured recording_start_time: {:?}",
@@ -505,31 +506,16 @@ pub async fn record_stop_instant(
             Ok(temp_path)
         }
         Err(e) => {
-            println!("No active recording: {}", e);
-            let placeholder_path = format!(
-                "{}/no_recording_{}.mp4",
-                std::env::temp_dir().display(),
-                chrono::Local::now().timestamp()
-            );
+            let error = format!("Could not stop recording: {}", e);
             crate::commands::lifecycle::release_recording_surfaces(
                 &app,
                 Some(state.inner()),
                 "recording stopped",
             );
-            crate::commands::processing::open_editor_with_loading(
-                &app,
-                &placeholder_path,
-                false,
-                false,
-                false,
-                "circle",
-                0.895,
-                0.895,
-                0.15,
-            )
-            .await
-            .map_err(|e| e.to_string())?;
-            Ok(placeholder_path)
+            state.ui.set_interface_mode(crate::state::InterfaceMode::Setup);
+            crate::recording_commands::restore_ui_elements(&app).await;
+            let _ = app.emit("recording:failed", &error);
+            Err(error)
         }
     }
 }
@@ -541,5 +527,5 @@ pub async fn hud_stop(
     state: State<'_, Arc<UnifiedAppState>>,
 ) -> Result<(), String> {
     println!("HUD stop button clicked");
-    record_stop(app, state).await.map(|_| ())
+    record_stop_instant(app, state).await.map(|_| ())
 }

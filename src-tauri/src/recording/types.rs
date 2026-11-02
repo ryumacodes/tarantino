@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub struct RecordingConfig {
     pub target: RecordingTarget,
     pub quality: QualityPreset,
+    #[serde(default)]
+    pub frame_rate: Option<u32>,
     pub output_format: OutputFormat,
     pub output_path: String,
     pub include_cursor: bool,
@@ -23,6 +25,7 @@ impl Default for RecordingConfig {
                 area: None,
             },
             quality: QualityPreset::High,
+            frame_rate: None,
             output_format: OutputFormat {
                 container: Container::MP4,
                 codec: VideoCodec::H264,
@@ -114,4 +117,38 @@ pub enum AudioCodec {
     AAC,
     Opus,
     PCM,
+}
+
+impl RecordingConfig {
+    pub fn fps(&self) -> u32 {
+        self.frame_rate.unwrap_or(match self.quality {
+            QualityPreset::Low | QualityPreset::Medium => 30,
+            QualityPreset::High | QualityPreset::Lossless => 60,
+        })
+    }
+}
+
+#[cfg(test)]
+mod frame_rate_tests {
+    use super::*;
+    #[test]
+    fn explicit_frame_rate_overrides_quality_without_changing_quality() {
+        let mut config = RecordingConfig::default();
+        for fps in [30, 60, 120] {
+            config.frame_rate = Some(fps);
+            assert_eq!(config.fps(), fps);
+            assert!(matches!(config.quality, QualityPreset::High));
+        }
+    }
+    #[test]
+    fn legacy_configs_preserve_quality_based_frame_rates() {
+        let mut config = RecordingConfig::default();
+        assert_eq!(config.fps(), 60);
+        config.quality = QualityPreset::Low;
+        assert_eq!(config.fps(), 30);
+        let mut json = serde_json::to_value(&config).unwrap();
+        json.as_object_mut().unwrap().remove("frame_rate");
+        let restored: RecordingConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(restored.fps(), 30);
+    }
 }

@@ -2,6 +2,14 @@
 
 use anyhow::Result;
 use parking_lot::Mutex;
+mod caret_lookup;
+pub mod cursor_images;
+#[cfg(target_os = "macos")]
+pub use macos::install_cursor_images;
+mod modifier_state;
+use modifier_state::CommandModifiers;
+#[cfg(target_os = "macos")]
+mod keyboard_dispatch;
 use rdev::{Button, Event, EventType, Key, listen};
 
 use serde::{Deserialize, Serialize};
@@ -100,41 +108,10 @@ impl From<Button> for MouseButton {
     }
 }
 
-/// Lightweight key event for typing detection (no key content for privacy)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeyEvent {
-    /// Timestamp in milliseconds since UNIX epoch
-    pub timestamp: u64,
-    /// Whether this is a modifier key (Cmd, Ctrl, Alt — NOT Shift)
-    pub is_modifier: bool,
-    /// Whether this counts as a typing keystroke (unmodified character key)
-    pub is_typing: bool,
-    /// Privacy-safe typing movement category. Does not store the typed character.
-    #[serde(default)]
-    pub key_motion: KeyMotion,
-    /// Last known cursor X coordinate when the key was pressed.
-    #[serde(default)]
-    pub cursor_x: Option<f64>,
-    /// Last known cursor Y coordinate when the key was pressed.
-    #[serde(default)]
-    pub cursor_y: Option<f64>,
-    /// Focused text caret X coordinate when available.
-    #[serde(default)]
-    pub caret_x: Option<f64>,
-    /// Focused text caret Y coordinate when available.
-    #[serde(default)]
-    pub caret_y: Option<f64>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum KeyMotion {
-    #[default]
-    Character,
-    Newline,
-    Backspace,
-    Tab,
-}
+mod keyboard_event;
+pub use keyboard_event::{KeyEvent, KeyMotion};
+#[cfg(target_os = "macos")]
+use keyboard_event::{ShortcutSample, ShortcutModifier};
 
 #[cfg(target_os = "macos")]
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -157,11 +134,6 @@ mod macos {
     }
 }
 
-/// Track whether a command modifier (Cmd/Ctrl/Alt) is currently held.
-/// Shift is excluded so Shift+letter still counts as typing.
-static CMD_HELD: AtomicBool = AtomicBool::new(false);
-static CTRL_HELD: AtomicBool = AtomicBool::new(false);
-static ALT_HELD: AtomicBool = AtomicBool::new(false);
 static POINTER_CAPTURE_CONSENT: AtomicBool = AtomicBool::new(true);
 
 pub fn set_pointer_capture_consent(granted: bool) {
@@ -224,24 +196,19 @@ fn key_motion(key: &Key) -> KeyMotion {
     }
 }
 
-/// Check if any command modifier is currently held
-fn any_modifier_held() -> bool {
-    CMD_HELD.load(Ordering::Relaxed)
-        || CTRL_HELD.load(Ordering::Relaxed)
-        || ALT_HELD.load(Ordering::Relaxed)
-}
-
 /// Mouse tracking state and configuration
 #[derive(Debug)]
 pub struct MouseTracker {
+    command_modifiers: CommandModifiers,
+    #[cfg(target_os = "macos")]
+    pub(super) shortcuts: macos::shortcuts::Recorder,
     /// Whether mouse tracking is currently active
     pub is_tracking: bool,
+    pub cursor_images: cursor_images::CursorImages,
     /// Recorded mouse events buffer
     pub events: Arc<Mutex<VecDeque<MouseEvent>>>,
     /// Recorded key events buffer (for typing detection)
     pub key_events: Arc<Mutex<VecDeque<KeyEvent>>>,
-    /// Maximum number of events to keep in memory
-    pub max_buffer_size: usize,
     /// Event broadcaster for real-time updates
     pub event_sender: broadcast::Sender<MouseEvent>,
     /// Recording start time for relative timestamps
@@ -249,14 +216,24 @@ pub struct MouseTracker {
 }
 
 impl MouseTracker {
+    pub fn configure_shortcut_capture(&mut self, enabled: bool) {
+        #[cfg(target_os = "macos")]
+        self.shortcuts.configure(enabled);
+        #[cfg(not(target_os = "macos"))]
+        let _ = enabled;
+    }
+
     pub fn new() -> Self {
         let (event_sender, _) = broadcast::channel(1000);
 
         Self {
+            command_modifiers: CommandModifiers::default(),
+            #[cfg(target_os = "macos")]
+            shortcuts: macos::shortcuts::Recorder::default(),
             is_tracking: false,
+            cursor_images: cursor_images::CursorImages::default(),
             events: Arc::new(Mutex::new(VecDeque::new())),
             key_events: Arc::new(Mutex::new(VecDeque::new())),
-            max_buffer_size: 100_000, // Limit to prevent memory issues
             event_sender,
             recording_start_time: None,
         }
@@ -286,6 +263,7 @@ impl MouseTracker {
             ));
         }
 
+        self.cursor_images = cursor_images::CursorImages::default();
         self.is_tracking = true;
         self.recording_start_time = Some(SystemTime::now());
 
@@ -302,10 +280,17 @@ impl MouseTracker {
             key_events.clear();
             println!("⌨️ [TRACKER] Cleared {} old key events", old_count);
         }
+        #[cfg(target_os = "macos")]
+        self.shortcuts.reset();
         // Reset modifier state
-        CMD_HELD.store(false, Ordering::Relaxed);
-        CTRL_HELD.store(false, Ordering::Relaxed);
-        ALT_HELD.store(false, Ordering::Relaxed);
+        self.command_modifiers = CommandModifiers::default();
+
+        #[cfg(target_os = "macos")]
+        if let Some(position) = macos::current_pointer_position() {
+            let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)
+                .unwrap_or_default().as_millis() as u64;
+            self.seed_pointer_position(position, timestamp);
+        }
 
         println!("✅ [TRACKER] Mouse tracking STARTED");
         println!("   - is_tracking: {}", self.is_tracking);
@@ -325,21 +310,26 @@ impl MouseTracker {
         println!("✅ [TRACKER] Mouse tracking STOPPED");
     }
 
+    #[cfg(any(target_os = "macos", test))]
+    fn seed_pointer_position(&self, (x, y): (f64, f64), timestamp: u64) {
+        if !self.is_tracking || !x.is_finite() || !y.is_finite() { return; }
+        *LAST_MOUSE_POSITION.lock() = (x, y);
+        self.add_event(MouseEvent {
+            timestamp, x, y, event_type: MouseEventType::Move, display_id: None,
+        });
+    }
+
     /// Add a new mouse event to the buffer
     pub fn add_event(&self, event: MouseEvent) {
         if !self.is_tracking {
             return;
         }
 
-        // Add to buffer with size limit
+        // These are recording data, not a rolling diagnostic buffer. Evicting
+        // the beginning corrupts cursor playback and automatic zoom on long takes.
         let current_count = {
             let mut events = self.events.lock();
             events.push_back(event.clone());
-
-            // Maintain buffer size limit
-            while events.len() > self.max_buffer_size {
-                events.pop_front();
-            }
 
             events.len()
         };
@@ -384,11 +374,6 @@ impl MouseTracker {
         let mut key_events = self.key_events.lock();
         key_events.push_back(event);
 
-        // Maintain buffer size limit
-        while key_events.len() > self.max_buffer_size {
-            key_events.pop_front();
-        }
-
         let count = key_events.len();
         if count == 1 {
             println!("⌨️ [TRACKER] First key event captured!");
@@ -405,7 +390,12 @@ impl MouseTracker {
         }
 
         let mut key_events = self.key_events.lock();
-        if let Some(event) = key_events.iter_mut().rev().find(|event| event.is_typing) {
+        // Stop at the last non-modifier press: a shortcut or navigation key
+        // may have moved focus since the preceding typing event. In particular,
+        // releasing Command before its character key must not retarget old text.
+        if let Some(event) = key_events.iter_mut().rev()
+            .find(|event| !event.is_release && !event.is_modifier)
+            .filter(|event| event.is_typing) {
             event.caret_x = Some(caret_x);
             event.caret_y = Some(caret_y);
         }
@@ -432,34 +422,27 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
         ));
     }
 
-    // Wayland does not expose global mouse buttons through XWayland/rdev.
-    // Read the session-authorized evdev mouse devices for button events while
-    // rdev continues to supply the compositor cursor position.
-    #[cfg(target_os = "linux")]
-    linux::create_button_listener(tracker.clone());
+    #[cfg(target_os = "macos")]
+    macos::install_pointer_listener(tracker.clone())?;
 
     std::thread::spawn(move || {
         let listener_state = tracker.clone();
         let callback = move |event: Event| {
+            // Native pointer tap retains event coordinates and all drag variants.
+            #[cfg(target_os = "macos")]
+            if !matches!(event.event_type, EventType::KeyPress(_) | EventType::KeyRelease(_)) { return; }
             // Check if tracking is enabled FIRST to avoid unnecessary work
-            let tracker_guard = tracker.lock();
+            let mut tracker_guard = tracker.lock();
 
             if !tracker_guard.is_tracking {
                 return;
             }
 
-            // Only log in debug builds and sparingly
-            #[cfg(debug_assertions)]
-            {
-                static LOG_COUNTER: std::sync::atomic::AtomicU64 =
-                    std::sync::atomic::AtomicU64::new(0);
-                let count = LOG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if count % 100 == 0 {
-                    println!("DEBUG: Mouse event #{} (tracking active)", count);
-                }
+            // Queued input retains the capture time, not its processing time.
+            if tracker_guard.recording_start_time.is_some_and(|start| event.time < start) {
+                return;
             }
-
-            let timestamp = SystemTime::now()
+            let timestamp = event.time
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_millis() as u64;
@@ -537,33 +520,24 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
                 EventType::KeyPress(key) => {
                     let (is_cmd_modifier, is_char_key) = classify_key(&key);
 
-                    if is_cmd_modifier {
-                        // Track modifier press
-                        match key {
-                            Key::MetaLeft | Key::MetaRight => {
-                                CMD_HELD.store(true, Ordering::Relaxed)
-                            }
-                            Key::ControlLeft | Key::ControlRight => {
-                                CTRL_HELD.store(true, Ordering::Relaxed)
-                            }
-                            Key::Alt | Key::AltGr => ALT_HELD.store(true, Ordering::Relaxed),
-                            _ => {}
-                        }
-                    }
+                    tracker_guard.command_modifiers.update(key, true);
 
                     // Record a key event for typing detection
-                    let is_typing = is_char_key && !any_modifier_held();
+                    let is_typing = is_char_key && !tracker_guard.command_modifiers.held();
                     let (cursor_x, cursor_y) = {
                         let pos = LAST_MOUSE_POSITION.lock();
                         *pos
                     };
                     let caret_position = if is_typing {
-                        macos::focused_caret_position()
+                        match caret_lookup::without_tracker_lock(&mut tracker_guard, || caret_lookup::for_event(event.time, macos::focused_caret_position)) {
+                            Ok(position) => position,
+                            Err(()) => return,
+                        }
                     } else {
                         None
                     };
-                    tracker_guard.add_key_event(KeyEvent {
-                        timestamp,
+                    tracker_guard.add_key_event(KeyEvent { shortcut: None,
+                        is_release: false, timestamp,
                         is_modifier: is_cmd_modifier,
                         is_typing,
                         key_motion: key_motion(&key),
@@ -576,22 +550,19 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
                     None // No mouse event
                 }
                 EventType::KeyRelease(key) => {
-                    let (_, is_char_key) = classify_key(&key);
-                    if is_char_key && !any_modifier_held() {
-                        if let Some((caret_x, caret_y)) = macos::focused_caret_position() {
+                    let (is_modifier, is_char_key) = classify_key(&key);
+                    tracker_guard.add_key_event(KeyEvent::release(timestamp, is_modifier));
+                    if is_char_key && !tracker_guard.command_modifiers.held() {
+                        let position = match caret_lookup::without_tracker_lock(&mut tracker_guard, || caret_lookup::for_event(event.time, macos::focused_caret_position)) {
+                            Ok(position) => position,
+                            Err(()) => return,
+                        };
+                        if let Some((caret_x, caret_y)) = position {
                             tracker_guard.update_latest_typing_caret(caret_x, caret_y);
                         }
                     }
 
-                    // Update modifier held state on release
-                    match key {
-                        Key::MetaLeft | Key::MetaRight => CMD_HELD.store(false, Ordering::Relaxed),
-                        Key::ControlLeft | Key::ControlRight => {
-                            CTRL_HELD.store(false, Ordering::Relaxed)
-                        }
-                        Key::Alt | Key::AltGr => ALT_HELD.store(false, Ordering::Relaxed),
-                        _ => {}
-                    }
+                    tracker_guard.command_modifiers.update(key, false);
                     None // No mouse event
                 }
             };
@@ -601,7 +572,10 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
             }
         };
 
-        // Start the rdev listener - this blocks the thread
+        // The native listener may dispatch on the application's main run loop.
+        // Never query accessibility or wait for tracker locks in that callback.
+        #[cfg(target_os = "macos")]
+        let callback = keyboard_dispatch::off_thread(callback);
         if let Err(error) = listen(callback) {
             listener_state.lock().is_tracking = false;
             eprintln!("🚨 Mouse tracking error: {:?}", error);

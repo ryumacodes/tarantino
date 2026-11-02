@@ -10,11 +10,15 @@ interface NativeMenuChoice {
   id: string;
   name?: string;
 }
+export interface AudioDevices {
+  microphones: CameraDevice[];
+  system_sources: CameraDevice[];
+}
 export interface CameraDevice extends NativeMenuChoice {
   name: string;
   is_default?: boolean;
 }
-interface CaptureWindowInfo {
+export interface CaptureWindowInfo {
   id: string;
   title?: string;
   app_name?: string;

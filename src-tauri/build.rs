@@ -1,4 +1,9 @@
+#[cfg(target_os = "macos")]
+mod build_speech;
+
 fn main() {
+    #[cfg(target_os = "macos")]
+    build_speech::build();
     // Standard Tauri build
     tauri_build::build();
 
@@ -34,6 +39,7 @@ fn main() {
 fn build_macos_backend() {
     println!("cargo:rerun-if-changed=src/capture/backends/macos/sck_wrapper.mm");
     println!("cargo:rerun-if-changed=src/capture/backends/macos/sck_capture_session.inc.mm");
+    println!("cargo:rerun-if-changed=src/capture/backends/macos/audio_pcm.h");
     println!("cargo:rerun-if-changed=src/encoder/macos/vt_encoder.mm");
     println!("cargo:rerun-if-changed=src/encoder/macos/vt_encoder_session.inc.mm");
     println!("cargo:rerun-if-changed=src/capture/backends/macos/avcapture_wrapper.mm");
@@ -79,6 +85,7 @@ fn build_macos_backend() {
     println!("cargo:rustc-link-lib=framework=ScreenCaptureKit");
     println!("cargo:rustc-link-lib=framework=VideoToolbox");
     println!("cargo:rustc-link-lib=framework=CoreMedia");
+    println!("cargo:rustc-link-lib=framework=CoreMediaIO");
     println!("cargo:rustc-link-lib=framework=CoreVideo");
     println!("cargo:rustc-link-lib=framework=CoreGraphics");
     println!("cargo:rustc-link-lib=framework=ImageIO");

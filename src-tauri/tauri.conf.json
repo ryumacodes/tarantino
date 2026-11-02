@@ -37,6 +37,7 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
+          "$APPDATA/audio-assets/**",
           "/Users/*/Movies/Tarantino/**",
           "/home/*/Videos/Tarantino/**",
           "/home/*/Movies/Tarantino/**",

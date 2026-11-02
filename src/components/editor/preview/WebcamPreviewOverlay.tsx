@@ -1,8 +1,16 @@
+import { useCameraSilence } from '../../../hooks/useCameraSilence';
+import { useEditGesture } from '../../../hooks/useEditGesture';
+import { snapWebcam } from '../../../utils/camera/snapWebcam';
+import { containWebcam } from '../../../utils/camera/containWebcam';
+import { sampleWebcam } from '../../../utils/camera/webcamTimeline';
+import { previewSample } from '../../../utils/timeline/previewTimeline';
+import { createMediaSynchronizer } from '../../../utils/timeline/syncMedia';
 import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../../stores/editor';
 
 interface WebcamPreviewOverlayProps {
+  gpuVideo?: (video:HTMLVideoElement|null)=>void;
   videoFilePath: string;
   x: number;
   y: number;
@@ -20,21 +28,29 @@ const nearestCorner = (x: number, y: number): WebcamCorner => {
 
 export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
   videoFilePath,
-  x,
-  y,
-  size,
-  shape,
+  gpuVideo,
+  x: _x,
+  y: _y,
+  size: _size,
+  shape: _shape,
 }) => {
+  const gesture = useEditGesture();
+  const state = useEditorStore();
+  const source = previewSample(state, state.currentTime);
+  const silence=useCameraSilence();
+  const camera = sampleWebcam(state.visualSettings, state.webcamKeyframes, source.sourceTime ?? 0, silence.ranges);
+  const {x,y,size,shape,layout} = camera;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hasSource, setHasSource] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const updateVisualSettings = useEditorStore((state) => state.updateVisualSettings);
+  const gap = useEditorStore(state => previewSample(state, state.currentTime).sourceTime === null);
 
   const webcamSrcs = useMemo(() => {
     if (!videoFilePath) return [];
     const dir = videoFilePath.substring(0, videoFilePath.lastIndexOf('/'));
-    let baseName = videoFilePath.split('/').pop()?.replace('.mp4', '') || '';
+    let baseName = videoFilePath.split('/').pop()?.replace(/\.[^/.]+$/, '') || '';
     if (baseName.startsWith('processed_')) {
       baseName = baseName.replace('processed_', '');
     }
@@ -45,6 +61,7 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
   }, [videoFilePath]);
   const [srcIndex, setSrcIndex] = useState(0);
   const webcamSrc = webcamSrcs[srcIndex] ?? null;
+  useEffect(()=>{gpuVideo?.(hasSource?videoRef.current:null);return ()=>gpuVideo?.(null);},[gpuVideo,hasSource,webcamSrc]);
 
   useEffect(() => {
     setSrcIndex(0);
@@ -57,22 +74,10 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
 
     let rafId: number;
 
+    const syncMedia = createMediaSynchronizer(vid, error => console.error('Webcam preview failed:', error));
     const sync = () => {
-      const mainVideo = window.__TARANTINO_VIDEO_ELEMENT;
-      const currentTimeSec = mainVideo
-        ? mainVideo.currentTime
-        : useEditorStore.getState().currentTime / 1000;
-      const isPlaying = mainVideo ? !mainVideo.paused : false;
-
-      if (Math.abs(vid.currentTime - currentTimeSec) > 0.15) {
-        vid.currentTime = currentTimeSec;
-      }
-
-      if (isPlaying && vid.paused) {
-        vid.play().catch(() => {});
-      } else if (!isPlaying && !vid.paused) {
-        vid.pause();
-      }
+      const state = useEditorStore.getState();
+      syncMedia(previewSample(state, state.currentTime), state.isPlaying);
 
       rafId = requestAnimationFrame(sync);
     };
@@ -81,10 +86,20 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
     return () => cancelAnimationFrame(rafId);
   }, [hasSource]);
 
-  if (!webcamSrc) return null;
 
-  const clampedX = Math.min(1, Math.max(0, x));
-  const clampedY = Math.min(1, Math.max(0, y));
+  const [canvasSize, setCanvasSize] = useState({ width: 1, height: 1 });
+  useEffect(() => {
+    const parent = wrapperRef.current?.parentElement;
+    if (!parent) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setCanvasSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+    });
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, []);
+  const contained = containWebcam(x, y, size, canvasSize.width, canvasSize.height);
+  const clampedX = contained.x;
+  const clampedY = contained.y;
   const moveToClientPoint = (clientX: number, clientY: number) => {
     const parent = wrapperRef.current?.parentElement;
     if (!parent) return;
@@ -112,17 +127,14 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
       { x: nearX, y: farY },
       { x: farX, y: farY },
     ];
-    const closest = corners.reduce((nearest, corner) => {
-      const nearestDistance = Math.hypot(nearest.x - nextX, nearest.y - nextY);
-      const cornerDistance = Math.hypot(corner.x - nextX, corner.y - nextY);
-      return cornerDistance < nearestDistance ? corner : nearest;
-    }, { x: nextX, y: nextY });
+    const snapped = snapWebcam({ x: nextX, y: nextY }, corners, snapThreshold);
+    nextX = snapped.x;
+    nextY = snapped.y;
 
-    if (Math.hypot(closest.x - nextX, closest.y - nextY) < snapThreshold) {
-      nextX = closest.x;
-      nextY = closest.y;
+    if (camera.keyframeId) {
+      state.updateWebcamKeyframe(camera.keyframeId, {x:nextX,y:nextY});
+      return;
     }
-
     updateVisualSettings({
       webcamX: nextX,
       webcamY: nextY,
@@ -131,8 +143,10 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
   };
 
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (layout === 'fullscreen') return;
     event.preventDefault();
     event.stopPropagation();
+    gesture.begin();
     setIsDragging(true);
     moveToClientPoint(event.clientX, event.clientY);
   };
@@ -143,19 +157,22 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
     const handleMouseMove = (event: MouseEvent) => {
       moveToClientPoint(event.clientX, event.clientY);
     };
-    const handleMouseUp = () => setIsDragging(false);
+    const handleMouseUp = () => { gesture.end(); setIsDragging(false); };
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('blur', handleMouseUp);
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('blur', handleMouseUp);
     };
-  }, [isDragging, size, updateVisualSettings]);
+  }, [isDragging, size, updateVisualSettings, camera.keyframeId, layout, gesture.end]);
 
   const positionStyle: React.CSSProperties = {
     position: 'absolute',
-    width: `${size * 100}%`,
+    visibility: gap || !camera.visible ? 'hidden' : 'visible',
+    width: `${contained.size * 100}%`,
     aspectRatio: '1',
     zIndex: 10,
     pointerEvents: 'auto',
@@ -170,25 +187,27 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
   const clipStyle: React.CSSProperties = {
     width: '100%',
     height: '100%',
-    borderRadius: shape === 'circle' ? '50%' : '12%',
+    borderRadius: layout === 'fullscreen' ? 0 : shape === 'circle' ? '50%' : '12%',
     overflow: 'hidden',
-    opacity: hasSource ? 1 : 0,
-    boxShadow: hasSource ? '0 2px 12px rgba(0,0,0,0.4)' : 'none',
-    border: hasSource ? '2px solid rgba(255,255,255,0.15)' : '2px solid transparent',
+    opacity: hasSource && !gpuVideo ? 1 : 0,
+    boxShadow: hasSource && layout !== 'fullscreen' ? '0 2px 12px rgba(0,0,0,0.4)' : 'none',
+    border: layout === 'fullscreen' ? 'none' : hasSource ? '2px solid rgba(255,255,255,0.15)' : '2px solid transparent',
     background: hasSource ? '#000' : 'transparent',
     transition: isDragging ? 'none' : 'opacity 120ms ease, border-color 120ms ease, box-shadow 120ms ease',
   };
 
+  if (!webcamSrc) return null;
   return (
     <div
       ref={wrapperRef}
-      style={positionStyle}
+      style={layout === 'fullscreen' ? {...positionStyle,width:'100%',height:'100%',left:0,top:0,transform:'none',aspectRatio:'auto'} : positionStyle}
       onMouseDown={handleMouseDown}
       title="Drag webcam"
     >
       <div style={clipStyle}>
         <video
           ref={videoRef}
+          crossOrigin="anonymous"
           src={webcamSrc}
           muted
           playsInline
@@ -205,7 +224,7 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            transform: 'scaleX(-1)',
+            transform: state.visualSettings.webcamMirrored ? 'scaleX(-1)' : undefined,
           }}
         />
       </div>

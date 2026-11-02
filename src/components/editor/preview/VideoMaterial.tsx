@@ -1,14 +1,25 @@
+import {useMaskPreview} from './hooks/useMaskPreview';
+import { subscribePreviewMute } from '../../../stores/previewAudio';
+import type { SourceCrop } from '../../../utils/sourceCrop';
+import { useSourceCropTexture } from './hooks/useSourceCropTexture';
+import { resolveSourceCrop } from '../../../utils/sourceCrop';
 import React, { useEffect, useRef, useState } from 'react';
 import { useVideoTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../../stores/editor';
+import { previewSample } from '../../../utils/timeline/previewTimeline';
+import { createMediaSynchronizer } from '../../../utils/timeline/syncMedia';
+import { createPreviewAudio, type PreviewAudioTrack } from '../../../utils/audio/previewAudio';
 import { isLinuxRuntime } from '../../../utils/platform';
 
 interface VideoMaterialProps {
+  viewRef?: React.MutableRefObject<SourceCrop>;
   videoUrl: string;
   isPlaying: boolean;
   cornerRadius?: number;
+  cornerRadiusRatio?: number;
+  temporalMaskRef?: React.MutableRefObject<THREE.Texture|null>;
   aspectRatio?: number;
   cleanupWindowCorners?: boolean;
   suppressTimeUpdates?: boolean;
@@ -44,28 +55,39 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
   videoUrl,
   isPlaying,
   cornerRadius = 0,
+  cornerRadiusRatio,
+  temporalMaskRef,
   aspectRatio = 16/9,
   cleanupWindowCorners = false,
   suppressTimeUpdates = false,
+  viewRef,
 }) => {
   const texture = useVideoTexture(videoUrl, {
     unsuspend: 'loadedmetadata',
     muted: true,
-    loop: true,
+    loop: false,
     playsInline: true,
     crossOrigin: 'anonymous',
     preload: 'auto',
-    start: true,
+    start: false,
   });
 
+  const cropRect = useSourceCropTexture(texture,viewRef);
+  const maskedMaterial=useMaskPreview(texture,viewRef);
   const audioRefs = useRef<HTMLAudioElement[]>([]);
-  const { setCurrentTime, setDuration, duration, videoFilePath, hasMicrophone, hasSystemAudio, audioSettings } = useEditorStore();
+  const audioGraph = useRef<ReturnType<typeof createPreviewAudio> | null>(null);
+  const previewState = useEditorStore();
+  const { setCurrentTime, setDuration, duration, videoFilePath, hasMicrophone, hasSystemAudio, audioSettings } = previewState;
+  const sample = previewSample(previewState, previewState.currentTime);
   const [alphaMask, setAlphaMask] = useState<THREE.Texture | null>(null);
-  const [videoWarmedUp, setVideoWarmedUp] = useState(false);
+  const [warmedTexture, setWarmedTexture] = useState<THREE.VideoTexture | null>(null);
+  const videoWarmedUp = warmedTexture === texture;
 
   useEffect(() => {
     let cancelled = false;
     let currentMask: THREE.CanvasTexture | null = null;
+    let temporalMask: THREE.CanvasTexture | null = null;
+    if(temporalMaskRef)temporalMaskRef.current=null;
     const maxSize = 512;
     const publishMask = (
       width: number,
@@ -84,7 +106,7 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
       if (drawSilhouette) {
         drawSilhouette(ctx);
       } else {
-        const radiusRatio = Math.max(cornerRadius / 100, fallbackRadius);
+        const radiusRatio = Math.max(cornerRadiusRatio ?? cornerRadius / 100, fallbackRadius);
         const radius = Math.min(width, height) * radiusRatio;
         ctx.fillStyle = '#fff';
         ctx.beginPath();
@@ -92,8 +114,17 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
         ctx.fill();
       }
 
+      if(drawSilhouette && temporalMaskRef) {
+        const raw=document.createElement('canvas');raw.width=width;raw.height=height;
+        const rawContext=raw.getContext('2d');
+        if(rawContext) {
+          rawContext.drawImage(canvas,0,0);
+          temporalMask=new THREE.CanvasTexture(raw);temporalMask.colorSpace=THREE.NoColorSpace;
+          temporalMaskRef.current=temporalMask;
+        }
+      }
       if (drawSilhouette && cornerRadius > 0) {
-        const radius = Math.min(width, height) * (cornerRadius / 100);
+        const radius = Math.min(width, height) * (cornerRadiusRatio ?? cornerRadius / 100);
         ctx.globalCompositeOperation = 'destination-in';
         ctx.fillStyle = '#fff';
         ctx.beginPath();
@@ -133,17 +164,19 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
       const image = new Image();
       image.crossOrigin = 'anonymous';
       image.onload = () => {
+        const maskCrop = cropRect ? resolveSourceCrop(cropRect,image.naturalWidth,image.naturalHeight)
+          : {x:0,y:0,width:image.naturalWidth,height:image.naturalHeight};
         const nativeMaskScale = Math.min(
           1,
-          1024 / image.naturalWidth,
-          1024 / image.naturalHeight
+          1024 / maskCrop.width,
+          1024 / maskCrop.height
         );
-        const width = Math.max(2, Math.round(image.naturalWidth * nativeMaskScale));
-        const height = Math.max(2, Math.round(image.naturalHeight * nativeMaskScale));
+        const width = Math.max(2, Math.round(maskCrop.width * nativeMaskScale));
+        const height = Math.max(2, Math.round(maskCrop.height * nativeMaskScale));
         publishMask(
           width,
           height,
-          (ctx) => ctx.drawImage(image, 0, 0, width, height)
+          (ctx) => ctx.drawImage(image, maskCrop.x, maskCrop.y, maskCrop.width, maskCrop.height, 0, 0, width, height)
         );
       };
       image.onerror = fallback;
@@ -152,11 +185,23 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
 
     return () => {
       cancelled = true;
-      currentMask?.dispose();
+      currentMask?.dispose();temporalMask?.dispose();
+      if(temporalMaskRef)temporalMaskRef.current=null;
     };
-  }, [cornerRadius, aspectRatio, cleanupWindowCorners, videoFilePath]);
+  }, [cornerRadius, cornerRadiusRatio, temporalMaskRef, aspectRatio, cleanupWindowCorners, videoFilePath, cropRect]);
 
   const videoElement = texture.image as HTMLVideoElement;
+  useEffect(() => {
+    // A paused seek can finish after the previous texture upload. Refresh from
+    // the decoded frame, including the initial seek back to the first frame.
+    const refreshTexture = () => { texture.needsUpdate = true; };
+    videoElement.addEventListener('loadeddata', refreshTexture);
+    videoElement.addEventListener('seeked', refreshTexture);
+    return () => {
+      videoElement.removeEventListener('loadeddata', refreshTexture);
+      videoElement.removeEventListener('seeked', refreshTexture);
+    };
+  }, [texture, videoElement]);
 
   useEffect(() => {
     if (!isLinuxRuntime || !videoElement) return;
@@ -195,10 +240,13 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
     });
 
     const warmUpVideoTexture = async () => {
-      setVideoWarmedUp(false);
+      setWarmedTexture(null);
       try {
+        // Subscribe before play resolves: WebKit can deliver its first frame
+        // before the play promise settles.
+        const firstFrame = waitForVideoFrame();
         await videoElement.play();
-        await waitForVideoFrame();
+        await firstFrame;
       } catch (error) {
         console.warn('Video texture warm-up failed:', error);
       }
@@ -208,7 +256,7 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
       const playback = useEditorStore.getState();
       const targetTime = Math.max(
         0,
-        Math.min(playback.currentTime / 1000, videoElement.duration || 0)
+        Math.min((previewSample(playback, playback.currentTime).sourceTime ?? 0) / 1000, videoElement.duration || 0)
       );
       if (Number.isFinite(targetTime)) {
         videoElement.currentTime = targetTime;
@@ -218,7 +266,7 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
       if (!playback.isPlaying) {
         videoElement.pause();
       }
-      setVideoWarmedUp(true);
+      setWarmedTexture(texture);
     };
 
     void warmUpVideoTexture();
@@ -237,7 +285,7 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
 
       window.__TARANTINO_SEEK_VIDEO = (timeMs: number) => {
         if (videoElement) {
-          videoElement.currentTime = timeMs / 1000;
+          useEditorStore.getState().setCurrentTime(timeMs);
         }
       };
 
@@ -252,14 +300,7 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
         }
       };
 
-      const handleTimeUpdate = () => {
-        if (!suppressTimeUpdates && !videoElement.paused && !videoElement.seeking) {
-          setCurrentTime(videoElement.currentTime * 1000);
-        }
-      };
-
       videoElement.addEventListener('loadedmetadata', handleLoadedMetadata);
-      videoElement.addEventListener('timeupdate', handleTimeUpdate);
 
       if (videoElement.readyState >= 1) {
         handleLoadedMetadata();
@@ -267,7 +308,6 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
 
       return () => {
         videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
-        videoElement.removeEventListener('timeupdate', handleTimeUpdate);
       };
     }
   }, [videoElement, duration, setDuration, setCurrentTime, suppressTimeUpdates]);
@@ -295,7 +335,25 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
       return audio;
     });
 
+    let unsubscribeMute = () => {};
+    if (audioRefs.current.length) {
+      const tracks: PreviewAudioTrack[] = audioRefs.current.map((element, index) => ({
+        element, kind: hasMicrophone && index === 0 ? 'microphone' : 'system',
+      }));
+      try {
+        const graph = createPreviewAudio(tracks, useEditorStore.getState().audioSettings);
+        audioGraph.current = graph;
+        unsubscribeMute = subscribePreviewMute(muted => graph.setMuted(muted));
+      }
+      catch (error) {
+        audioRefs.current.forEach(audio => { audio.muted = true; });
+        console.error('Could not initialize audio preview processing:', error);
+      }
+    }
     return () => {
+      unsubscribeMute();
+      audioGraph.current?.dispose();
+      audioGraph.current = null;
       audioRefs.current.forEach((audio) => {
         audio.pause();
         audio.src = '';
@@ -305,48 +363,56 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
   }, [videoFilePath, hasMicrophone, hasSystemAudio]);
 
   useEffect(() => {
-    const toVolume = (db: number) => Math.max(0, Math.min(4, Math.pow(10, db / 20)));
-    audioRefs.current.forEach((audio, index) => {
-      if (hasMicrophone && index === 0) {
-        audio.volume = Math.min(1, toVolume(audioSettings.micGain));
-      } else {
-        audio.volume = Math.min(1, toVolume(audioSettings.systemGain));
-      }
-    });
-  }, [audioSettings.micGain, audioSettings.systemGain, hasMicrophone]);
+    audioGraph.current?.update(audioSettings);
+  }, [audioSettings, hasMicrophone, hasSystemAudio, videoFilePath]);
 
   useEffect(() => {
-    if (videoElement && videoWarmedUp) {
-      if (isPlaying) {
-        audioRefs.current.forEach((audio) => {
-          audio.currentTime = videoElement.currentTime;
-          audio.play().catch(() => {});
-        });
-        videoElement.play().catch(err => console.error('Play failed:', err));
-      } else {
-        videoElement.pause();
-        audioRefs.current.forEach((audio) => audio.pause());
-      }
-    }
-  }, [isPlaying, videoElement, videoWarmedUp]);
+    const updatePlayback = () => {
+      void audioGraph.current?.setPlaying(useEditorStore.getState().isPlaying)
+        .catch(error => console.error('Could not resume audio processing:', error));
+    };
+    updatePlayback();
+    // Resume in the user's gesture as well as on state changes for autoplay policies.
+    document.addEventListener('pointerdown', updatePlayback);
+    document.addEventListener('keydown', updatePlayback);
+    return () => {
+      document.removeEventListener('pointerdown', updatePlayback);
+      document.removeEventListener('keydown', updatePlayback);
+    };
+  }, [isPlaying, hasMicrophone, hasSystemAudio, videoFilePath]);
 
-  const { currentTime } = useEditorStore();
   useEffect(() => {
-    if (videoElement && videoElement.paused) {
-      const videoTime = currentTime / 1000;
-      if (Math.abs(videoElement.currentTime - videoTime) > 0.05) {
-        videoElement.currentTime = videoTime;
-        audioRefs.current.forEach((audio) => {
-          audio.currentTime = videoTime;
-        });
+    if (!videoElement || !videoWarmedUp) return;
+    const syncVideo = createMediaSynchronizer(videoElement, error => console.error('Preview playback failed:', error));
+    const audioSync = new Map<HTMLAudioElement, ReturnType<typeof createMediaSynchronizer>>();
+    let frame = 0;
+    const sync = () => {
+      const state = useEditorStore.getState();
+      const mapped = previewSample(state, state.currentTime);
+      audioGraph.current?.setClipVolumes(mapped.micVolume, mapped.systemVolume);
+      syncVideo(mapped, state.isPlaying);
+      for (const audio of audioRefs.current) {
+        let controller = audioSync.get(audio);
+        if (!controller) {
+          controller = createMediaSynchronizer(audio, error => console.error('Audio preview failed:', error));
+          audioSync.set(audio, controller);
+        }
+        controller(mapped, state.isPlaying, true);
       }
-    }
-  }, [currentTime, videoElement]);
+      frame = requestAnimationFrame(sync);
+    };
+    sync();
+    return () => { cancelAnimationFrame(frame); videoElement.pause(); audioRefs.current.forEach(a => a.pause()); };
+  }, [videoElement, videoWarmedUp, suppressTimeUpdates, videoFilePath, hasMicrophone, hasSystemAudio]);
 
+  const previewTexture = sample.sourceTime === null ? null : texture;
+  const previewColor = sample.sourceTime === null ? "black" : "white";
   if (alphaMask) {
     return (
       <meshBasicMaterial
-        map={texture}
+        ref={maskedMaterial}
+        map={previewTexture}
+        color={previewColor}
         alphaMap={alphaMask}
         transparent
         alphaTest={0.01}
@@ -355,10 +421,11 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
       />
     );
   }
-  return <meshBasicMaterial map={texture} toneMapped={false} side={THREE.DoubleSide} />;
+  return <meshBasicMaterial ref={maskedMaterial} map={previewTexture} color={previewColor} toneMapped={false} side={THREE.DoubleSide} />;
 };
 
 interface LinuxNativeVideoOverlayProps {
+  viewRef?: React.MutableRefObject<SourceCrop>;
   isPlaying: boolean;
   onEnabledChange: (enabled: boolean) => void;
 }
@@ -366,6 +433,7 @@ interface LinuxNativeVideoOverlayProps {
 export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = ({
   isPlaying,
   onEnabledChange,
+  viewRef,
 }) => {
   const {
     currentTime,
@@ -376,6 +444,8 @@ export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = (
   } = useEditorStore();
   const [enabled, setEnabled] = useState(false);
   const [canvasTexture, setCanvasTexture] = useState<THREE.CanvasTexture | null>(null);
+  useSourceCropTexture(canvasTexture,viewRef);
+  const maskedMaterial=useMaskPreview(canvasTexture,viewRef);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const requestFrameRef = useRef<((timeMs: number) => void) | null>(null);
 
@@ -527,26 +597,22 @@ export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = (
       const lastBucket = Math.max(0, Math.ceil(duration * LINUX_PREVIEW_FPS / 1000) - 1);
       void requestBucket(Math.min(lastBucket, Math.max(0, Math.round(timeMs * LINUX_PREVIEW_FPS / 1000))));
     };
-    requestFrameRef.current(currentTime);
+    requestFrameRef.current(previewSample(useEditorStore.getState(), currentTime).sourceTime ?? 0);
 
+    const syncMedia = createMediaSynchronizer(video, error => console.error('Linux preview failed:', error));
     const playbackLoop = () => {
       if (cancelled) return;
-      if (!video.paused) {
-        const timeMs = video.currentTime * 1000;
-        setCurrentTime(timeMs);
-        requestFrameRef.current?.(timeMs);
-      }
+      const state = useEditorStore.getState();
+      const sample = previewSample(state, state.currentTime);
+      syncMedia(sample, state.isPlaying);
+      if (sample.sourceTime !== null) requestFrameRef.current?.(sample.sourceTime);
       animationFrameId = requestAnimationFrame(playbackLoop);
     };
     playbackLoop();
 
-    const handleEnded = () => setIsPlaying(false);
-    video.addEventListener('ended', handleEnded);
-
     return () => {
       cancelled = true;
       cancelAnimationFrame(animationFrameId);
-      video.removeEventListener('ended', handleEnded);
       video.pause();
       video.removeAttribute('src');
       video.load();
@@ -557,32 +623,12 @@ export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = (
     };
   }, [enabled, videoFilePath, duration, setCurrentTime, setIsPlaying]);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    if (isPlaying) {
-      video.currentTime = Math.min(currentTime / 1000, duration / 1000);
-      video.play().catch((error) => console.error('Linux preview playback failed:', error));
-    } else {
-      video.pause();
-    }
-  }, [isPlaying, duration, enabled]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (video && video.paused && Math.abs(video.currentTime * 1000 - currentTime) > 50) {
-      video.currentTime = currentTime / 1000;
-    }
-    // The editor supplies a wall clock when WebKit cannot decode this video.
-    // Follow it during playback too; the fallback video element may stay paused.
-    requestFrameRef.current?.(currentTime);
-  }, [currentTime, isPlaying]);
-
-  if (!enabled || !canvasTexture) return null;
+  const gap = useEditorStore(state => previewSample(state, state.currentTime).sourceTime === null);
+  if (!enabled || !canvasTexture || gap) return null;
   return (
     <mesh position={[0, 0, 0.001]}>
       <planeGeometry args={[1, 1]} />
-      <meshBasicMaterial map={canvasTexture} toneMapped={false} side={THREE.DoubleSide} />
+      <meshBasicMaterial ref={maskedMaterial} map={canvasTexture} toneMapped={false} side={THREE.DoubleSide} />
     </mesh>
   );
 };

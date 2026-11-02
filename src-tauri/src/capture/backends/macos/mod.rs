@@ -17,6 +17,7 @@ use tokio::sync::broadcast;
 
 use super::*;
 
+pub mod device;
 mod ffi;
 mod sck_wrapper;
 
@@ -276,7 +277,7 @@ impl NativeCaptureBackend for ScreenCaptureKitBackend {
                     data: Bytes::copy_from_slice(data_slice),
                     sample_rate: audio.sample_rate,
                     channels: audio.channels,
-                    _timestamp_us: audio.timestamp_us,
+                    timestamp_us: audio.timestamp_us,
                 };
 
                 // Send audio to broadcast channel (ignore if no receivers)

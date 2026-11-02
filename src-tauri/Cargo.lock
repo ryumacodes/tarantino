@@ -5094,6 +5094,7 @@ dependencies = [
  "dashmap",
  "dispatch",
  "evdev",
+ "foreign-types 0.5.0",
  "futures",
  "gstreamer",
  "gtk",

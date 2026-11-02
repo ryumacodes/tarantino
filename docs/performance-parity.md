@@ -131,3 +131,58 @@ and Tauri configuration inspection passed. The static-window source properties
 (`keepalive-time` and `resend-last`) also exist with the required types in
 [PipeWire 0.3.65](https://github.com/PipeWire/pipewire/blob/0.3.65/src/gst/gstpipewiresrc.c).
 This source compatibility check does not replace running an older distribution.
+
+### Mac reference — 24 October 2026 (partial)
+
+[Mac measurements](macos-performance-2026-10-24.json) cover release revision
+`cc593f8` on a MacBook Air M5, 24 GB RAM, macOS 27.0.1, AC power with low-power
+mode off, FFmpeg 8.1, Metal composition and VideoToolbox H.264 encoding.
+The five-run export median was **1.570 seconds (191.1 fps)**. A separate matched
+three-run comparison measured **1.449 seconds without zoom** and **1.446 seconds
+with a 2x zoom**. All outputs validated at 300 frames and 1920×1080; matching
+frames confirmed the zoom. These short batches do not establish a speedup or
+parity with different Linux hardware.
+
+Recording measurements are **not complete**. ScreenCaptureKit rejected the
+rebuilt app with error `-3801` while the existing Tarantino permission remained
+shown as enabled. Renewed privacy approval is required before measuring actual
+recording. The saved capped/uncapped idle samples were taken in that denied
+state and must not be presented as recording overhead or a ready-state baseline.
+Captured FPS, timestamp gaps, stop latency, live click/zoom behavior and editor
+preview performance remain unmeasured.
+
+The synthetic workload is in `scripts/macos-performance-workload.swift`. Compile
+it using `swiftc -O`, run it as a native app, and use Space to toggle a 60 Hz timer
+versus uncapped rendering. Its 960×540 point window renders at 1920×1080 backing
+pixels on this Retina display. It differs from Linux glxgears; submission rate
+is not physical display FPS. For each condition, warm up, then collect a
+30-second recorder process-tree sample with:
+
+```sh
+python3 scripts/sample-macos-performance.py RECORDER_PID OUTPUT.json 30
+```
+
+The sampler records CPU time deltas and RSS; CPU is relative to one core, shared
+RSS may be counted twice, and GPU utilization is not included. Workload samples
+are written every five seconds to `/tmp/tarantino-macos-workload.jsonl`.
+Repeat baseline and recording conditions on the same machine before drawing
+an overhead conclusion. The current report retains raw samples and limitations.
+
+
+## Camera layout lookup (2026-10-27)
+
+Preview now indexes immutable camera keyframe arrays once and binary-searches
+source time, retaining stable last-key selection for duplicate timestamps.
+Weak keys release indexes when project/history arrays are no longer referenced.
+Native export already uses binary lookup.
+
+A Node/Vitest microbenchmark alternated six batches of the old linear lookup and
+indexed lookup on the same deterministic seek sequence. For 6,000 warm lookups,
+median time with 1,000 keys fell from 16.762 ms to 1.413 ms. Exact batch timings
+and 100/20,000-key stress cases are in
+[the measurements](benchmarks/macos-camera-lookup-2026-10-27.json).
+
+These timings exclude index construction, WebKit, media decoding, rendering,
+and UI frame pacing. They do not establish native preview FPS or overall
+performance parity. Regression tests cover unsorted/duplicate keys, boundaries,
+reverse seeks, document immutability, edits and undo/redo invalidation.

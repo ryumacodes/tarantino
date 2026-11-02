@@ -6,16 +6,26 @@
 
 use anyhow::{Result, anyhow};
 use image::RgbaImage;
+mod shortcuts;
+mod masks;
 mod config;
 mod init;
 mod shader;
 mod textures;
+mod loupe;
+mod layers;
+mod motion;
+mod shadow_blur;
+mod cursor_motion;
+mod cursor_tile;
+mod recorded_cursor;
 
 use shader::COMPOSITE_SHADER;
 
 /// Per-frame zoom state (re-exported from zoom_trajectory)
 use super::zoom_trajectory::ZoomFrameState;
 pub use config::build_gpu_config_with_webcam;
+pub(crate) use config::input_layout;
 
 /// All visual effect settings needed to configure the GPU pipeline
 #[derive(Debug, Clone)]
@@ -53,17 +63,20 @@ pub struct GpuCompositorConfig {
     pub shadow_offset_y: f32,
     /// Webcam settings (None if no webcam)
     pub webcam: Option<WebcamConfig>,
+    pub webcam_mirrored: bool,
     /// Device frame settings
     pub device_frame: Option<DeviceFrameConfig>,
     /// Motion blur settings
     pub motion_blur_enabled: bool,
+    pub frame_rate: f64,
     pub motion_blur_pan_intensity: f32,
     pub motion_blur_zoom_intensity: f32,
     /// Window mode: zoom applies to the captured window layer, not the static background
     pub window_mode: bool,
+    pub clip_cursor_to_video: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WebcamConfig {
     pub pos_x: f32,
     pub pos_y: f32,
@@ -164,7 +177,7 @@ struct CompositeUniforms {
 
     velocity_scale: f32,
     // Webcam
-    webcam_enabled: f32,
+    webcam_opacity: f32,
     webcam_pos_x: f32,
     webcam_pos_y: f32,
 
@@ -220,17 +233,22 @@ struct CompositeUniforms {
 
     // Window mode
     window_mode: f32,
+    clip_cursor_to_video: f32,
+    layer_outputs: f32,
+    shutter_start: [f32;4],
+    shutter_now: [f32;4],
+    cursor_shutter_start: [f32;4],
+    cursor_shutter_now: [f32;4],
+    lens_camera_opacity: f32,
+    webcam_mirrored: f32,
+    cursor_fade_blur: f32,
+    lens_camera_pad3: f32,
+    camera_rect: [f32;4],
+    cursor_image_rect: [f32;4],
 }
 
-/// Trail point data sent to GPU (matches CursorFrameState trail_points)
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct TrailPointGpu {
-    x: f32,
-    y: f32,
-    alpha: f32,
-    size: f32,
-}
+// The simulator's POD layout is uploaded directly, without a per-frame copy.
+type TrailPointGpu = crate::cursor_renderer::TrailPoint;
 
 /// GPU compositor that holds all wgpu resources for the export pipeline.
 pub struct GpuCompositor {
@@ -240,7 +258,17 @@ pub struct GpuCompositor {
     bind_group_layout: wgpu::BindGroupLayout,
     // Textures
     source_texture: wgpu::Texture,
+    mask_stage: Option<super::mask_stage::MaskStage>,
+    mask_placement: Option<super::mask_composite::MaskPlacement>,
     output_texture: wgpu::Texture,
+    caption_stage: Option<super::caption_stage::CaptionStage>,
+    caption_frame: u64,
+    shortcut_stage: Option<super::shortcut_stage::ShortcutStage>,
+    shortcut_draws: Vec<super::shortcut_motion::Draw>,
+    loupe_pass: Option<super::loupe::content_pass::ContentPass>,
+    loupe_content: Option<super::loupe::content_pass::ContentLens>,
+    loupe_layers: layers::StageLayers,
+    loupe_layered_pass: Option<super::loupe::content_pass::ContentPass>,
     // Staging buffer for GPU readback
     download_buffer: wgpu::Buffer,
     // Uniform buffer
@@ -249,6 +277,8 @@ pub struct GpuCompositor {
     trail_buffer: wgpu::Buffer,
     // Placeholder cursor texture (1x1, keeps bind group layout stable)
     cursor_texture: wgpu::Texture,
+    cursor_tile: Option<cursor_tile::CursorTile>,
+    recorded_cursor: Option<recorded_cursor::RecordedCursor>,
     cursor_enabled: bool,
     cursor_size: f32,
     ripple_color: [f32; 3],
@@ -260,6 +290,8 @@ pub struct GpuCompositor {
     click_effect: f32,
     // Webcam texture
     webcam_texture: Option<wgpu::Texture>,
+    webcam_rect: Option<[f32;4]>,
+    webcam_opacity: f32,
     // Custom background image texture
     background_texture: Option<wgpu::Texture>,
     // Pre-baked mask textures
@@ -277,10 +309,47 @@ pub struct GpuCompositor {
     config: GpuCompositorConfig,
     // Previous frame state for velocity calculation
     prev_zoom_state: Option<ZoomFrameState>,
+    prev_cursor_pose: Option<[f32;4]>,
 }
 
 /// WGSL compute shader that performs ALL compositing in one dispatch.
 impl GpuCompositor {
+    /// Per-frame opacity; texture and bind group remain reusable across fades.
+    pub fn set_webcam_opacity(&mut self, opacity: f32) {
+        self.webcam_opacity = if opacity.is_finite() { opacity.clamp(0.0, 1.0) } else { 0.0 };
+    }
+
+    pub fn set_webcam_layout(&mut self, config: Option<&WebcamConfig>) {
+        self.webcam_rect = None;
+        if self.config.webcam.as_ref() != config {
+            self.config.webcam = config.cloned();
+        }
+    }
+
+    pub fn reset_motion_history(&mut self) {
+        self.prev_zoom_state = None;
+        self.prev_cursor_pose = None;
+    }
+
+    pub fn composite_timeline_frame(
+        &mut self,
+        source_frame: &[u8],
+        zoom_state: &ZoomFrameState,
+        cursor_state: Option<&crate::cursor_renderer::CursorFrameState>,
+        webcam_visible: bool,
+    ) -> Result<Vec<u8>> {
+        let webcam = if webcam_visible {
+            None
+        } else {
+            self.config.webcam.take()
+        };
+        let result = self.composite_frame(source_frame, zoom_state, cursor_state);
+        if !webcam_visible {
+            self.config.webcam = webcam;
+        }
+        result
+    }
+
     pub fn composite_frame(
         &mut self,
         source_frame: &[u8],
@@ -303,20 +372,18 @@ impl GpuCompositor {
             ));
         }
 
-        // Calculate velocity from previous frame for motion blur
-        let (vel_x, vel_y, vel_scale) = if let Some(ref prev) = self.prev_zoom_state {
-            (
-                (zoom_state.center_x - prev.center_x) as f32,
-                (zoom_state.center_y - prev.center_y) as f32,
-                (zoom_state.scale - prev.scale) as f32,
-            )
-        } else {
-            (0.0, 0.0, 0.0)
-        };
+        let (vel_x, vel_y, vel_scale) = motion::velocity(zoom_state,
+            self.prev_zoom_state.as_ref(),self.config.window_mode,self.config.frame_rate);
+        let (shutter_start,shutter_now)=motion::shutter_rect(zoom_state,self.prev_zoom_state.as_ref(),&self.config);
         self.prev_zoom_state = Some(zoom_state.clone());
+
+        let (cursor_shutter_start,cursor_shutter_now)=self.cursor_shutter(zoom_state,cursor_state);
+        let layer_outputs=self.prepare_loupe_layers();
 
         // Build uniforms (only per-frame varying data)
         let webcam_cfg = &self.config.webcam;
+        let webcam_bounds = webcam_cfg.as_ref().map(|camera|
+            super::webcam_timeline::contain_webcam(camera, out_w, out_h));
         let df_cfg = &self.config.device_frame;
         let gradient = self.config.background_gradient.as_ref();
         let gradient_colors = gradient.map_or([[0.0, 0.0, 0.0, 1.0]; 4], |g| g.colors);
@@ -385,17 +452,19 @@ impl GpuCompositor {
             velocity_x: vel_x,
             velocity_y: vel_y,
             velocity_scale: vel_scale,
-            webcam_enabled: if webcam_cfg.is_some() && self.webcam_texture.is_some() {
-                1.0
+            webcam_opacity: if webcam_cfg.is_some() && self.webcam_texture.is_some() {
+                self.webcam_opacity
             } else {
                 0.0
             },
-            webcam_pos_x: webcam_cfg.as_ref().map_or(0.0, |w| w.pos_x),
-            webcam_pos_y: webcam_cfg.as_ref().map_or(0.0, |w| w.pos_y),
-            webcam_size: webcam_cfg.as_ref().map_or(0.0, |w| w.size),
-            webcam_shape: webcam_cfg
-                .as_ref()
-                .map_or(0.0, |w| if w.shape == "circle" { 0.0 } else { 1.0 }),
+            webcam_pos_x: webcam_bounds.as_ref().map_or(0.0, |w| w.pos_x),
+            webcam_pos_y: webcam_bounds.as_ref().map_or(0.0, |w| w.pos_y),
+            webcam_size: webcam_bounds.as_ref().map_or(0.0, |w| w.size),
+            webcam_shape: webcam_cfg.as_ref().map_or(0.0, |w| match w.shape.as_str() {
+                "circle" => 0.0,
+                "fullscreen" => 2.0,
+                _ => 1.0,
+            }),
             device_frame_enabled: if df_cfg.is_some() { 1.0 } else { 0.0 },
             device_frame_bezel: df_cfg.as_ref().map_or(0.0, |d| d.bezel as f32),
             device_frame_corner_radius: df_cfg.as_ref().map_or(0.0, |d| d.corner_radius as f32),
@@ -409,7 +478,7 @@ impl GpuCompositor {
             },
             cursor_x: cursor_state.map_or(0.0, |c| c.x),
             cursor_y: cursor_state.map_or(0.0, |c| c.y),
-            cursor_size: self.cursor_size,
+            cursor_size: self.cursor_size * (1.0 - cursor_state.map_or(0.0, |c| c.press_amount)),
             cursor_opacity: cursor_state.map_or(1.0, |c| c.opacity),
             cursor_rotation: cursor_state.map_or(0.0, |c| c.rotation),
             cursor_style: self.cursor_style,
@@ -442,22 +511,27 @@ impl GpuCompositor {
                 1.0
             }),
             window_mode: if self.config.window_mode { 1.0 } else { 0.0 },
+            clip_cursor_to_video: if self.config.clip_cursor_to_video { 1.0 } else { 0.0 },
+            layer_outputs: if layer_outputs {1.0} else {0.0},
+            lens_camera_opacity: self.loupe_content.map_or(1.0, |lens| (1.0-lens.presence).clamp(0.0,1.0)),
+            webcam_mirrored: if self.config.webcam_mirrored {1.0} else {0.0},
+            cursor_fade_blur: cursor_state.map_or(0.0,|c| c.fade_blur_radius),
+            lens_camera_pad3: 0.0,
+            camera_rect: self.resolved_webcam_rect(),
+            cursor_image_rect: self.recorded_cursor_rect(),
+            shutter_start,shutter_now,cursor_shutter_start,cursor_shutter_now,
         };
 
-        // Upload trail points
-        if let Some(cs) = cursor_state {
-            let trail_gpu: Vec<TrailPointGpu> = cs
-                .trail_points
-                .iter()
-                .map(|tp| TrailPointGpu {
-                    x: tp.x,
-                    y: tp.y,
-                    alpha: tp.alpha,
-                    size: tp.size,
-                })
-                .collect();
-            self.queue
-                .write_buffer(&self.trail_buffer, 0, bytemuck::cast_slice(&trail_gpu));
+        self.prepare_cursor_texture(&uniforms)?;
+
+        // Disabled trails need no allocation or upload. The shader only reads
+        // trail_count points, so stale bytes beyond the active slice are ignored.
+        if let Some(cs) = cursor_state.filter(|cs| !cs.trail_points().is_empty()) {
+            self.queue.write_buffer(
+                &self.trail_buffer,
+                0,
+                bytemuck::cast_slice(cs.trail_points()),
+            );
         }
 
         // Upload uniforms + source frame (the only per-frame GPU writes)
@@ -485,7 +559,7 @@ impl GpuCompositor {
 
         // Ensure bind group is built (cached, only rebuilt when textures change)
         self.ensure_bind_group();
-        let bind_group = self.bind_group.as_ref().unwrap();
+
 
         // Encode and dispatch
         let mut encoder = self
@@ -494,6 +568,8 @@ impl GpuCompositor {
                 label: Some("Composite Encoder"),
             });
 
+        self.encode_source_mask(&mut encoder)?;
+        let bind_group = self.bind_group.as_ref().unwrap();
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("Composite Pass"),
@@ -504,10 +580,38 @@ impl GpuCompositor {
             pass.dispatch_workgroups((out_w + 15) / 16, (out_h + 15) / 16, 1);
         }
 
-        // Copy output texture to download buffer
+        let readback_texture = if let Some(lens) = self.loupe_content {
+            let pass = if layer_outputs {
+                if self.loupe_layered_pass.is_none() {
+                    self.loupe_layered_pass=Some(super::loupe::content_pass::ContentPass::new_layered(
+                        &self.device,&self.output_texture,&self.loupe_layers.foreground,
+                        &self.loupe_layers.background,(out_w,out_h))?.with_straight_output());
+                }
+                self.loupe_layered_pass.as_ref().unwrap()
+            } else {
+                if self.loupe_pass.is_none() {
+                    self.loupe_pass=Some(super::loupe::content_pass::ContentPass::new(
+                        &self.device,&self.output_texture,(out_w,out_h))?);
+                }
+                self.loupe_pass.as_ref().unwrap()
+            };
+            pass.encode(&self.queue,&mut encoder,lens)?;
+            pass.output()
+        } else { &self.output_texture };
+
+        let readback_texture=if !self.shortcut_draws.is_empty() {
+            if let Some(stage)=&mut self.shortcut_stage {
+                stage.encode(&self.device,&self.queue,&mut encoder,readback_texture,&self.shortcut_draws)?;
+                stage.output()
+            } else {readback_texture}
+        } else {readback_texture};
+        let readback_texture=if let Some(stage)=&mut self.caption_stage {
+            if stage.encode(&self.device,&self.queue,&mut encoder,readback_texture,self.caption_frame)? {stage.output()}else{readback_texture}
+        }else{readback_texture};
+        // Copy the final GPU stage once, including active text overlays.
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &self.output_texture,
+                texture: readback_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -564,3 +668,19 @@ impl GpuCompositor {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+#[path="gpu_compositor/layer_tests.rs"]
+mod layer_tests;
+
+#[cfg(test)]
+mod motion_tests;
+
+#[cfg(test)]
+mod temporal_coverage_tests;
+
+#[cfg(test)]
+mod cursor_body_tests;
+
+#[cfg(test)]
+mod temporal_preview_tests;

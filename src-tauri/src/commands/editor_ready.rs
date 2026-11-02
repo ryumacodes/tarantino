@@ -1,8 +1,6 @@
 use anyhow::Result;
 use tauri::Manager;
 
-#[cfg(not(target_os = "linux"))]
-use tauri::Emitter;
 
 pub async fn notify_editor_ready(
     app: &tauri::AppHandle,
@@ -19,7 +17,6 @@ pub async fn notify_editor_ready(
         return Ok(());
     };
 
-    #[cfg(target_os = "linux")]
     {
         let mut url = editor
             .url()
@@ -33,27 +30,17 @@ pub async fn notify_editor_ready(
             has_system_audio,
             urlencoding::encode(webcam_shape),
         )));
-        editor
-            .navigate(url)
-            .map_err(|error| anyhow::anyhow!("Failed to load finalized recording: {error}"))?;
+        // A loaded editor saves its current document before replacement. If the
+        // shell has not mounted yet, there are no edits and navigation is safe.
+        let destination = serde_json::to_string(url.as_str())?;
+        editor.eval(format!(
+            "if (window.dispatchEvent(new CustomEvent('tarantino-recording-handoff', {{detail:{destination},cancelable:true}}))) window.location.assign({destination});"
+        )).map_err(|error| anyhow::anyhow!("Failed to open finalized recording: {error}"))?;
     }
 
-    #[cfg(not(target_os = "linux"))]
-    editor
-        .emit(
-            "recording-ready",
-            serde_json::json!({
-                "path": final_path,
-                "has_webcam": has_webcam,
-                "has_mic": has_mic,
-                "has_system_audio": has_system_audio,
-                "webcam_shape": webcam_shape,
-                "webcam_x": webcam_x,
-                "webcam_y": webcam_y,
-                "webcam_size": webcam_size,
-            }),
-        )
-        .map_err(|error| anyhow::anyhow!(error))?;
+    editor.set_title("Tarantino — Editor")?;
+    editor.show()?;
+    editor.set_focus()?;
 
     Ok(())
 }

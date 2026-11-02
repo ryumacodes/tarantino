@@ -1,6 +1,7 @@
 import CaptureSettings, { type CaptureConfig } from './CaptureSettings';
 import VideoOutputLocation from './VideoOutputLocation';
 import PermissionStatus from './PermissionStatus';
+import { CountdownSetting } from './RecordingCountdown';
 import { AlertTriangle } from 'lucide-react';
 import type { RecordingCapabilities } from '../utils/recordingCapabilities';
 
@@ -20,7 +21,18 @@ export default function CaptureSettingsPanel({
   return (
     <div className="capture-bar__dropdown capture-bar__dropdown--settings">
       <div className="space-y-4">
+        <CountdownSetting />
         <VideoOutputLocation />
+        {recordingCapabilities?.shortcutRecordingAvailable && (
+          <div className="capture-settings-compact__section">
+            <label className="capture-settings-compact__checkbox">
+              <input type="checkbox" checked={captureConfig.captureShortcuts ?? false}
+                onChange={event => setCaptureConfig({ ...captureConfig, captureShortcuts: event.target.checked })} />
+              <span>Record keyboard shortcuts</span>
+            </label>
+            <p>Save shortcut key names with this recording. Ordinary typed letters are excluded.</p>
+          </div>
+        )}
         {recordingCapabilities?.unavailableReason && (
           <div className="capture-bar__runtime-detail" role="alert">
             <AlertTriangle size={16} />

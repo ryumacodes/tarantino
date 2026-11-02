@@ -1,8 +1,16 @@
+import { projectLoadError } from './utils/projects/loadError';
+import RelinkRecording from './components/editor/RelinkRecording';
+import { saveProject } from './utils/projects/save';
+import { saveBeforeRecordingHandoff } from './utils/projects/handoff';
+import { applyDefaultPreset } from './utils/presets/defaultPreset';
+import { restoredProjectState } from './utils/projects/restore';
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import EditorView from './components/EditorView';
+import ProjectLibrary from './components/editor/ProjectLibrary';
+import { parseProjectDocument } from './utils/projects/document';
 import { useEditorStore } from './stores/editor';
 import './styles/globals.css';
 import './styles/capture-bar.css';
@@ -23,7 +31,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: any) {
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('Error boundary caught:', error, errorInfo);
   }
 
@@ -58,6 +66,16 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 }
 
 let setupProcessingEventListeners: () => void;
+type RecordingReady = {
+  path: string;
+  has_mic?: boolean;
+  has_system_audio?: boolean;
+  has_webcam?: boolean;
+  webcam_shape?: string;
+  webcam_x?: number;
+  webcam_y?: number;
+  webcam_size?: number;
+};
 type WebcamShape = 'circle' | 'roundrect';
 
 const normalizeWebcamShape = (shape: string | null | undefined): WebcamShape => {
@@ -67,6 +85,7 @@ const normalizeWebcamShape = (shape: string | null | undefined): WebcamShape => 
 const readWebcamTransform = (source: Record<string, unknown> | URLSearchParams | null | undefined) => {
   const readNumber = (key: string, fallback: number) => {
     const raw = source instanceof URLSearchParams ? source.get(key) : source?.[key];
+    if (raw == null || raw === '') return fallback;
     const value = typeof raw === 'number' ? raw : Number(raw);
     return Number.isFinite(value) ? value : fallback;
   };
@@ -79,19 +98,46 @@ const readWebcamTransform = (source: Record<string, unknown> | URLSearchParams |
 };
 
 function EditorShell() {
+  const [showProjectLibrary, setShowProjectLibrary] = useState(false);
   const [mediaPath, setMediaPath] = useState<string | null>(null);
+  const [presetWarning,setPresetWarning]=useState<string|null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [processingStatus, setProcessingStatus] = useState<string>('Loading...');
 
   const { initializeEditor, updateVisualSettings } = useEditorStore();
 
+  useEffect(() => {
+    let handingOff = false;
+    const receive = (event: Event) => {
+      const destination = (event as CustomEvent<string>).detail;
+      if (typeof destination !== 'string') return;
+      event.preventDefault();
+      if (handingOff) return;
+      handingOff = true;
+      setIsLoading(true);
+      setProcessingStatus('Saving current project…');
+      useEditorStore.getState().setIsPlaying(false);
+      void saveBeforeRecordingHandoff(useEditorStore.getState(),
+        new URLSearchParams(window.location.search).get('project'), destination,
+        saveProject,
+        url => window.location.assign(url),
+      ).catch(error => {
+        handingOff = false;
+        setIsLoading(false);
+        setPresetWarning(`Could not save the current project: ${String(error)}. Your new recording is available in Open project.`);
+      });
+    };
+    window.addEventListener('tarantino-recording-handoff', receive);
+    return () => window.removeEventListener('tarantino-recording-handoff', receive);
+  }, []);
+
   setupProcessingEventListeners = () => {
-    listen('processing-status', (event: any) => {
+    listen<string>('processing-status', (event) => {
       setProcessingStatus(event.payload);
     });
 
-    listen('recording-ready', async (event: any) => {
+    listen<string | RecordingReady>('recording-ready', async (event) => {
       const payload = event.payload;
       const finalPath = typeof payload === 'string' ? payload : payload.path;
       const hasMic = typeof payload === 'object' ? !!payload.has_mic : false;
@@ -144,6 +190,8 @@ function EditorShell() {
         updateVisualSettings({ webcamShape, ...webcamTransform });
       }
 
+      try {await applyDefaultPreset();setPresetWarning(null);}
+      catch {setPresetWarning('The default style could not be loaded. Your recording is ready; open Style presets to reload the library.');}
       setIsLoading(false);
     } catch (err) {
       console.error('Error initializing editor with final path:', err);
@@ -169,6 +217,18 @@ function EditorShell() {
   const loadEditor = async () => {
     try {
       const params = new URLSearchParams(window.location.search);
+      if (params.get('library') === 'true') { setShowProjectLibrary(true); setIsLoading(false); return; }
+      const projectId = params.get('project');
+      if (projectId) {
+        const document = parseProjectDocument(await invoke('load_project', { projectId }));
+        useEditorStore.setState(restoredProjectState(document, useEditorStore.getState()));
+        setMediaPath(document.state.videoFilePath);
+        void useEditorStore.getState().loadThumbnails(document.state.videoFilePath!);
+        void useEditorStore.getState().loadPreviewZoomData(document.state.videoFilePath!);
+        setIsLoading(false);
+        return;
+      }
+
       const media = params.get('media');
       const sidecar = params.get('sidecar');
       const hasWebcam = params.get('webcam') === 'true';
@@ -206,15 +266,17 @@ function EditorShell() {
         duration = parseFloat(videoInfo.format.duration) * 1000;
       }
 
-      initializeEditor(decodedPath, duration, hasWebcam, hasMic, hasSystemAudio, videoInfo.width ?? null, videoInfo.height ?? null);
+      await initializeEditor(decodedPath, duration, hasWebcam, hasMic, hasSystemAudio, videoInfo.width ?? null, videoInfo.height ?? null);
       if (hasWebcam) {
         updateVisualSettings({ webcamShape, ...webcamTransform });
       }
 
+      try {await applyDefaultPreset();setPresetWarning(null);}
+      catch {setPresetWarning('The default style could not be loaded. Your recording is ready; open Style presets to reload the library.');}
       setIsLoading(false);
     } catch (err) {
       console.error('Failed to load editor:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load editor');
+      setError(projectLoadError(err));
       setIsLoading(false);
     }
   };
@@ -238,6 +300,8 @@ function EditorShell() {
     }
   };
 
+  if (showProjectLibrary) return <ProjectLibrary onCancel={() => void handleClose()} />;
+
   if (error) {
     return (
       <div className="editor-container">
@@ -255,6 +319,9 @@ function EditorShell() {
           <div style={{ fontSize: '14px', color: 'var(--editor-text-secondary)', textAlign: 'center', maxWidth: '400px' }}>
             {error}
           </div>
+          {error.includes('Recording is missing:') && new URLSearchParams(window.location.search).get('project') &&
+            <RelinkRecording projectId={new URLSearchParams(window.location.search).get('project')!}
+              onRelinked={()=>{setError(null);setIsLoading(true);void loadEditor();}} />}
           <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
             <button
               className="editor-btn editor-btn--secondary"
@@ -306,6 +373,8 @@ function EditorShell() {
 
   return (
     <div className="editor-container">
+      {presetWarning && <div className="editor-export-status" data-error><span role="alert">{presetWarning}</span>
+        <button type="button" onClick={()=>setPresetWarning(null)}>Dismiss</button></div>}
       <ErrorBoundary>
         <EditorView onClose={handleClose} />
       </ErrorBoundary>

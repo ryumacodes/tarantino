@@ -1,4 +1,6 @@
 import React from 'react';
+import { useEditorStore } from '../../../stores/editor';
+import { selectPlaybackSecond } from './hooks/videoInputs';
 import {
   Play,
   Pause,
@@ -33,7 +35,6 @@ export const ViewControls: React.FC<ViewControlsProps> = ({
 interface PlaybackControlsProps {
   isPlaying: boolean;
   isMuted: boolean;
-  currentTime: number;
   duration: number;
   onPlayPause: () => void;
   onSeekBackward: () => void;
@@ -51,7 +52,6 @@ const formatTime = (ms: number): string => {
 export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
   isPlaying,
   isMuted,
-  currentTime,
   duration,
   onPlayPause,
   onSeekBackward,
@@ -86,7 +86,7 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
     </div>
 
     <div className="time-display">
-      <span className="current-time">{formatTime(currentTime)}</span>
+      <PlaybackTime />
       <span className="time-separator">/</span>
       <span className="total-time">{formatTime(duration)}</span>
     </div>
@@ -102,3 +102,8 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
     </div>
   </div>
 );
+
+function PlaybackTime() {
+  const second = useEditorStore(selectPlaybackSecond);
+  return <span className="current-time">{formatTime(second * 1000)}</span>;
+}

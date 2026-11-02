@@ -1,0 +1,105 @@
+use super::*;
+
+#[test]
+#[ignore="native GPU; motion blur must affect exported pixels and reset at cuts"]
+fn window_zoom_blur_reaches_export_and_resets_at_cuts() {
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":128,"height":128},"capture_mode":"window","frame_rate":60,
+        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false}
+    })).unwrap();
+    let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+    config.window_mode=true;
+    config.motion_blur_enabled=true;
+    config.motion_blur_pan_intensity=0.0;
+    config.motion_blur_zoom_intensity=1.0;
+    let (w,h)=(config.input_width,config.input_height);
+    let source:Vec<u8>=(0..h).flat_map(|y|(0..w).flat_map(move |x| {
+        let c=if (x+y)%2==0 {0} else {255};[c,255-c,80,255]
+    })).collect();
+    let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
+    let before=ZoomFrameState {scale:1.9,center_x:0.5,center_y:0.5};
+    let now=ZoomFrameState {scale:2.0,center_x:0.5,center_y:0.5};
+    let baseline=compositor.composite_frame(&source,&now,None).unwrap();
+    compositor.reset_motion_history();
+    compositor.composite_frame(&source,&before,None).unwrap();
+    let moving=compositor.composite_frame(&source,&now,None).unwrap();
+    assert_ne!(baseline,moving,"zoom-only window motion must reach exported pixels");
+    assert_eq!(baseline,compositor.composite_frame(&source,&now,None).unwrap(),"stationary frame must not accumulate blur");
+    compositor.composite_frame(&source,&before,None).unwrap();
+    compositor.reset_motion_history();
+    assert_eq!(baseline,compositor.composite_frame(&source,&now,None).unwrap(),"edit boundary must discard previous camera velocity");
+}
+
+#[test]
+#[ignore="native GPU; temporal window silhouette must extend through the swept edge"]
+fn moving_window_edges_have_temporal_coverage_and_keep_straight_color() {
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":128,"height":128},"frame_rate":60,
+        "visual_settings":{"padding":25,"corner_radius":8,"shadow_enabled":false}
+    })).unwrap();
+    let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+    config.window_mode=true;config.background_color=[0.0;4];
+    config.motion_blur_enabled=true;config.motion_blur_pan_intensity=1.0;config.motion_blur_zoom_intensity=1.0;
+    let source=[255u8,255,255,255].repeat((config.input_width*config.input_height) as usize);
+    let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
+    for (from,to) in [(0.3,0.7),(0.7,0.3)] {
+        let before=ZoomFrameState {scale:1.4,center_x:from,center_y:0.5};
+        let now=ZoomFrameState {scale:1.4,center_x:to,center_y:0.5};
+        compositor.reset_motion_history();
+        let stationary=compositor.composite_frame(&source,&now,None).unwrap();
+        compositor.reset_motion_history();
+        compositor.composite_frame(&source,&before,None).unwrap();
+        let moving=compositor.composite_frame(&source,&now,None).unwrap();
+        let mut outside=0;let mut softened=0;
+        // Mid-row avoids corners and tests the actual moving vertical boundaries.
+        for x in 0..128 {let i=(64*128+x)*4;
+            if stationary[i+3]==0 && moving[i+3]>0 {outside+=1;}
+            if stationary[i+3]==255 && moving[i+3]>0 && moving[i+3]<255 {softened+=1;}
+            if moving[i+3]>0 {assert_eq!(&moving[i..i+3],&[255,255,255],"coverage must not darken straight RGB");}
+        }
+        assert!(outside>=5 && softened>=5,"expected a swept silhouette, got {outside} trailing and {softened} leading pixels");
+        assert_eq!(&moving[..4],&[0,0,0,0],"far background remains transparent");
+        assert_eq!(&moving[(64*128+64)*4..(64*128+64)*4+4],&[255,255,255,255],"interior remains fully covered");
+        assert_eq!(stationary,compositor.composite_frame(&source,&now,None).unwrap(),"stationary path remains unchanged");
+    }
+}
+
+#[test]
+#[ignore="native GPU; shadow is sampled in temporal geometry, not the latest pose"]
+fn temporal_shadow_follows_segment_geometry_without_double_composition() {
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":128,"height":128},"frame_rate":60,
+        "visual_settings":{"padding":25,"corner_radius":8,"shadow_enabled":true}
+    })).unwrap();
+    let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+    config.window_mode=true;config.background_color=[0.0;4];
+    config.shadow_enabled=true;config.shadow_blur=8.0;config.shadow_intensity=0.65;config.shadow_offset_y=20.0;
+    config.motion_blur_enabled=true;config.motion_blur_pan_intensity=1.0;config.motion_blur_zoom_intensity=1.0;
+    let source=vec![0u8;(config.input_width*config.input_height*4) as usize];
+    let opaque=[255u8,255,255,255].repeat((config.input_width*config.input_height) as usize);
+    let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
+    let before=ZoomFrameState {scale:1.4,center_x:0.3,center_y:0.5};
+    let middle=ZoomFrameState {scale:1.4,center_x:0.5,center_y:0.5};
+    let now=ZoomFrameState {scale:1.4,center_x:0.7,center_y:0.5};
+    let reference=compositor.composite_frame(&source,&middle,None).unwrap();
+    compositor.reset_motion_history();
+    let latest=compositor.composite_frame(&source,&now,None).unwrap();
+    compositor.reset_motion_history();
+    compositor.composite_frame(&source,&before,None).unwrap();
+    let temporal=compositor.composite_frame(&source,&now,None).unwrap();
+    let mut visible=0;let mut different=0;
+    // Below both silhouettes the distance has no crossings, so one temporal
+    // segment must sample its midpoint shadow exactly once.
+    for x in 0..128 {let i=(118*128+x)*4;
+        assert!(temporal[i+3].abs_diff(reference[i+3])<=1,"midpoint shadow mismatch at {x}: {} vs {}",temporal[i+3],reference[i+3]);
+        assert_eq!(&temporal[i..i+3],&[0,0,0]);
+        if reference[i+3]>0 {visible+=1;}
+        if temporal[i+3].abs_diff(latest[i+3])>2 {different+=1;}
+    }
+    assert!(visible>20 && different>10,"fixture must distinguish the temporal shadow from latest-frame shadow");
+    compositor.reset_motion_history();
+    compositor.composite_frame(&opaque,&before,None).unwrap();
+    let covered=compositor.composite_frame(&opaque,&now,None).unwrap();
+    assert_eq!(&covered[(64*128+64)*4..(64*128+64)*4+4],&[255,255,255,255],"shadow must stay behind opaque content");
+    assert_eq!(latest,compositor.composite_frame(&source,&now,None).unwrap(),"stationary shadow returns to exact baseline");
+}

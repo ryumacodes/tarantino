@@ -97,7 +97,12 @@ bool sck_is_available() {
 
 // Get shareable displays
 bool sck_get_shareable_displays(SCKDisplay** out_displays, size_t* out_count) {
+    *out_displays = nullptr;
+    *out_count = 0;
     if (@available(macOS 12.3, *)) {
+        // Enumeration runs when the toolbar opens. Only an explicit permission
+        // request or recording action should be allowed to trigger a prompt.
+        if (!CGPreflightScreenCaptureAccess()) return false;
         __block bool success = false;
         __block NSArray<SCDisplay*>* displays = nil;
 
@@ -165,7 +170,10 @@ bool sck_get_shareable_displays(SCKDisplay** out_displays, size_t* out_count) {
 
 // Get shareable windows
 bool sck_get_shareable_windows(SCKWindow** out_windows, size_t* out_count) {
+    *out_windows = nullptr;
+    *out_count = 0;
     if (@available(macOS 12.3, *)) {
+        if (!CGPreflightScreenCaptureAccess()) return false;
         __block bool success = false;
         __block NSArray<SCWindow*>* windows = nil;
 
@@ -393,8 +401,7 @@ void* sck_start_capture(SCKCaptureConfig config, void* rust_context, SCKFrameCal
                     return;
                 }
 
-                filter = [[SCContentFilter alloc] initWithDisplay:targetDisplay
-                                                  excludingWindows:@[]];
+                filter = sck_display_filter(content, targetDisplay, nil);
             } else {
                 for (SCWindow* window in content.windows) {
                     if (window.windowID == config.source_id) {
@@ -515,8 +522,7 @@ void* sck_start_capture(SCKCaptureConfig config, void* rust_context, SCKFrameCal
                     }
                 }
 
-                filter = [[SCContentFilter alloc] initWithDisplay:targetDisplay
-                                                  excludingWindows:@[]];
+                filter = sck_display_filter(content, targetDisplay, targetWindow);
                 NSLog(@"[SCK] Window-as-area display=%u global=(%.1f,%.1f %.1fx%.1f) local=(%.1f,%.1f %.1fx%.1f) scale=%.2f",
                       targetDisplay.displayID,
                       windowFrame.origin.x, windowFrame.origin.y,

@@ -242,7 +242,7 @@ fn build_pipeline(
     println!(
         "Linux recording encoder selected: {} at {} fps",
         encoder_kind.factory_name(),
-        recording_fps(&config.quality)
+        config.fps()
     );
 
     let source = gst::ElementFactory::make("pipewiresrc")
@@ -296,7 +296,7 @@ fn build_pipeline_with_source(
     gpu_conversion: bool,
 ) -> Result<gst::Pipeline> {
     let (bitrate_kbps, speed_preset) = encoding_settings(&config.quality);
-    let fps = recording_fps(&config.quality);
+    let fps = config.fps();
     let queue = make_element("queue")?;
     queue.set_property("max-size-buffers", 4u32);
     queue.set_property("max-size-bytes", 0u32);

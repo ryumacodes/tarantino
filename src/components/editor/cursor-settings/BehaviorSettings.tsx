@@ -175,7 +175,7 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
               {visualSettings.removeCursorShakes && (
                 <>
                   <label className="cursor-setting-label" style={{ marginTop: '16px' }}>
-                    Remove cursor shakes threshold
+                    Remove cursor shakes threshold (pixels)
                   </label>
                   <div className="slider-with-reset">
                     <input

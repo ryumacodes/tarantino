@@ -93,7 +93,8 @@ fn detect_linux_acceleration(settings: &ExportSettings) -> ExportAcceleration {
     }
 
     let codec = settings.codec.as_deref().unwrap_or("h264");
-    let encoders = ffmpeg_encoder_list();
+    let control = settings.cancellation.clone().unwrap_or_default();
+    let encoders = ffmpeg_encoder_list(&control);
     let requested = std::env::var("TARANTINO_VIDEO_BACKEND")
         .unwrap_or_else(|_| "auto".into())
         .to_ascii_lowercase();
@@ -103,12 +104,19 @@ fn detect_linux_acceleration(settings: &ExportSettings) -> ExportAcceleration {
         &encoders,
         find_vaapi_devices(),
         Path::new("/dev/nvidia0").exists(),
-        |candidate| verify_linux_encoder(candidate, codec),
+        |candidate| verify_linux_encoder(candidate, codec, &control),
     )
 }
 
 #[cfg(target_os = "linux")]
-fn verify_linux_encoder(acceleration: &ExportAcceleration, codec: &str) -> bool {
+fn verify_linux_encoder(
+    acceleration: &ExportAcceleration,
+    codec: &str,
+    control: &super::export_control::ExportControl,
+) -> bool {
+    if control.check().is_err() {
+        return false;
+    }
     if matches!(acceleration, ExportAcceleration::Software) {
         return true;
     }
@@ -138,7 +146,7 @@ fn verify_linux_encoder(acceleration: &ExportAcceleration, codec: &str) -> bool 
         "-".to_string(),
     ]);
 
-    let Ok(mut child) = Command::new("ffmpeg")
+    let Ok(child) = Command::new("ffmpeg")
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -147,6 +155,7 @@ fn verify_linux_encoder(acceleration: &ExportAcceleration, codec: &str) -> bool 
     else {
         return false;
     };
+    let child = super::export::resources::ExportChild::new(child, control);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         match child.try_wait() {
@@ -168,10 +177,9 @@ fn verify_linux_encoder(acceleration: &ExportAcceleration, codec: &str) -> bool 
 }
 
 #[cfg(target_os = "linux")]
-fn ffmpeg_encoder_list() -> String {
-    Command::new("ffmpeg")
-        .args(["-hide_banner", "-encoders"])
-        .output()
+fn ffmpeg_encoder_list(control: &super::export_control::ExportControl) -> String {
+    control
+        .output(Command::new("ffmpeg").args(["-hide_banner", "-encoders"]))
         .ok()
         .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
         .unwrap_or_default()
@@ -205,8 +213,8 @@ pub fn add_trim_settings(args: &mut Vec<String>, settings: &ExportSettings) {
     if let Some(trim_start) = settings.trim_start {
         args.extend(["-ss".into(), format!("{:.3}", trim_start as f64 / 1000.0)]);
     }
-    if let (Some(trim_start), Some(trim_end)) = (settings.trim_start, settings.trim_end) {
-        let duration = (trim_end - trim_start) as f64 / 1000.0;
+    if let Some(trim_end) = settings.trim_end {
+        let duration = trim_end.saturating_sub(settings.trim_start.unwrap_or(0)) as f64 / 1000.0;
         if duration > 0.0 {
             args.extend(["-t".into(), format!("{duration:.3}")]);
         }
@@ -223,6 +231,15 @@ pub fn build_codec_args(
     let mut args = Vec::new();
 
     match format {
+        "gif" => args.extend([
+            "-c:v".into(),
+            "gif".into(),
+            "-an".into(),
+            "-loop".into(),
+            "0".into(),
+            "-f".into(),
+            "gif".into(),
+        ]),
         "mp4" => append_mp4_codec_args(&mut args, acceleration, codec, quality),
         "mov" => {
             if matches!(acceleration, ExportAcceleration::VideoToolbox) {
@@ -297,7 +314,10 @@ fn append_mp4_codec_args(
                 "-b:v".into(),
                 bitrate.into(),
             ]);
-            args.extend(["-bf".into(), "3".into()]);
+            // H.264 reordering can produce overlapping DTS on VideoToolbox,
+            // which the muxer repairs by shortening samples and the video.
+            // HEVC retains regular timestamps with reordering enabled.
+            args.extend(["-bf".into(), if h265 { "3" } else { "0" }.into()]);
         }
         ExportAcceleration::Vaapi { .. } => args.extend([
             "-c:v".into(),

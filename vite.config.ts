@@ -17,13 +17,11 @@ export default defineConfig({
     sourcemap: !!process.env.TAURI_DEBUG,
     rollupOptions: {
       // Vite treats any chunk named "-legacy" as a legacy bundle and injects
-      // its CSS inline, which the packaged Linux webview's CSP rejects.
-      ...(process.platform === 'linux' ? {
-        output: {
-          chunkFileNames: (chunk: { name: string }) =>
-            `assets/${chunk.name.replace(/-legacy/g, '-styles')}-[hash].js`,
-        },
-      } : {}),
+      // its CSS inline, which packaged webview CSP rejects on macOS too.
+      output: {
+        chunkFileNames: (chunk: { name: string }) =>
+          `assets/${chunk.name.replace(/-legacy/g, '-styles')}-[hash].js`,
+      },
       input: {
         main: resolve(__dirname, 'index.html'),
         editor: resolve(__dirname, 'editor.html'),

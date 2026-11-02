@@ -152,6 +152,7 @@ export const DEFAULT_VISUAL_SETTINGS: VisualSettings = {
   // Cursor style & behavior
   cursorStyle: 'pointer',
   alwaysUsePointer: false,
+  optimizeCursorTypes: true,
   hideCursor: false,
   loopCursorPosition: false,
   // Click effects
@@ -168,7 +169,9 @@ export const DEFAULT_VISUAL_SETTINGS: VisualSettings = {
   optimizeCursorChanges: true,
   // Animation
   zoomSpeedPreset: 'mellow',
+  screenMotionStyle: 'focused',
   cursorSpeedPreset: 'mellow',
+  cursorMotionStyle: 'smooth',
   motionBlurEnabled: true,
   motionBlurPanIntensity: 20, // Subtle blur during camera pans
   motionBlurZoomIntensity: 0,
@@ -182,4 +185,6 @@ export const DEFAULT_VISUAL_SETTINGS: VisualSettings = {
   webcamY: 0.895,
   webcamSize: 0.15,
   webcamShape: 'circle',
+  webcamMirrored: false,
+  webcamHideSilenceMs: null,
 };

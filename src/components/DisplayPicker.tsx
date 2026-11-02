@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Monitor, Check, RefreshCw } from 'lucide-react';
 import { cn } from '../utils/cn';
 
-interface Display {
+export interface Display {
   id: string;
   name: string;
   width: number;
@@ -11,7 +11,7 @@ interface Display {
   scale_factor: number;
   refresh_rate: number;
   is_primary: boolean;
-  thumbnail?: string; // base64 encoded thumbnail
+  thumbnail?: string | null;
 }
 
 interface DisplayPickerProps {

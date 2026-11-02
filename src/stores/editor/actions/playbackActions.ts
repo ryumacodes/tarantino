@@ -1,4 +1,4 @@
-// Playback Actions
+import { edit, restoreEdit } from '../history';
 import type { EditorState, EditorActions } from '../types';
 
 type SetFn = (fn: (state: EditorState & EditorActions) => void) => void;
@@ -6,10 +6,12 @@ type GetFn = () => EditorState & EditorActions;
 
 export const createPlaybackActions = (set: SetFn, get: GetFn) => ({
   setIsPlaying: (isPlaying: boolean) => set((state) => {
+    if(state.isPlaying!==isPlaying)state.playbackRevision=state.playbackRevision + 1;
     state.isPlaying = isPlaying;
   }),
 
-  setCurrentTime: (time: number) => set((state) => {
+  setCurrentTime: (time: number, origin: 'seek' | 'playback' = 'seek') => set((state) => {
+    if(origin==='seek')state.playbackRevision=state.playbackRevision + 1;
     state.currentTime = time;
   }),
 
@@ -20,39 +22,29 @@ export const createPlaybackActions = (set: SetFn, get: GetFn) => ({
     }
   }),
 
-  setProjectTitle: (title: string) => set((state) => {
+  setProjectTitle: (title: string) => edit(set, (state) => {
     state.projectTitle = title;
   }),
 
-  setTrimStart: (time: number) => set((state) => {
+  setTrimStart: (time: number) => edit(set, (state) => {
     state.trimStart = time;
-    state.history.push({ ...state });
-    state.historyIndex++;
   }),
 
-  setTrimEnd: (time: number) => set((state) => {
+  setTrimEnd: (time: number) => edit(set, (state) => {
     state.trimEnd = time;
-    state.history.push({ ...state });
-    state.historyIndex++;
   }),
 
-  selectKeyframe: (keyframe: any) => set((state) => {
+  selectKeyframe: (keyframe: EditorState['selectedKeyframe']) => set((state) => {
     state.selectedKeyframe = keyframe;
   }),
 
-  undo: () => set((state) => {
-    if (state.historyIndex > 0) {
-      state.historyIndex--;
-      const previousState = state.history[state.historyIndex];
-      Object.assign(state, previousState);
-    }
+  beginHistoryGroup: () => set(state => {
+    if (state.historyGroup) state.historyGroup.depth++;
+    else state.historyGroup = { depth: 1, recorded: false };
   }),
-
-  redo: () => set((state) => {
-    if (state.historyIndex < state.history.length - 1) {
-      state.historyIndex++;
-      const nextState = state.history[state.historyIndex];
-      Object.assign(state, nextState);
-    }
+  endHistoryGroup: () => set(state => {
+    if (state.historyGroup && --state.historyGroup.depth === 0) state.historyGroup = null;
   }),
+  undo: () => set(state => restoreEdit(state, -1)),
+  redo: () => set(state => restoreEdit(state, 1)),
 });

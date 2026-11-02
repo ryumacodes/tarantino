@@ -1,6 +1,9 @@
+import { cropSourcePoint, resolveSourceCrop } from '../../utils/sourceCrop';
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { useEditorStore, SPRING_PRESETS } from '../../stores/editor';
+import { previewSample } from '../../utils/timeline/previewTimeline';
+import { useEditorStore } from '../../stores/editor';
+import { resolveCursorSpring } from '../../utils/motion/cursorStyle';
 import type {
   MouseEvent as CursorMouseEvent,
   Ripple,
@@ -57,6 +60,7 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
     hideCursorWhenIdle,
     idleTimeout,
     cursorSpeedPreset,
+    cursorMotionStyle,
     cursorColor,
     cursorHighlightColor,
     cursorRippleColor,
@@ -66,7 +70,6 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
     cursorTrailOpacity,
     cursorStyle,
     hideCursor,
-    alwaysUsePointer,
     loopCursorPosition,
     clickEffect,
     cursorRotation,
@@ -78,8 +81,7 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
     shakesThreshold,
   } = visualSettings;
 
-  // Determine effective cursor style
-  const effectiveCursorStyle = alwaysUsePointer ? 'pointer' : cursorStyle;
+  const effectiveCursorStyle = cursorStyle;
 
   // Animation state refs
   const cursorSpring = useRef<CursorSpringState>({ x: { value: 0, velocity: 0 }, y: { value: 0, velocity: 0 } });
@@ -118,30 +120,41 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
     lastXPosition.current = initialEvent.x;
   }, [mouseEvents]);
 
+  const applyCrop = useCallback((events: CursorMouseEvent[]) => {
+    if (!visualSettings.sourceCrop) return events;
+    const crop = resolveSourceCrop(visualSettings.sourceCrop,videoWidth,videoHeight);
+    return events.map(event => ({...event,...cropSourcePoint(crop,event.x,event.y)}));
+  },[visualSettings.sourceCrop,videoWidth,videoHeight]);
+
   // Get mouse events from store as fallback
   const storeMouseEvents = useEditorStore((state) => state.mouseEvents);
 
   // Convert store event format to local MouseEvent format
   const convertStoreEvents = useCallback((events: typeof storeMouseEvents): CursorMouseEvent[] => {
     if (!events) return [];
-    return events.map(e => {
+    const state = useEditorStore.getState();
+    const area = state.recordingArea;
+    const width = area?.width ?? state.displayResolution?.width ?? videoWidth;
+    const height = area?.height ?? state.displayResolution?.height ?? videoHeight;
+    const filtered = filterShakes(events.map(event => event.base), shakesThreshold);
+    return filtered.map(e => {
       const eventType: CursorMouseEvent['event_type'] = {};
-      if (e.base.event_type === 'Move') {
+      if (e.event_type === 'Move') {
         eventType.Move = undefined;
-      } else if (e.base.event_type.startsWith('ButtonPress')) {
+      } else if (e.event_type.startsWith('ButtonPress')) {
         eventType.ButtonPress = { button: 'Left' };
-      } else if (e.base.event_type.startsWith('ButtonRelease')) {
+      } else if (e.event_type.startsWith('ButtonRelease')) {
         eventType.ButtonRelease = { button: 'Left' };
       }
       return {
-        timestamp: e.base.timestamp,
-        x: e.base.x,
-        y: e.base.y,
+        timestamp: e.timestamp,
+        x: Math.max(0, Math.min(1, (e.x - (area?.x ?? 0)) / width)),
+        y: Math.max(0, Math.min(1, (e.y - (area?.y ?? 0)) / height)),
         event_type: eventType,
-        display_id: e.base.display_id || undefined,
+        display_id: e.display_id || undefined,
       };
     });
-  }, []);
+  }, [filterShakes, shakesThreshold, videoWidth, videoHeight]);
 
   // Load mouse events from sidecar file or use store fallback
   useEffect(() => {
@@ -149,7 +162,7 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
       if (!sidecarPath) {
         if (storeMouseEvents && storeMouseEvents.length > 0) {
           const converted = convertStoreEvents(storeMouseEvents);
-          const filteredEvents = filterShakes(converted, shakesThreshold);
+          const filteredEvents = applyCrop(converted);
           setMouseEvents(filteredEvents);
           const firstMove = filteredEvents.find((e: CursorMouseEvent) => 'Move' in e.event_type);
           firstMoveEvent.current = firstMove || null;
@@ -182,7 +195,8 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
         const effectiveWidth = recordingArea?.width ?? displayWidth;
         const effectiveHeight = recordingArea?.height ?? displayHeight;
 
-        const convertedEvents: CursorMouseEvent[] = rawEvents.map((e: any) => {
+        const sourceEvents = filterShakes(rawEvents.map((e: any) => e.base || e), shakesThreshold);
+        const convertedEvents: CursorMouseEvent[] = sourceEvents.map((e: any) => {
           const event = e.base || e;
           let eventType: CursorMouseEvent['event_type'] = {};
 
@@ -211,7 +225,7 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
           };
         });
 
-        const filteredEvents = filterShakes(convertedEvents, shakesThreshold);
+        const filteredEvents = applyCrop(convertedEvents);
         setMouseEvents(filteredEvents);
         const firstMove = filteredEvents.find((e: CursorMouseEvent) => 'Move' in e.event_type);
         firstMoveEvent.current = firstMove || null;
@@ -219,14 +233,14 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
         console.error('[MouseCursorOverlay] Failed to load mouse events:', error);
         if (storeMouseEvents && storeMouseEvents.length > 0) {
           const converted = convertStoreEvents(storeMouseEvents);
-          const filteredEvents = filterShakes(converted, shakesThreshold);
+          const filteredEvents = applyCrop(converted);
           setMouseEvents(filteredEvents);
         }
       }
     };
 
     loadMouseEventsFromSidecar();
-  }, [sidecarPath, filterShakes, shakesThreshold, storeMouseEvents, convertStoreEvents, videoWidth, videoHeight]);
+  }, [sidecarPath, filterShakes, shakesThreshold, storeMouseEvents, convertStoreEvents, videoWidth, videoHeight, applyCrop]);
 
   // Spawn effects
   const spawnRipple = useCallback((x: number, y: number) => {
@@ -260,7 +274,7 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const springConfig = SPRING_PRESETS[cursorSpeedPreset];
+    const springConfig = resolveCursorSpring({ cursorSpeedPreset, cursorMotionStyle });
     let animationFrame: number;
 
     const animate = () => {
@@ -366,8 +380,28 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
       // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+      const editor = useEditorStore.getState();
+      if (hideCursor || previewSample(editor, editor.currentTime).hideCursor) {
+        ripples.current = [];
+        circleHighlights.current = [];
+        trailHistory.current = [];
+        animationFrame = requestAnimationFrame(animate);
+        return;
+      }
+
       // Transform function
       const transform = (x: number, y: number) => transformToCanvas(x, y, canvas.width, canvas.height, videoTransform);
+
+      ctx.save();
+      if (editor.visualSettings.sourceCrop) {
+        const clipTransform = editor.captureMode === 'window' ? videoTransform
+          : {...videoTransform,scale:1,offsetX:0,offsetY:0};
+        const a = transformToCanvas(0,0,canvas.width,canvas.height,clipTransform);
+        const b = transformToCanvas(1,1,canvas.width,canvas.height,clipTransform);
+        ctx.beginPath();
+        ctx.rect(Math.min(a.x,b.x),Math.min(a.y,b.y),Math.abs(b.x-a.x),Math.abs(b.y-a.y));
+        ctx.clip();
+      }
 
       // Draw ripples
       if (clickEffect === 'ripple') {
@@ -435,6 +469,7 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
         ctx.restore();
       }
 
+      ctx.restore();
       animationFrame = requestAnimationFrame(animate);
     };
 
@@ -443,11 +478,11 @@ const MouseCursorOverlay: React.FC<MouseCursorOverlayProps> = ({
   }, [
     videoRef, mouseEvents, visible, videoWidth, videoHeight,
     canvasSize.width, canvasSize.height, cursorScale, cursorSmoothing,
-    hideCursorWhenIdle, idleTimeout, cursorSpeedPreset, cursorColor,
+    hideCursorWhenIdle, idleTimeout, cursorSpeedPreset, cursorMotionStyle, cursorColor,
     cursorHighlightColor, cursorRippleColor, cursorShadowIntensity,
     cursorTrailEnabled, cursorTrailLength, cursorTrailOpacity,
     spawnRipple, spawnCircleHighlight, cursorStyle, hideCursor,
-    alwaysUsePointer, effectiveCursorStyle, loopCursorPosition,
+    effectiveCursorStyle, loopCursorPosition,
     clickEffect, cursorRotation, rotateCursorWhileMoving,
     rotationIntensity, stopCursorAtEnd, stopCursorDuration, duration,
     videoTransform

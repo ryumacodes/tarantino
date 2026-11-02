@@ -3,6 +3,8 @@ use tauri::{AppHandle, Manager};
 
 /// Hide UI elements during recording
 pub(super) async fn hide_ui_elements(app: &AppHandle) -> Result<(), String> {
+    // Recording controls live in the menu bar, never over the captured content.
+    if let Some(hud) = app.get_webview_window("recording-hud") { let _ = hud.close(); }
     // Hide webcam preview FIRST so it doesn't appear in the screen recording
     if let Some(wc) = app.get_webview_window("webcam-preview") {
         wc.hide().map_err(|e| e.to_string())?;
@@ -23,7 +25,8 @@ pub(super) async fn hide_ui_elements(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) async fn restore_ui_elements(app: &AppHandle) {
+pub(crate) async fn restore_ui_elements(app: &AppHandle) {
+    if let Some(hud) = app.get_webview_window("recording-hud") { let _ = hud.close(); }
     if let Err(error) = crate::commands::misc::bring_capture_bar_to_front(app) {
         eprintln!("Failed to restore capture bar in front: {error}");
     }

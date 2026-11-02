@@ -29,6 +29,7 @@ echo "[4/6] Rust formatting"
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
 echo "[5/6] Rust and macOS native unit tests"
+sh scripts/test-macos-audio.sh
 cargo test --locked --all-targets --manifest-path src-tauri/Cargo.toml
 
 echo "[6/6] Rust and macOS native compile check"

@@ -1,11 +1,21 @@
+import {mipBlurShader} from './mipBlur.glsl';
+import {cursorBodyShader} from './cursorBody.glsl';
 // SDF-based cursor rendering fragment shader for postprocessing
-// All cursor visuals computed procedurally — no texture needed.
+// A cached premultiplied tile supplies spatial blur during cursor fades.
 // Matches Canvas 2D cursor overlay and export WGSL cursor rendering exactly.
 
 export const cursorFragmentShader = `
+uniform float uCursorTemporalEnabled;
+uniform vec4 uCursorShutterStart,uCursorShutterNow;
+uniform vec4 uCursorClipBefore,uCursorClipNow;
 uniform float uCursorX;          // screen UV (0-1)
 uniform float uCursorY;          // screen UV (0-1)
 uniform float uCursorScale;      // visual scale multiplier
+uniform sampler2D uCursorTile;
+uniform vec4 uCursorImageRect;
+uniform vec3 uCursorImageSize;
+uniform sampler2D uCursorNoise;
+uniform float uCursorFadeBlur;
 uniform float uCursorOpacity;    // idle fade (0-1)
 uniform float uCursorRotation;   // degrees
 uniform float uCursorStyle;      // 0=pointer,1=circle,2=filled,3=outline,4=dotted
@@ -53,113 +63,80 @@ uniform float uVideoClipMinY;
 uniform float uVideoClipMaxX;
 uniform float uVideoClipMaxY;
 
-// Distance from point p to line segment a-b
-float sdSegment(vec2 p, vec2 a, vec2 b) {
-  vec2 pa = p - a;
-  vec2 ba = b - a;
-  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
-  return length(pa - ba * h);
-}
-
-// 7-vertex arrow polygon winding number test
-// Returns 1.0 if inside, 0.0 if outside, with AA smoothstep
-float arrowMask(vec2 p, float s) {
-  // Arrow vertices (tip at origin)
-  vec2 v0 = vec2(0.0, 0.0);
-  vec2 v1 = vec2(0.0, 16.0 * s);
-  vec2 v2 = vec2(4.0 * s, 12.0 * s);
-  vec2 v3 = vec2(7.0 * s, 18.0 * s);
-  vec2 v4 = vec2(9.5 * s, 17.0 * s);
-  vec2 v5 = vec2(6.5 * s, 11.0 * s);
-  vec2 v6 = vec2(12.0 * s, 11.0 * s);
-
-  vec2 verts[7];
-  verts[0] = v0; verts[1] = v1; verts[2] = v2;
-  verts[3] = v3; verts[4] = v4; verts[5] = v5; verts[6] = v6;
-
-  // Winding number test
-  int wn = 0;
-  for (int i = 0; i < 7; i++) {
-    int j = (i + 1) < 7 ? i + 1 : 0;
-    vec2 vi = verts[i];
-    vec2 vj = verts[j];
-    if (vi.y <= p.y) {
-      if (vj.y > p.y) {
-        float cross = (vj.x - vi.x) * (p.y - vi.y) - (p.x - vi.x) * (vj.y - vi.y);
-        if (cross > 0.0) wn++;
-      }
+${cursorBodyShader}
+${mipBlurShader}
+vec4 sampledCursorBody(vec2 pixel,vec4 pose,vec3 color) {
+  if(uCursorImageRect.z>0.0) {
+    if(uCursorOpacity<=0.01 || pose.z<=0.0)return vec4(0.0);
+    vec2 local=rotate2D(pixel-pose.xy,-pose.w*0.01745329252)/pose.z;
+    vec4 rect=uCursorImageRect;
+    float margin=3.0*uCursorFadeBlur/pose.z;
+    if(any(lessThan(local,rect.xy-vec2(margin))) || any(greaterThan(local,rect.xy+rect.zw+vec2(margin))))return vec4(0.0);
+    vec2 uv=(local-rect.xy)/rect.zw;
+    vec4 sampled=vec4(0.0);
+    if(uCursorFadeBlur<=0.04) {
+      if(all(greaterThanEqual(uv,vec2(0.0))) && all(lessThanEqual(uv,vec2(1.0))))sampled=blurMipRead(uCursorTile,uv,0.0);
     } else {
-      if (vj.y <= p.y) {
-        float cross = (vj.x - vi.x) * (p.y - vi.y) - (p.x - vi.x) * (vj.y - vi.y);
-        if (cross < 0.0) wn--;
-      }
+      vec2 noise=vec2(texture2D(uCursorNoise,(mod(floor(pixel),32.0)+0.5)/32.0).r,
+        texture2D(uCursorNoise,(mod(floor(pixel+vec2(37.0)),32.0)+0.5)/32.0).r);
+      float texelScale=uCursorImageSize.x/(rect.z*pose.z);
+      sampled=blurPyramid(uCursorTile,uCursorImageSize.xy,uCursorImageSize.z,uv,uCursorFadeBlur*texelScale,0.0,noise,true);
     }
+    return sampled.a>0.0 ? vec4(sampled.rgb/sampled.a,sampled.a*uCursorOpacity) : vec4(0.0);
   }
-
-  // Compute min edge distance for AA
-  float minDist = 1e10;
-  for (int i = 0; i < 7; i++) {
-    int j = (i + 1) < 7 ? i + 1 : 0;
-    minDist = min(minDist, sdSegment(p, verts[i], verts[j]));
-  }
-
-  // Inside if winding number != 0, with 0.5px AA at boundary
-  if (wn != 0) {
-    return smoothstep(0.0, 0.5, minDist); // 1 inside, fade at edge
-  } else {
-    return 0.0;
-  }
+  if(uCursorFadeBlur<=0.04)return cursorBody(pixel,pose,color);
+  if(uCursorOpacity<=0.01 || pose.z<=0.0)return vec4(0.0);
+  vec2 local=rotate2D(pixel-pose.xy,-pose.w*0.01745329252);
+  float texelScale=4.0/pose.z;
+  vec2 uv=(local*texelScale+vec2(96.0))/256.0;
+  vec2 noise=vec2(texture2D(uCursorNoise,(mod(floor(pixel),32.0)+0.5)/32.0).r,
+    texture2D(uCursorNoise,(mod(floor(pixel+vec2(37.0)),32.0)+0.5)/32.0).r);
+  vec4 sampleColor=blurPyramid(uCursorTile,vec2(256.0),9.0,uv,uCursorFadeBlur*texelScale,0.0,noise,true);
+  if(sampleColor.a<=0.0)return vec4(0.0);
+  return vec4(sampleColor.rgb/sampleColor.a,sampleColor.a*uCursorOpacity);
 }
-
-// Min distance to any of 7 edges (for stroke rendering)
-float arrowEdgeDist(vec2 p, float s) {
-  vec2 v0 = vec2(0.0, 0.0);
-  vec2 v1 = vec2(0.0, 16.0 * s);
-  vec2 v2 = vec2(4.0 * s, 12.0 * s);
-  vec2 v3 = vec2(7.0 * s, 18.0 * s);
-  vec2 v4 = vec2(9.5 * s, 17.0 * s);
-  vec2 v5 = vec2(6.5 * s, 11.0 * s);
-  vec2 v6 = vec2(12.0 * s, 11.0 * s);
-
-  vec2 verts[7];
-  verts[0] = v0; verts[1] = v1; verts[2] = v2;
-  verts[3] = v3; verts[4] = v4; verts[5] = v5; verts[6] = v6;
-
-  float minDist = 1e10;
-  for (int i = 0; i < 7; i++) {
-    int j = (i + 1) < 7 ? i + 1 : 0;
-    minDist = min(minDist, sdSegment(p, verts[i], verts[j]));
+float cursorBodyRadius() {
+  if(uCursorImageRect.z<=0.0)return 32.0;
+  return length(max(abs(uCursorImageRect.xy),abs(uCursorImageRect.xy+uCursorImageRect.zw)));
+}
+vec4 temporalCursorBody(vec2 pixel,vec3 color) {
+  vec4 before=uCursorShutterStart,now=uCursorShutterNow;
+  float extent=cursorBodyRadius();
+  float radius=extent*max(before.z,now.z);
+  float travel=length(now.xy-before.xy)+abs(now.w-before.w)*0.01745329252*radius+extent*abs(now.z-before.z);
+  int count=int(clamp(ceil(travel),2.0,64.0));
+  vec4 accumulated=vec4(0.0);
+  for(int i=0;i<64;i++) {
+    if(i>=count)break;
+    float t=(float(i)+0.5)/float(count);
+    if(uVideoClipEnabled>0.5) {
+      vec4 rect=mix(uCursorClipBefore,uCursorClipNow,t);
+      if(any(greaterThanEqual(abs(pixel-rect.xy),rect.zw*0.5)))continue;
+    }
+    vec4 sampleColor=sampledCursorBody(pixel,mix(before,now,t),color);
+    accumulated+=vec4(sampleColor.rgb*sampleColor.rgb*sampleColor.a,sampleColor.a)/float(count);
   }
-  return minDist;
-}
-
-// 2D rotation matrix
-vec2 rotate2D(vec2 p, float angle) {
-  float c = cos(angle);
-  float s = sin(angle);
-  return vec2(c * p.x - s * p.y, s * p.x + c * p.y);
-}
-
-// Alpha blend: src over dst (premultiplied-aware)
-vec4 alphaBlend(vec4 dst, vec4 src) {
-  float outA = src.a + dst.a * (1.0 - src.a);
-  if (outA < 0.001) return vec4(0.0);
-  vec3 outRGB = (src.rgb * src.a + dst.rgb * dst.a * (1.0 - src.a)) / outA;
-  return vec4(outRGB, outA);
+  if(accumulated.a<=0.0)return vec4(0.0);
+  return vec4(sqrt(max(accumulated.rgb/accumulated.a,vec3(0.0))),accumulated.a);
 }
 
 void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
   // Convert UV to pixel coordinates
-  vec2 pixel = uv * vec2(uResolutionX, uResolutionY);
+  // Match native integer top-left sample locations in the Y-up scene.
+  vec2 pixel = floor(uv * vec2(uResolutionX, uResolutionY)) + vec2(0.0, 1.0);
 
-  // Video plane bounds clipping — skip all cursor rendering outside video area (window mode)
-  if (uVideoClipEnabled > 0.5) {
-    if (pixel.x < uVideoClipMinX || pixel.x > uVideoClipMaxX ||
-        pixel.y < uVideoClipMinY || pixel.y > uVideoClipMaxY) {
-      outputColor = inputColor;
-      return;
-    }
-  }
+  bool temporalActive=uCursorTemporalEnabled>0.5 && uCursorOpacity>0.01
+    && any(greaterThan(abs(uCursorShutterNow-uCursorShutterStart),vec4(0.01)));
+  // Native bounds include the top/left pixel and exclude bottom/right.
+  // Y is inverted here, so the lower Y bound is the exclusive edge.
+  bool insideClip=uVideoClipEnabled<0.5 || (pixel.x>=uVideoClipMinX && pixel.x<uVideoClipMaxX
+    && pixel.y>uVideoClipMinY && pixel.y<=uVideoClipMaxY);
+  if(!insideClip && !temporalActive){outputColor=inputColor;return;}
+  vec2 imagePosition=vec2(pixel.x,uResolutionY-pixel.y);
+  float sweptRadius=cursorBodyRadius()*max(uCursorShutterStart.z,uCursorShutterNow.z)+3.0*uCursorFadeBlur;
+  bool needsTemporal=temporalActive
+    && all(greaterThanEqual(imagePosition,min(uCursorShutterStart.xy,uCursorShutterNow.xy)-vec2(sweptRadius)))
+    && all(lessThanEqual(imagePosition,max(uCursorShutterStart.xy,uCursorShutterNow.xy)+vec2(sweptRadius)));
 
   vec2 cursorPixel = vec2(uCursorX, uCursorY) * vec2(uResolutionX, uResolutionY);
 
@@ -167,7 +144,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
 
   // Early exit: bounding box check — skip all cursor math if pixel is far from cursor
   // Max radius covers ripple (48*s + some margin) and trail spread
-  float maxRadius = 60.0 * s;
+  float maxRadius = max(60.0,cursorBodyRadius()) * s + 3.0*uCursorFadeBlur;
 
   // Also check distance to ripple and circle highlight centers
   vec2 ripplePixel = vec2(uRippleX, uRippleY) * vec2(uResolutionX, uResolutionY);
@@ -188,12 +165,12 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     }
   }
 
-  bool needsCursor = (uCursorOpacity > 0.01) && (distToCursor < maxRadius);
-  bool needsRipple = (uRippleProgress > 0.001 && uRippleProgress < 1.0) && (distToRipple < maxRadius);
-  bool needsCircleHl = (uCircleHlProgress > 0.001 && uCircleHlProgress < 1.0) && (distToCircleHl < maxRadius);
-  bool needsTrail = (uTrailEnabled > 0.5) && (minTrailDist < 20.0 * s);
+  bool needsCursor = insideClip && (uCursorOpacity > 0.01) && (distToCursor < maxRadius);
+  bool needsRipple = insideClip && (uRippleProgress > 0.001 && uRippleProgress < 1.0) && (distToRipple < maxRadius);
+  bool needsCircleHl = insideClip && (uCircleHlProgress > 0.001 && uCircleHlProgress < 1.0) && (distToCircleHl < maxRadius);
+  bool needsTrail = insideClip && (uTrailEnabled > 0.5) && (minTrailDist < 20.0 * s);
 
-  if (!needsCursor && !needsRipple && !needsCircleHl && !needsTrail) {
+  if (!needsCursor && !needsTemporal && !needsRipple && !needsCircleHl && !needsTrail) {
     outputColor = inputColor;
     return;
   }
@@ -277,140 +254,11 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     }
   }
 
-  // --- 4-6. Cursor body (shadow + shape + click ring) ---
-  if (needsCursor) {
-    // Local coordinates relative to cursor position
-    vec2 local = pixel - cursorPixel;
-
-    // Apply rotation
-    float rotRad = uCursorRotation * 3.14159265 / 180.0;
-    if (abs(rotRad) > 0.001) {
-      local = rotate2D(local, -rotRad);
-    }
-
-    // Flip Y: postprocessing UV has Y-up (OpenGL), arrow vertices defined for Y-down (image space)
-    local.y = -local.y;
-
-    float opacity = uCursorOpacity;
-
-    if (uCursorStyle < 0.5) {
-      // --- Style 0: pointer ---
-      // Shadow
-      float shadowAlpha = (uShadowIntensity / 100.0) * 0.5;
-      if (shadowAlpha > 0.001) {
-        vec2 shadowLocal = local - vec2(2.0 * s, 2.0 * s);
-        float shadowFill = arrowMask(shadowLocal, s);
-        if (shadowFill * shadowAlpha * opacity > 0.001) {
-          result = alphaBlend(result, vec4(0.0, 0.0, 0.0, shadowFill * shadowAlpha * opacity));
-        }
-      }
-      // Body fill
-      float fill = arrowMask(local, s);
-      if (fill > 0.001) {
-        result = alphaBlend(result, vec4(activeCursorColor, fill * opacity));
-      }
-      // Black stroke (1.5 * s width)
-      float edgeDist = arrowEdgeDist(local, s);
-      float strokeWidth = 1.5 * s;
-      float strokeMask = 1.0 - smoothstep(0.0, strokeWidth, edgeDist);
-      // Only stroke outside the fill or at edges
-      float strokeAlpha = strokeMask * (1.0 - fill * 0.5);
-      if (strokeAlpha * opacity > 0.001) {
-        result = alphaBlend(result, vec4(0.0, 0.0, 0.0, strokeAlpha * opacity));
-      }
-
-    } else if (uCursorStyle < 1.5) {
-      // --- Style 1: circle ---
-      // Shadow
-      float shadowAlpha = (uShadowIntensity / 100.0) * 0.5;
-      if (shadowAlpha > 0.001) {
-        vec2 shadowLocal = local - vec2(2.0 * s, 2.0 * s);
-        float dist = length(shadowLocal);
-        float mask = 1.0 - smoothstep(10.0 * s - 0.5, 10.0 * s + 0.5, dist);
-        if (mask * shadowAlpha * opacity > 0.001) {
-          result = alphaBlend(result, vec4(0.0, 0.0, 0.0, mask * shadowAlpha * opacity));
-        }
-      }
-      // Circle body (gray 0.8 alpha)
-      float dist = length(local);
-      float mask = 1.0 - smoothstep(10.0 * s - 0.5, 10.0 * s + 0.5, dist);
-      if (mask * 0.8 * opacity > 0.001) {
-        result = alphaBlend(result, vec4(0.5, 0.5, 0.5, mask * 0.8 * opacity));
-      }
-
-    } else if (uCursorStyle < 2.5) {
-      // --- Style 2: filled (black fill, white stroke) ---
-      float shadowAlpha = (uShadowIntensity / 100.0) * 0.5;
-      if (shadowAlpha > 0.001) {
-        vec2 shadowLocal = local - vec2(2.0 * s, 2.0 * s);
-        float shadowFill = arrowMask(shadowLocal, s);
-        if (shadowFill * shadowAlpha * opacity > 0.001) {
-          result = alphaBlend(result, vec4(0.0, 0.0, 0.0, shadowFill * shadowAlpha * opacity));
-        }
-      }
-      // Black fill
-      float fill = arrowMask(local, s);
-      if (fill > 0.001) {
-        result = alphaBlend(result, vec4(0.0, 0.0, 0.0, fill * opacity));
-      }
-      // White stroke (2 * s)
-      float edgeDist = arrowEdgeDist(local, s);
-      float strokeWidth = 2.0 * s;
-      float strokeMask = 1.0 - smoothstep(0.0, strokeWidth, edgeDist);
-      float strokeAlpha = strokeMask * (1.0 - fill * 0.5);
-      if (strokeAlpha * opacity > 0.001) {
-        result = alphaBlend(result, vec4(1.0, 1.0, 1.0, strokeAlpha * opacity));
-      }
-
-    } else if (uCursorStyle < 3.5) {
-      // --- Style 3: outline (transparent fill, white stroke) ---
-      float shadowAlpha = (uShadowIntensity / 100.0) * 0.5;
-      if (shadowAlpha > 0.001) {
-        vec2 shadowLocal = local - vec2(2.0 * s, 2.0 * s);
-        float shadowEdge = arrowEdgeDist(shadowLocal, s);
-        float shadowStroke = 1.0 - smoothstep(0.0, 2.0 * s, shadowEdge);
-        if (shadowStroke * shadowAlpha * opacity > 0.001) {
-          result = alphaBlend(result, vec4(0.0, 0.0, 0.0, shadowStroke * shadowAlpha * opacity));
-        }
-      }
-      // White stroke only (2 * s)
-      float edgeDist = arrowEdgeDist(local, s);
-      float strokeWidth = 2.0 * s;
-      float strokeMask = 1.0 - smoothstep(0.0, strokeWidth, edgeDist);
-      if (strokeMask * opacity > 0.001) {
-        result = alphaBlend(result, vec4(1.0, 1.0, 1.0, strokeMask * opacity));
-      }
-
-    } else {
-      // --- Style 4: dotted (fill + dashed stroke) ---
-      float shadowAlpha = (uShadowIntensity / 100.0) * 0.5;
-      if (shadowAlpha > 0.001) {
-        vec2 shadowLocal = local - vec2(2.0 * s, 2.0 * s);
-        float shadowFill = arrowMask(shadowLocal, s);
-        if (shadowFill * shadowAlpha * opacity > 0.001) {
-          result = alphaBlend(result, vec4(0.0, 0.0, 0.0, shadowFill * shadowAlpha * opacity));
-        }
-      }
-      // Body fill
-      float fill = arrowMask(local, s);
-      if (fill > 0.001) {
-        result = alphaBlend(result, vec4(activeCursorColor, fill * opacity));
-      }
-      // Dashed black stroke (1.5 * s)
-      float edgeDist = arrowEdgeDist(local, s);
-      float strokeWidth = 1.5 * s;
-      float strokeMask = 1.0 - smoothstep(0.0, strokeWidth, edgeDist);
-      // Dash pattern: use distance along perimeter approximation
-      // Use pixel position modulo for dash effect
-      float dashPeriod = 4.0 * s;
-      float dashOn = step(0.5, fract((local.x + local.y) / dashPeriod));
-      float strokeAlpha = strokeMask * dashOn * (1.0 - fill * 0.5);
-      if (strokeAlpha * opacity > 0.001) {
-        result = alphaBlend(result, vec4(0.0, 0.0, 0.0, strokeAlpha * opacity));
-      }
-    }
-
-    // --- 6. Click highlight ring (clickEffect=none means no visual) ---
+  vec2 imagePixel=vec2(pixel.x,uResolutionY-pixel.y);
+  if(needsTemporal) {
+    result=alphaBlend(result,temporalCursorBody(imagePixel,activeCursorColor));
+  } else if(needsCursor && !temporalActive) {
+    result=alphaBlend(result,sampledCursorBody(imagePixel,vec4(cursorPixel.x,uResolutionY-cursorPixel.y,s,uCursorRotation),activeCursorColor));
   }
 
   outputColor = result;

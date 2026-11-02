@@ -40,14 +40,15 @@ interface MotionBlurProps {
   zoomIntensity: number; // 0-100
   velocityRef: React.MutableRefObject<{ scale: number; x: number; y: number }>;
   enabled: boolean;
+  temporalWindowActive?: React.MutableRefObject<boolean>;
 }
 
 export const MotionBlurEffect = forwardRef<MotionBlurEffectImpl, MotionBlurProps>(
-  ({ panIntensity, zoomIntensity, velocityRef, enabled }, ref) => {
+  ({ panIntensity, zoomIntensity, velocityRef, enabled, temporalWindowActive }, ref) => {
     const effect = useMemo(() => new MotionBlurEffectImpl(), []);
 
     useFrame(() => {
-      if (enabled && effect) {
+      if (enabled && !temporalWindowActive?.current && effect) {
         effect.setUniforms(
           panIntensity / 100,
           zoomIntensity / 100,

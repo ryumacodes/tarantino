@@ -92,12 +92,16 @@
 
 .speed-presets {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
 }
 
+.speed-presets > .speed-preset-btn {
+  flex: 1 0 44px;
+}
+
 .speed-preset-btn {
-  flex: 1;
   min-width: 0;
   padding: 8px 4px;
   background: var(--editor-bg-primary);
@@ -351,3 +355,26 @@
     font-size: 16px;
   }
 }
+
+.clip-cursor-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--editor-text-primary);
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.clip-cursor-toggle input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--editor-accent);
+}
+
+.source-crop-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-bottom: 12px; }
+.source-crop-fields label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--editor-text-secondary); }
+.source-crop-fields input { min-width: 0; width: 100%; padding: 8px; border: 1px solid var(--editor-border); border-radius: 6px; background: var(--editor-bg-primary); color: var(--editor-text-primary); }

@@ -1,8 +1,9 @@
+import type { SourceRangeView } from '../../../utils/timeline/sourceRanges';
 import React from 'react';
-import { Search, Eye } from 'lucide-react';
+import { Search, Eye, EyeOff } from 'lucide-react';
 import type { ZoomKeyframe, ZoomAnalysis, PreviewZoomAnalysis } from '../../../stores/editor/types';
 
-interface ZoomBlock {
+interface ZoomBlock extends SourceRangeView {
   id: string;
   startTime: number;
   endTime: number;
@@ -20,6 +21,7 @@ interface ZoomTrackProps {
   zoomAnalysis: ZoomAnalysis | null;
   selectedBlockId: string | null;
   isExporting: boolean;
+  effectsEnabled: boolean;
   onToggleVisibility: () => void;
   onBlockClick: (blockId: string, event: React.MouseEvent) => void;
   onBlockDoubleClick: (blockId: string, event: React.MouseEvent) => void;
@@ -31,57 +33,65 @@ const ZoomTrack: React.FC<ZoomTrackProps> = ({
   pixelsPerMs,
   zoomBlocks,
   zoomKeyframes,
-  previewZoomAnalysis,
+  previewZoomAnalysis: provisionalAnalysis,
   zoomLoading,
   previewZoomLoading,
   zoomAnalysis,
   selectedBlockId,
   isExporting,
+  effectsEnabled,
   onToggleVisibility,
   onBlockClick,
   onBlockDoubleClick,
   onDragStart,
   onResizeStart,
 }) => {
+  // Finished analysis is authoritative, including an intentionally empty edit.
+  // Provisional click hints must not reappear after deleting or rebuilding zooms.
+  const previewZoomAnalysis = zoomAnalysis === null ? provisionalAnalysis : null;
+  const showPreviewLoading = zoomAnalysis === null && previewZoomLoading;
   const totalCount = zoomBlocks.length + (zoomKeyframes?.length || 0) + (previewZoomAnalysis?.indicators?.length || 0);
   const isEmpty = zoomBlocks.length === 0 && (!zoomKeyframes || zoomKeyframes.length === 0) && (!previewZoomAnalysis?.indicators || previewZoomAnalysis.indicators.length === 0);
 
   return (
     <div className="timeline-track">
       <div className="track-header">
-        <div className="track-label" title="Zoom effects from mouse clicks">
+        <div className="track-label" title="Zoom effects from clicks, typing, and manual edits">
           <Search size={12} />
           <span>Zoom</span>
           <span className="track-count">{totalCount}</span>
         </div>
         <button
           className={`track-toggle ${isExporting ? 'disabled' : ''}`}
-          onClick={onToggleVisibility}
+          title={effectsEnabled ? 'Disable zoom effects' : 'Enable zoom effects'}
+          aria-label="Enable zoom effects"
+          aria-pressed={effectsEnabled}
+          onClick={event => { event.stopPropagation(); onToggleVisibility(); }}
           disabled={isExporting}
         >
-          <Eye size={12} />
+          {effectsEnabled ? <Eye size={12} /> : <EyeOff size={12} />}
         </button>
       </div>
-      <div className="track-content">
-        {(zoomLoading || previewZoomLoading) ? (
+      <div className="track-content" style={{ opacity: effectsEnabled ? 1 : 0.45 }}>
+        {(zoomLoading || showPreviewLoading) ? (
           <div className="auto-zoom-loading">
             <div className="editor-spinner" />
-            <span>{previewZoomLoading ? 'Analyzing clicks...' : 'Loading zoom data...'}</span>
+            <span>{showPreviewLoading ? 'Analyzing clicks...' : 'Loading zoom data...'}</span>
           </div>
         ) : isEmpty ? (
           <div className="auto-zoom-empty">
             {zoomAnalysis && zoomAnalysis.total_clicks > 0 ? (
               <>
-                <span>Found {zoomAnalysis.total_clicks} clicks but no valid zoom blocks generated</span>
+                <span>No zoom blocks in this project</span>
                 <small style={{ marginTop: '4px', color: 'var(--editor-text-secondary)' }}>
-                  Clicks may be too close together or outside valid time range
+                  {zoomAnalysis.total_clicks} recorded clicks. Add a zoom block from the toolbar.
                 </small>
               </>
             ) : (
               <>
-                <span>No mouse click data found for smart zoom generation</span>
+                <span>No zoom blocks in this project</span>
                 <small style={{ marginTop: '4px', color: 'var(--editor-text-secondary)' }}>
-                  Record with mouse clicks to automatically generate zoom effects
+                  Add a zoom block from the toolbar.
                 </small>
               </>
             )}
@@ -153,9 +163,10 @@ const ZoomTrack: React.FC<ZoomTrackProps> = ({
             {/* Auto-generated zoom blocks */}
             {zoomBlocks.map(block => {
               const isSelected = selectedBlockId === block.id;
+              const isDisabled = zoomAnalysis?.zoom_blocks.find(source => source.id === block.id)?.is_disabled ?? false;
               return (
                 <div
-                  key={block.id}
+                  key={`${block.id}:${block.occurrenceId}`}
                   className={`zoom-block-container ${isSelected ? 'selected' : ''} ${isExporting ? 'disabled' : ''}`}
                   style={{
                     position: 'absolute',
@@ -166,9 +177,9 @@ const ZoomTrack: React.FC<ZoomTrackProps> = ({
                     cursor: isExporting ? 'not-allowed' : 'move',
                     userSelect: 'none',
                     zIndex: isSelected ? 3 : 2,
-                    opacity: isExporting ? 0.6 : 1
+                    opacity: isDisabled ? 0.4 : isExporting ? 0.6 : 1
                   }}
-                  title={isExporting ? "Editing disabled during export" : `${block.zoomFactor.toFixed(1)}x zoom ${block.isManual ? '(Manual)' : '(Auto)'}`}
+                  title={isExporting ? "Editing disabled during export" : `${isDisabled ? "Disabled · " : ""}${block.zoomFactor.toFixed(1)}x zoom ${block.isManual ? '(Manual)' : '(Auto)'}`}
                   onClick={(e) => onBlockClick(block.id, e)}
                   onDoubleClick={(e) => onBlockDoubleClick(block.id, e)}
                   onMouseDown={(e) => onDragStart(e, block)}

@@ -1,9 +1,24 @@
 //! macOS Accessibility caret lookup.
+mod pointer;
+mod cursor_images;
+pub use cursor_images::install as install_cursor_images;
+pub(super) mod shortcuts;
+mod query_budget;
+pub(super) use pointer::install as install_pointer_listener;
 
-use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
+use core_foundation::base::{CFRelease, CFType, CFTypeRef, TCFType};
 use core_foundation::string::{CFString, CFStringRef};
 use core_graphics::geometry::{CGPoint, CGRect, CGSize};
 use std::ffi::c_void;
+
+/// Read Quartz desktop coordinates without waiting for a movement event.
+pub fn current_pointer_position() -> Option<(f64, f64)> {
+    use core_graphics::event::CGEvent;
+    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+    let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState).ok()?;
+    let point = CGEvent::new(source).ok()?.location();
+    (point.x.is_finite() && point.y.is_finite()).then_some((point.x, point.y))
+}
 
 type AXUIElementRef = *const c_void;
 type AXError = i32;
@@ -27,6 +42,7 @@ struct CFRange {
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
     fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+    fn AXUIElementSetMessagingTimeout(element: AXUIElementRef, timeout: f32) -> AXError;
     fn AXUIElementCopyAttributeValue(
         element: AXUIElementRef,
         attribute: CFStringRef,
@@ -49,6 +65,7 @@ unsafe fn copy_rect_for_parameterized_attribute(
     attribute: CFStringRef,
     parameter: CFTypeRef,
 ) -> Option<CGRect> {
+    if !query_budget::available() { return None; }
     let mut bounds_value: CFTypeRef = std::ptr::null();
     let bounds_status = AXUIElementCopyParameterizedAttributeValue(
         element,
@@ -68,7 +85,7 @@ unsafe fn copy_rect_for_parameterized_attribute(
     );
     CFRelease(bounds_value);
 
-    has_bounds.then_some(bounds)
+    (has_bounds && usable_caret_bounds(bounds)).then_some(bounds)
 }
 
 unsafe fn copy_bounds_for_range(
@@ -89,6 +106,7 @@ unsafe fn create_range_value(range: CFRange) -> Option<CFTypeRef> {
 }
 
 unsafe fn copy_attribute(element: AXUIElementRef, attribute: CFStringRef) -> Option<CFTypeRef> {
+    if !query_budget::available() { return None; }
     let mut value: CFTypeRef = std::ptr::null();
     let status = AXUIElementCopyAttributeValue(element, attribute, &mut value);
     if status != K_AX_ERROR_SUCCESS || value.is_null() {
@@ -102,16 +120,16 @@ unsafe fn copy_focused_elements(
     system: AXUIElementRef,
     focused_app_attr: CFStringRef,
     focused_element_attr: CFStringRef,
-) -> Vec<CFTypeRef> {
+) -> Vec<CFType> {
     let mut elements = Vec::new();
 
     if let Some(focused) = copy_attribute(system, focused_element_attr) {
-        elements.push(focused);
+        elements.push(CFType::wrap_under_create_rule(focused));
     }
 
     if let Some(app) = copy_attribute(system, focused_app_attr) {
         if let Some(focused) = copy_attribute(app as AXUIElementRef, focused_element_attr) {
-            elements.push(focused);
+            elements.push(CFType::wrap_under_create_rule(focused));
         }
         CFRelease(app);
     }
@@ -190,12 +208,7 @@ unsafe fn caret_position_from_cf_range(
     size_attr: CFStringRef,
     visible_range_attr: CFStringRef,
 ) -> Option<(f64, f64)> {
-    let mut range_value: CFTypeRef = std::ptr::null();
-    let range_status =
-        AXUIElementCopyAttributeValue(element, selected_range_attr, &mut range_value);
-    if range_status != K_AX_ERROR_SUCCESS || range_value.is_null() {
-        return None;
-    }
+    let range_value = copy_attribute(element, selected_range_attr)?;
 
     let mut range = CFRange::default();
     if !AXValueGetValue(
@@ -207,8 +220,6 @@ unsafe fn caret_position_from_cf_range(
         return None;
     }
 
-    let element_frame = focused_element_frame(element, position_attr, size_attr);
-    let visible_range = copy_range_attribute(element, visible_range_attr);
     let selected_bounds = copy_bounds_for_range(element, bounds_for_range_attr, range_value);
 
     CFRelease(range_value);
@@ -240,8 +251,8 @@ unsafe fn caret_position_from_cf_range(
                 })
             })
             .or_else(|| {
-                element_frame
-                    .zip(visible_range)
+                focused_element_frame(element, position_attr, size_attr)
+                    .zip(copy_range_attribute(element, visible_range_attr))
                     .and_then(|(frame, visible)| {
                         estimated_caret_from_visible_range(frame, range, visible)
                     })
@@ -394,6 +405,7 @@ unsafe fn caret_position_from_descendants(
 }
 
 pub fn focused_caret_position() -> Option<(f64, f64)> {
+    let _budget = query_budget::LookupBudget::begin();
     let focused_app_attr = CFString::new("AXFocusedApplication");
     let focused_attr = CFString::new("AXFocusedUIElement");
     let attrs = CaretAttributes::new();
@@ -401,6 +413,12 @@ pub fn focused_caret_position() -> Option<(f64, f64)> {
     unsafe {
         let system = AXUIElementCreateSystemWide();
         if system.is_null() {
+            return None;
+        }
+        // System-wide AX objects configure this process's messaging timeout.
+        // A slow application must not hold up subsequent keyboard events.
+        if AXUIElementSetMessagingTimeout(system, 0.02) != K_AX_ERROR_SUCCESS {
+            CFRelease(system as CFTypeRef);
             return None;
         }
 
@@ -413,12 +431,10 @@ pub fn focused_caret_position() -> Option<(f64, f64)> {
 
         for focused in focused_elements {
             let mut visited = 0;
-            let focused_element = focused as AXUIElementRef;
+            let focused_element = focused.as_CFTypeRef() as AXUIElementRef;
             let caret_position = caret_position_for_element(focused_element, &attrs)
                 .or_else(|| caret_position_from_related_elements(focused_element, &attrs))
                 .or_else(|| caret_position_from_descendants(focused_element, &attrs, &mut visited));
-
-            CFRelease(focused);
 
             if caret_position.is_some() {
                 return caret_position;
@@ -426,5 +442,24 @@ pub fn focused_caret_position() -> Option<(f64, f64)> {
         }
 
         None
+    }
+}
+
+// Some accessibility providers return an empty rectangle when no caret bounds
+// are available. Preserve zero-width insertion carets, but not zero-height boxes.
+fn usable_caret_bounds(bounds:CGRect)->bool {
+    [bounds.origin.x,bounds.origin.y,bounds.size.width,bounds.size.height].iter().all(|n|n.is_finite())
+        && bounds.size.width>=0.0 && bounds.size.height>0.0
+}
+#[cfg(test)]
+mod caret_bounds_tests {
+    use super::*;
+    #[test]
+    fn rejects_empty_provider_bounds_but_keeps_insertion_carets() {
+        let rect=|x,y,w,h|CGRect::new(&CGPoint::new(x,y),&CGSize::new(w,h));
+        assert!(!usable_caret_bounds(rect(0.0,956.0,0.0,0.0)));
+        assert!(!usable_caret_bounds(rect(f64::NAN,10.0,1.0,16.0)));
+        assert!(usable_caret_bounds(rect(0.0,0.0,0.0,16.0)));
+        assert!(usable_caret_bounds(rect(-800.0,-300.0,0.0,16.0)));
     }
 }

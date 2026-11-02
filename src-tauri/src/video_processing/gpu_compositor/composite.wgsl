@@ -31,7 +31,7 @@ struct Uniforms {
     velocity_x: f32,
     velocity_y: f32,
     velocity_scale: f32,
-    webcam_enabled: f32,
+    webcam_opacity: f32,
     webcam_pos_x: f32,
     webcam_pos_y: f32,
     webcam_size: f32,
@@ -71,6 +71,15 @@ struct Uniforms {
     trail_count: f32,
     trail_opacity: f32,
     window_mode: f32,
+    clip_cursor_to_video: f32,
+    layer_outputs: f32,
+    shutter_start_x:f32, shutter_start_y:f32, shutter_start_w:f32, shutter_start_h:f32,
+    shutter_now_x:f32, shutter_now_y:f32, shutter_now_w:f32, shutter_now_h:f32,
+    cursor_start_x:f32,cursor_start_y:f32,cursor_start_size:f32,cursor_start_angle:f32,
+    cursor_now_x:f32,cursor_now_y:f32,cursor_now_size:f32,cursor_now_angle:f32,
+    lens_camera_opacity:f32, webcam_mirrored:f32, cursor_fade_blur:f32, lens_camera_pad3:f32,
+    camera_left:f32, camera_top:f32, camera_width:f32, camera_height:f32,
+    cursor_image_left:f32, cursor_image_top:f32, cursor_image_width:f32, cursor_image_height:f32,
 };
 
 struct TrailPoint {
@@ -90,6 +99,8 @@ struct TrailPoint {
 @group(0) @binding(7) var bilinear_sampler: sampler;
 @group(0) @binding(8) var<storage, read> trail_points: array<TrailPoint, 30>;
 @group(0) @binding(9) var background_tex: texture_2d<f32>;
+@group(0) @binding(10) var foreground_layer: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(11) var background_layer: texture_storage_2d<rgba8unorm, write>;
 
 fn sample_zoomed(uv: vec2<f32>) -> vec4<f32> {
     let scale = u.zoom_scale;
@@ -192,19 +203,20 @@ fn sample_window_motion_blur(uv: vec2<f32>) -> vec4<f32> {
     }
     let pan_speed = sqrt(u.velocity_x * u.velocity_x + u.velocity_y * u.velocity_y);
     let pan_blur = min(pan_speed * u.motion_blur_pan_intensity * 0.008, 0.012);
-    if (pan_blur < 0.001) {
+    let zoom_blur = min(abs(u.velocity_scale) * u.motion_blur_zoom_intensity * 0.006, 0.008);
+    if (pan_blur < 0.001 && zoom_blur < 0.001) {
         return base;
     }
     var pan_dir = vec2<f32>(u.velocity_x, u.velocity_y);
     let dir_mag = length(pan_dir);
-    if (dir_mag > 0.001) { pan_dir = pan_dir / dir_mag; } else { return base; }
+    if (dir_mag > 0.001) { pan_dir = pan_dir / dir_mag; } else { pan_dir = vec2<f32>(0.0); }
     var color = vec4<f32>(0.0);
     var total_weight = 0.0;
     let samples = 12;
     for (var i = 0; i < samples; i = i + 1) {
         let t = f32(i) / f32(samples - 1) - 0.5;
         let weight = 1.0 - abs(t) * 0.5;
-        let offset = pan_dir * pan_blur * t;
+        let offset = (pan_dir * pan_blur + (uv - vec2<f32>(0.5)) * zoom_blur) * t;
         let sample_uv = clamp(uv + offset, vec2<f32>(0.0), vec2<f32>(1.0));
         color = color + textureSampleLevel(source_tex, bilinear_sampler, sample_uv, 0.0) * weight;
         total_weight = total_weight + weight;
@@ -225,6 +237,11 @@ fn alpha_blend(dst: vec4<f32>, src: vec4<f32>) -> vec4<f32> {
     if (out_a < 0.001) { return vec4<f32>(0.0); }
     let out_rgb = (src.rgb * src.a + dst.rgb * dst.a * (1.0 - src.a)) / out_a;
     return vec4<f32>(out_rgb, out_a);
+}
+
+fn blend_with_layer(result: ptr<function,vec4<f32>>, foreground: ptr<function,vec4<f32>>, color: vec4<f32>) {
+    *result = alpha_blend(*result,color);
+    if (u.layer_outputs > 0.5) { *foreground = alpha_blend(*foreground,color); }
 }
 
 // --- SDF cursor functions (matching preview GLSL shader) ---
@@ -328,17 +345,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // Keep wallpaper/gradient/solid backgrounds locked to the export canvas.
     // Window-mode zoom remaps only the captured window layer below.
-    var result = background_at(out_px);
+    let backdrop = background_at(out_px);
+    var result = backdrop;
+    var front = vec4<f32>(0.0);
 
-    if (u.shadow_enabled > 0.5) {
+    if (u.shadow_enabled > 0.5 && !(is_window && window_temporal_active())) {
         let shadow_uv = vec2<f32>(px.x / u.output_width, px.y / u.output_height);
         let shadow = textureSampleLevel(shadow_tex, bilinear_sampler, shadow_uv, 0.0);
-        result = alpha_blend(result, shadow);
+        blend_with_layer(&result,&front, shadow);
     }
 
     let content_x = px.x - u.content_offset_x;
     let content_y = px.y - u.content_offset_y;
-    if (content_x >= 0.0 && content_x < u.content_width && content_y >= 0.0 && content_y < u.content_height) {
+    if (is_window && window_temporal_active()) {
+        blend_with_layer(&result,&front,window_temporal_content(out_px));
+    } else if (content_x >= 0.0 && content_x < u.content_width && content_y >= 0.0 && content_y < u.content_height) {
         let input_x = content_x - u.input_offset_x;
         let input_y = content_y - u.input_offset_y;
         if (input_x >= 0.0 && input_x < u.input_width && input_y >= 0.0 && input_y < u.input_height) {
@@ -367,18 +388,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             );
             let input_radius = max(u.corner_radius, window_radius);
             content_color.a = content_color.a * is_inside_rounded_rect(vec2<f32>(input_x, input_y), vec2<f32>(u.input_width, u.input_height), input_radius);
-            result = alpha_blend(result, content_color);
+            blend_with_layer(&result,&front, content_color);
         }
     }
 
-    if (u.cursor_enabled > 0.5) {
+    let cursor_local = px - vec2<f32>(u.content_offset_x + u.input_offset_x, u.content_offset_y + u.input_offset_y);
+    let cursor_in_video = all(cursor_local >= vec2<f32>(0.0)) && all(cursor_local < vec2<f32>(u.input_width,u.input_height));
+    if (u.cursor_enabled > 0.5 && (u.clip_cursor_to_video < 0.5 || cursor_in_video)) {
         let s = u.cursor_size;
         let cursor_px = vec2<f32>(
             u.content_offset_x + u.input_offset_x + u.cursor_x * u.input_width,
             u.content_offset_y + u.input_offset_y + u.cursor_y * u.input_height
         );
-        let max_radius = 60.0 * s;
-        let dist_to_cursor = length(px - cursor_px);
 
         let active_color = select(
             vec3<f32>(u.cursor_color_r, u.cursor_color_g, u.cursor_color_b),
@@ -395,15 +416,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             for (var i = 0; i < 30; i = i + 1) {
                 if (i >= tc - 1) { break; }
                 let tp = trail_points[i];
-                let trail_px = vec2<f32>(
+                var trail_px = vec2<f32>(
                     u.content_offset_x + u.input_offset_x + tp.x * u.input_width,
                     u.content_offset_y + u.input_offset_y + tp.y * u.input_height
                 );
-                let dist = length(px - trail_px);
-                let mask = 1.0 - smoothstep(tp.size - 0.5, tp.size + 0.5, dist);
+                var trail_size = tp.size;
+                if (is_window) {
+                    let rect = window_shutter_now();
+                    trail_px = rect.xy + (vec2<f32>(tp.x,tp.y)-vec2<f32>(0.5))*rect.zw;
+                    trail_size = trail_size * rect.z / u.input_width;
+                }
+                let dist = length(out_px - trail_px);
+                let mask = 1.0 - smoothstep(trail_size - 0.5, trail_size + 0.5, dist);
                 if (mask * tp.alpha > 0.001) {
                     let tc_color = vec3<f32>(u.cursor_color_r, u.cursor_color_g, u.cursor_color_b);
-                    result = alpha_blend(result, vec4<f32>(tc_color, mask * tp.alpha));
+                    blend_with_layer(&result,&front, vec4<f32>(tc_color, mask * tp.alpha));
                 }
             }
         }
@@ -422,7 +449,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             let ring_alpha = 1.0 - smoothstep(0.0, 2.5, ring);
             let fade = (1.0 - p) * 0.6;
             if (ring_alpha * fade > 0.001) {
-                result = alpha_blend(result, vec4<f32>(ripple_color, ring_alpha * fade));
+                blend_with_layer(&result,&front, vec4<f32>(ripple_color, ring_alpha * fade));
             }
             // Inner fill (first 50%)
             if (p < 0.5) {
@@ -430,7 +457,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let inner_alpha = (0.5 - p) * 0.4;
                 let inner_mask = 1.0 - smoothstep(inner_r - 0.5, inner_r + 0.5, dist);
                 if (inner_mask * inner_alpha > 0.001) {
-                    result = alpha_blend(result, vec4<f32>(ripple_color, inner_mask * inner_alpha));
+                    blend_with_layer(&result,&front, vec4<f32>(ripple_color, inner_mask * inner_alpha));
                 }
             }
         }
@@ -448,173 +475,92 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             // Fill
             let fill_mask = 1.0 - smoothstep(radius - 0.5, radius + 0.5, dist);
             if (fill_mask * alpha * 0.24 > 0.001) {
-                result = alpha_blend(result, vec4<f32>(hl_color, fill_mask * alpha * 0.24));
+                blend_with_layer(&result,&front, vec4<f32>(hl_color, fill_mask * alpha * 0.24));
             }
             // Stroke
             let stroke_ring = abs(dist - radius);
             let stroke_mask = 1.0 - smoothstep(0.0, 2.0, stroke_ring);
             if (stroke_mask * alpha * 0.8 > 0.001) {
-                result = alpha_blend(result, vec4<f32>(hl_color, stroke_mask * alpha * 0.8));
+                blend_with_layer(&result,&front, vec4<f32>(hl_color, stroke_mask * alpha * 0.8));
             }
         }
 
-        // 4d-f. Cursor body (shadow + SDF shape)
-        if (dist_to_cursor < max_radius && opacity > 0.01) {
-            var local = px - cursor_px;
-            // Apply rotation
-            let rot_rad = u.cursor_rotation * 3.14159265 / 180.0;
-            if (abs(rot_rad) > 0.001) {
-                local = rotate_2d(local, -rot_rad);
-            }
-
-            let shadow_alpha_base = (u.cursor_shadow_intensity / 100.0) * 0.5;
-
-            if (u.cursor_style < 0.5) {
-                // Pointer style
-                if (shadow_alpha_base > 0.001) {
-                    let sl = local - vec2<f32>(2.0 * s, 2.0 * s);
-                    let sf = arrow_mask(sl, s);
-                    if (sf * shadow_alpha_base * opacity > 0.001) {
-                        result = alpha_blend(result, vec4<f32>(0.0, 0.0, 0.0, sf * shadow_alpha_base * opacity));
-                    }
-                }
-                let fill = arrow_mask(local, s);
-                if (fill > 0.001) {
-                    result = alpha_blend(result, vec4<f32>(active_color, fill * opacity));
-                }
-                let edge_d = arrow_edge_dist(local, s);
-                let stroke_w = 1.5 * s;
-                let stroke_m = 1.0 - smoothstep(0.0, stroke_w, edge_d);
-                let stroke_a = stroke_m * (1.0 - fill * 0.5);
-                if (stroke_a * opacity > 0.001) {
-                    result = alpha_blend(result, vec4<f32>(0.0, 0.0, 0.0, stroke_a * opacity));
-                }
-            } else if (u.cursor_style < 1.5) {
-                // Circle style
-                if (shadow_alpha_base > 0.001) {
-                    let sl = local - vec2<f32>(2.0 * s, 2.0 * s);
-                    let sd = length(sl);
-                    let sm = 1.0 - smoothstep(10.0 * s - 0.5, 10.0 * s + 0.5, sd);
-                    if (sm * shadow_alpha_base * opacity > 0.001) {
-                        result = alpha_blend(result, vec4<f32>(0.0, 0.0, 0.0, sm * shadow_alpha_base * opacity));
-                    }
-                }
-                let dist = length(local);
-                let mask = 1.0 - smoothstep(10.0 * s - 0.5, 10.0 * s + 0.5, dist);
-                if (mask * 0.8 * opacity > 0.001) {
-                    result = alpha_blend(result, vec4<f32>(0.5, 0.5, 0.5, mask * 0.8 * opacity));
-                }
-            } else if (u.cursor_style < 2.5) {
-                // Filled style (black fill, white stroke)
-                if (shadow_alpha_base > 0.001) {
-                    let sl = local - vec2<f32>(2.0 * s, 2.0 * s);
-                    let sf = arrow_mask(sl, s);
-                    if (sf * shadow_alpha_base * opacity > 0.001) {
-                        result = alpha_blend(result, vec4<f32>(0.0, 0.0, 0.0, sf * shadow_alpha_base * opacity));
-                    }
-                }
-                let fill = arrow_mask(local, s);
-                if (fill > 0.001) {
-                    result = alpha_blend(result, vec4<f32>(0.0, 0.0, 0.0, fill * opacity));
-                }
-                let edge_d = arrow_edge_dist(local, s);
-                let stroke_m = 1.0 - smoothstep(0.0, 2.0 * s, edge_d);
-                let stroke_a = stroke_m * (1.0 - fill * 0.5);
-                if (stroke_a * opacity > 0.001) {
-                    result = alpha_blend(result, vec4<f32>(1.0, 1.0, 1.0, stroke_a * opacity));
-                }
-            } else if (u.cursor_style < 3.5) {
-                // Outline style (white stroke only)
-                if (shadow_alpha_base > 0.001) {
-                    let sl = local - vec2<f32>(2.0 * s, 2.0 * s);
-                    let se = arrow_edge_dist(sl, s);
-                    let ss = 1.0 - smoothstep(0.0, 2.0 * s, se);
-                    if (ss * shadow_alpha_base * opacity > 0.001) {
-                        result = alpha_blend(result, vec4<f32>(0.0, 0.0, 0.0, ss * shadow_alpha_base * opacity));
-                    }
-                }
-                let edge_d = arrow_edge_dist(local, s);
-                let stroke_m = 1.0 - smoothstep(0.0, 2.0 * s, edge_d);
-                if (stroke_m * opacity > 0.001) {
-                    result = alpha_blend(result, vec4<f32>(1.0, 1.0, 1.0, stroke_m * opacity));
-                }
-            } else {
-                // Dotted style (fill + dashed stroke)
-                if (shadow_alpha_base > 0.001) {
-                    let sl = local - vec2<f32>(2.0 * s, 2.0 * s);
-                    let sf = arrow_mask(sl, s);
-                    if (sf * shadow_alpha_base * opacity > 0.001) {
-                        result = alpha_blend(result, vec4<f32>(0.0, 0.0, 0.0, sf * shadow_alpha_base * opacity));
-                    }
-                }
-                let fill = arrow_mask(local, s);
-                if (fill > 0.001) {
-                    result = alpha_blend(result, vec4<f32>(active_color, fill * opacity));
-                }
-                let edge_d = arrow_edge_dist(local, s);
-                let stroke_m = 1.0 - smoothstep(0.0, 1.5 * s, edge_d);
-                let dash_period = 4.0 * s;
-                let dash_on = step(0.5, fract((local.x + local.y) / dash_period));
-                let stroke_a = stroke_m * dash_on * (1.0 - fill * 0.5);
-                if (stroke_a * opacity > 0.001) {
-                    result = alpha_blend(result, vec4<f32>(0.0, 0.0, 0.0, stroke_a * opacity));
-                }
-            }
-
-            // clickEffect=none means no click visual at all
+        if (!cursor_temporal_active()) {
+            // Keep edge filtering in output pixels, just like temporal samples.
+            // Inverse window coordinates would scale the antialiasing width
+            // when playback transitions between moving and stationary poses.
+            let pose = cursor_shutter_now();
+            draw_cursor_body(out_px,pose.xy,pose.z,pose.w,opacity,active_color,&result,&front);
         }
     }
 
+    if (u.cursor_enabled>0.5 && cursor_temporal_active()) {
+        blend_with_layer(&result,&front,cursor_temporal_body(out_px));
+    }
+
     // 5. Webcam overlay
-    if (u.webcam_enabled > 0.5) {
-        let webcam_pixel_size = u.webcam_size * u.output_width;
-        let webcam_cx = u.webcam_pos_x * u.output_width;
-        let webcam_cy = u.webcam_pos_y * u.output_height;
-        let webcam_left = webcam_cx - webcam_pixel_size / 2.0;
-        let webcam_top = webcam_cy - webcam_pixel_size / 2.0;
+    if (u.webcam_opacity > 0.0) {
+        let fullscreen = u.webcam_shape > 1.5;
+        let webcam_width = u.camera_width;
+        let webcam_height = u.camera_height;
+        let webcam_left = u.camera_left;
+        let webcam_top = u.camera_top;
         let wx = f32(x) - webcam_left;
         let wy = f32(y) - webcam_top;
-        if (wx >= 0.0 && wx < webcam_pixel_size && wy >= 0.0 && wy < webcam_pixel_size) {
-            let webcam_uv = vec2<f32>(wx / webcam_pixel_size, wy / webcam_pixel_size);
+        if (wx >= 0.0 && wx < webcam_width && wy >= 0.0 && wy < webcam_height) {
+            let webcam_uv = vec2<f32>(wx / webcam_width, wy / webcam_height);
             let webcam_dims = textureDimensions(webcam_tex);
-            let webcam_aspect = f32(webcam_dims.x) / max(f32(webcam_dims.y), 1.0);
+            let webcam_aspect = (f32(webcam_dims.x) / max(f32(webcam_dims.y), 1.0)) / (webcam_width / webcam_height);
             var webcam_sample_uv = webcam_uv;
             if (webcam_aspect > 1.0) {
                 webcam_sample_uv.x = 0.5 + (webcam_uv.x - 0.5) / webcam_aspect;
             } else {
                 webcam_sample_uv.y = 0.5 + (webcam_uv.y - 0.5) * webcam_aspect;
             }
+            if (u.webcam_mirrored > 0.5) { webcam_sample_uv.x = 1.0 - webcam_sample_uv.x; }
             var webcam_color = textureSampleLevel(webcam_tex, bilinear_sampler, webcam_sample_uv, 0.0);
             if (u.webcam_shape < 0.5) {
                 let dist = length(webcam_uv - vec2<f32>(0.5));
                 webcam_color.a = webcam_color.a * (1.0 - smoothstep(0.49, 0.5, dist));
-            } else {
+            } else if (!fullscreen) {
                 webcam_color.a = webcam_color.a * is_inside_rounded_rect(
                     vec2<f32>(wx, wy),
-                    vec2<f32>(webcam_pixel_size, webcam_pixel_size),
-                    webcam_pixel_size * 0.15
+                    vec2<f32>(webcam_width, webcam_height),
+                    webcam_width * 0.15
                 );
             }
+            webcam_color.a *= u.webcam_opacity;
             if (webcam_color.a > 0.001) {
-                result = alpha_blend(result, webcam_color);
+                result = alpha_blend(result,webcam_color);
+                if (u.layer_outputs > 0.5) {
+                    front = alpha_blend(front,vec4<f32>(webcam_color.rgb,webcam_color.a*u.lens_camera_opacity));
+                }
             }
         }
     }
 
     // 6. Device frame overlay
-    if (u.device_frame_enabled > 0.5) {
+    if (u.device_frame_enabled > 0.5 && !(u.webcam_opacity > 0.0 && u.webcam_shape > 1.5)) {
         let bezel = u.device_frame_bezel;
         let df_radius = u.device_frame_corner_radius;
         let in_bezel_x = f32(x) < bezel || f32(x) >= u.output_width - bezel;
         let in_bezel_y = f32(y) < bezel || f32(y) >= u.output_height - bezel;
         if (in_bezel_x || in_bezel_y) {
             result = vec4<f32>(u.device_frame_r, u.device_frame_g, u.device_frame_b, 1.0);
+            if (u.layer_outputs > 0.5) { front = result; }
         }
         if (df_radius > 0.0) {
             let size = vec2<f32>(u.output_width, u.output_height);
-            result.a = result.a * is_inside_rounded_rect(vec2<f32>(f32(x), f32(y)), size, df_radius);
+            let coverage = is_inside_rounded_rect(vec2<f32>(f32(x), f32(y)), size, df_radius);
+            result.a *= coverage;
+            front.a *= coverage;
         }
     }
 
+    if (u.layer_outputs > 0.5) {
+        textureStore(foreground_layer,pixel,vec4<f32>(front.rgb*front.a,front.a));
+        textureStore(background_layer,pixel,vec4<f32>(backdrop.rgb*backdrop.a,backdrop.a));
+        result = vec4<f32>(result.rgb*result.a,result.a);
+    }
     textureStore(output_tex, pixel, result);
 }

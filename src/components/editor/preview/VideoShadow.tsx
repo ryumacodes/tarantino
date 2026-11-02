@@ -1,69 +1,54 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import * as THREE from 'three';
 import type { VisualSettings } from '../../../stores/editor';
 
+
 interface VideoShadowProps {
-  width: number;
-  height: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  inputWidth: number;
+  inputHeight: number;
+  outputWidth: number;
+  outputHeight: number;
   settings: VisualSettings;
+  textureRef?: React.MutableRefObject<THREE.Texture|null>;
 }
 
-export const VideoShadow: React.FC<VideoShadowProps> = ({ width, height, settings }) => {
-  const shadowTexture = useMemo(() => {
-    if (!settings.shadowEnabled) return null;
-
-    const canvas = document.createElement('canvas');
-    const size = 256;
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-
-    // Create a soft shadow using radial gradient
-    const blur = settings.shadowBlur / 100;
-    const intensity = settings.shadowIntensity / 100;
-
-    ctx.clearRect(0, 0, size, size);
-
-    // Draw shadow box
-    const padding = size * 0.15;
-    const cornerRadius = (settings.cornerRadius / 50) * padding;
-
-    ctx.shadowColor = `rgba(0, 0, 0, ${intensity})`;
-    ctx.shadowBlur = size * blur * 0.5;
-    ctx.shadowOffsetX = settings.shadowOffsetX * 2;
-    ctx.shadowOffsetY = settings.shadowOffsetY * 2;
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0)';
-    ctx.beginPath();
-    ctx.roundRect(padding, padding, size - padding * 2, size - padding * 2, cornerRadius);
-    ctx.fill();
-
-    // Draw actual shadow shape
-    ctx.shadowColor = 'transparent';
-    ctx.fillStyle = `rgba(0, 0, 0, ${intensity})`;
-    ctx.filter = `blur(${size * blur * 0.15}px)`;
-    ctx.beginPath();
-    ctx.roundRect(padding, padding, size - padding * 2, size - padding * 2, cornerRadius);
-    ctx.fill();
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.needsUpdate = true;
-    return texture;
-  }, [settings.shadowEnabled, settings.shadowIntensity, settings.shadowBlur, settings.shadowOffsetX, settings.shadowOffsetY, settings.cornerRadius]);
-
-  if (!settings.shadowEnabled || !shadowTexture) return null;
-
-  const shadowScale = 1.2;
-  return (
-    <mesh position={[settings.shadowOffsetX * 0.01, -settings.shadowOffsetY * 0.01, -0.1]}>
-      <planeGeometry args={[width * shadowScale, height * shadowScale]} />
-      <meshBasicMaterial
-        map={shadowTexture}
-        transparent
-        toneMapped={false}
-        depthWrite={false}
-      />
-    </mesh>
-  );
+export const VideoShadow: React.FC<VideoShadowProps> = ({canvasWidth,canvasHeight,inputWidth,inputHeight,outputWidth,outputHeight,settings,textureRef}) => {
+  const {shadowEnabled,shadowIntensity,shadowBlur,shadowOffsetX,shadowOffsetY,cornerRadius,padding}=settings;
+  const [shadowTexture,setShadowTexture]=useState<THREE.DataTexture|null>(null);
+  useEffect(()=>{
+    setShadowTexture(null);
+    if(!shadowEnabled)return;
+    const worker=new Worker(new URL('../../../utils/shadow/windowShadow.worker.ts',import.meta.url),{type:'module'});
+    worker.onmessage=(event:MessageEvent<Uint8Array>)=>{
+      const texture=new THREE.DataTexture(event.data,outputWidth,outputHeight);
+      texture.flipY=true;
+      texture.minFilter=texture.magFilter=THREE.LinearFilter;
+      texture.needsUpdate=true;
+      setShadowTexture(texture);
+      worker.terminate();
+    };
+    worker.onerror=error=>{console.error('Preview shadow generation failed:',error.message);worker.terminate();};
+    const inset=Math.max(0,Math.min(49,padding))/100;
+    const contentWidth=outputWidth-2*Math.floor(outputWidth*inset);
+    const contentHeight=outputHeight-2*Math.floor(outputHeight*inset);
+    const width=inputWidth,height=inputHeight;
+    const x=Math.floor((outputWidth-width)/2),y=Math.floor((outputHeight-height)/2);
+    worker.postMessage({width:outputWidth,height:outputHeight,
+      rect:{x:x+Math.trunc(shadowOffsetX),y:y+Math.trunc(shadowOffsetY),width,height},
+      radius:cornerRadius>0?Math.max(1,Math.min(contentWidth,contentHeight)*cornerRadius/200):0,
+      blur:shadowBlur,intensity:shadowIntensity/100});
+    return ()=>{worker.onmessage=null;worker.terminate();};
+  },[shadowEnabled,shadowIntensity,shadowBlur,shadowOffsetX,shadowOffsetY,cornerRadius,padding,inputWidth,inputHeight,outputWidth,outputHeight]);
+  useEffect(()=>()=>shadowTexture?.dispose(),[shadowTexture]);
+  useEffect(()=>{
+    if(textureRef)textureRef.current=shadowTexture;
+    return ()=>{if(textureRef)textureRef.current=null;};
+  },[shadowTexture,textureRef]);
+  if(!shadowTexture)return null;
+  return <mesh position={[0,0,-.1]}>
+    <planeGeometry args={[canvasWidth,canvasHeight]} />
+    <meshBasicMaterial map={shadowTexture} transparent toneMapped={false} depthWrite={false} />
+  </mesh>;
 };

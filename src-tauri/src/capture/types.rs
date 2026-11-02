@@ -21,7 +21,7 @@ pub struct CapturedAudio {
     pub data: Bytes,
     pub sample_rate: u32,
     pub channels: u32,
-    pub _timestamp_us: u64,
+    pub timestamp_us: u64,
 }
 
 /// A display or window that can be selected for capture.

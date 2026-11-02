@@ -2,6 +2,81 @@ use super::*;
 use crate::event_capture::SessionMetadata;
 
 #[test]
+fn releases_never_create_typing_zooms_even_if_input_mislabels_them() {
+    let session = create_test_session(vec![], 10000);
+    let key: KeyEvent = serde_json::from_value(serde_json::json!({
+        "timestamp":1000,"is_release":true,"is_modifier":false,"is_typing":true,
+        "caret_x":200,"caret_y":300})).unwrap();
+    let result = ZoomProcessor::with_default_config().analyze_session(&session, &[key]).unwrap();
+    assert!(result.zoom_blocks.is_empty());
+}
+
+#[test]
+fn typing_uses_caret_bounds_before_normalizing_or_falling_back_to_pointer() {
+    let mut session = create_test_session(vec![], 10000);
+    session.metadata.capture_region = Some((95,33,1280,820));
+    for (x,y,inside) in [(289.0,-1004.0,false), (95.0,33.0,true),
+        (1374.0,852.0,true), (1375.0,100.0,false), (200.0,853.0,false),
+        (f64::NAN,100.0,false), (200.0,f64::INFINITY,false)] {
+        let key = KeyEvent { shortcut: None, is_release: false, timestamp:1000, is_modifier:false, is_typing:true,
+            key_motion:crate::input::KeyMotion::Character,
+            cursor_x:Some(300.0), cursor_y:Some(300.0), caret_x:Some(x), caret_y:Some(y) };
+        let result = ZoomProcessor::with_default_config().analyze_session(&session,&[key]).unwrap();
+        assert_eq!(!result.zoom_blocks.is_empty(),inside,"caret ({x},{y})");
+    }
+}
+
+#[test]
+fn typing_supports_negative_capture_origins_and_cursor_fallback_bounds() {
+    let mut session = create_test_session(vec![],10000);
+    session.metadata.capture_region = Some((-100,-500,200,100));
+    for (caret, cursor, inside) in [
+        (Some((-50.0,-450.0)), (300.0,300.0), true),
+        (None, (-50.0,-450.0), true),
+        (None, (339.0,-565.0), false),
+    ] {
+        let key = KeyEvent { shortcut: None, is_release: false, timestamp:1000, is_modifier:false, is_typing:true,
+            key_motion:crate::input::KeyMotion::Character,
+            cursor_x:Some(cursor.0),cursor_y:Some(cursor.1),
+            caret_x:caret.map(|p|p.0),caret_y:caret.map(|p|p.1) };
+        let result=ZoomProcessor::with_default_config().analyze_session(&session,&[key]).unwrap();
+        assert_eq!(!result.zoom_blocks.is_empty(),inside);
+    }
+}
+
+#[test]
+fn window_recording_ignores_clicks_above_its_content() {
+    let mut session = create_test_session(vec![
+        create_test_mouse_event(108541, 865.23046875, 17.7734375),
+        create_test_mouse_event(109958, 510.48046875, 18.9296875),
+        create_test_mouse_event(111073, 532.0390625, 117.95703125),
+    ], 113324);
+    session.metadata.capture_region = Some((0, 33, 1470, 923));
+    let analysis = ZoomProcessor::with_default_config().analyze_session(&session, &[]).unwrap();
+    assert_eq!(analysis.total_clicks, 1);
+    assert_eq!(analysis.zoom_blocks.len(), 1);
+    let block = &analysis.zoom_blocks[0];
+    assert_eq!(block.centers.len(), 1);
+    assert_eq!(block.start_time, 110073);
+    assert!((block.center_y - (117.95703125 - 33.0) / 923.0).abs() < 1e-9);
+}
+
+#[test]
+fn click_bounds_support_negative_origins_and_exclude_far_edges() {
+    let mut session = create_test_session(vec![
+        create_test_mouse_event(1000, -100.0, -50.0),
+        create_test_mouse_event(2000, 100.0, 0.0),
+        create_test_mouse_event(3000, 0.0, 50.0),
+        create_test_mouse_event(4000, f64::NAN, 0.0),
+        create_test_mouse_event(5000, 99.0, 49.0),
+    ], 10000);
+    session.metadata.capture_region = Some((-100, -50, 200, 100));
+    let analysis = ZoomProcessor::with_default_config().analyze_session(&session, &[]).unwrap();
+    assert_eq!(analysis.total_clicks, 2);
+    assert_eq!(analysis.zoom_blocks.iter().map(|b| b.centers.len()).sum::<usize>(), 2);
+}
+
+#[test]
 fn test_zoom_block_merging() {
     let config = ZoomConfig::default();
     let processor = ZoomProcessor::new(config);
@@ -159,8 +234,8 @@ fn test_static_typing_centers_synthesize_pan() {
     let session = create_test_session(vec![], 30000);
 
     let key_events: Vec<KeyEvent> = (0..50)
-        .map(|i| KeyEvent {
-            timestamp: 2000 + i * 100,
+        .map(|i| KeyEvent { shortcut: None,
+            is_release: false, timestamp: 2000 + i * 100,
             is_modifier: false,
             is_typing: true,
             key_motion: crate::input::KeyMotion::Character,
@@ -189,8 +264,8 @@ fn test_static_typing_centers_wrap_on_newline() {
     let session = create_test_session(vec![], 30000);
 
     let key_events: Vec<KeyEvent> = (0..12)
-        .map(|i| KeyEvent {
-            timestamp: 2000 + i * 100,
+        .map(|i| KeyEvent { shortcut: None,
+            is_release: false, timestamp: 2000 + i * 100,
             is_modifier: false,
             is_typing: true,
             key_motion: if i == 6 {
@@ -257,8 +332,8 @@ fn test_typing_inference_ignores_mouse_movement_after_start() {
     let session = create_test_session(vec![], 30000);
 
     let key_events: Vec<KeyEvent> = (0..50)
-        .map(|i| KeyEvent {
-            timestamp: 2000 + i * 100,
+        .map(|i| KeyEvent { shortcut: None,
+            is_release: false, timestamp: 2000 + i * 100,
             is_modifier: false,
             is_typing: true,
             key_motion: crate::input::KeyMotion::Character,
@@ -287,8 +362,8 @@ fn test_moving_caret_centers_are_preserved() {
     let session = create_test_session(vec![], 30000);
 
     let key_events: Vec<KeyEvent> = (0..10)
-        .map(|i| KeyEvent {
-            timestamp: 2000 + i * 100,
+        .map(|i| KeyEvent { shortcut: None,
+            is_release: false, timestamp: 2000 + i * 100,
             is_modifier: false,
             is_typing: true,
             key_motion: crate::input::KeyMotion::Character,
@@ -312,8 +387,8 @@ fn test_typing_centers_prefer_caret_over_cursor() {
     let processor = ZoomProcessor::new(config);
     let session = create_test_session(vec![], 10000);
 
-    let key_events = vec![KeyEvent {
-        timestamp: 1000,
+    let key_events = vec![KeyEvent { shortcut: None,
+        is_release: false, timestamp: 1000,
         is_modifier: false,
         is_typing: true,
         key_motion: crate::input::KeyMotion::Character,
@@ -333,11 +408,49 @@ fn test_typing_centers_prefer_caret_over_cursor() {
 }
 
 #[test]
+fn stationary_and_small_caret_motion_do_not_invent_text_progression() {
+    let session = create_test_session(vec![], 10000);
+    for advance in [0.0, 0.1] {
+        let keys: Vec<_> = (0..20).map(|i| KeyEvent { shortcut: None,
+            is_release: false, timestamp: 1000 + i * 100,
+            is_modifier: false, is_typing: true,
+            key_motion: crate::input::KeyMotion::Newline,
+            cursor_x: Some(900.0), cursor_y: Some(900.0),
+            caret_x: Some(200.0 + i as f64 * advance), caret_y: Some(300.0),
+        }).collect();
+        let analysis = ZoomProcessor::with_default_config().analyze_session(&session, &keys).unwrap();
+        let centers = &analysis.zoom_blocks[0].centers;
+        assert_eq!(centers.len(), keys.len());
+        for (center, key) in centers.iter().zip(&keys) {
+            assert_eq!(center.time, key.timestamp);
+            assert_eq!(center.x, key.caret_x.unwrap() / 1000.0);
+            assert_eq!(center.y, 0.3);
+        }
+    }
+}
+
+#[test]
+fn intermittent_caret_observations_are_kept_without_inventing_missing_positions() {
+    let session = create_test_session(vec![], 10000);
+    let keys: Vec<_> = (0..10).map(|i| KeyEvent { shortcut: None,
+        is_release: false, timestamp: 1000 + i * 100, is_modifier: false, is_typing: true,
+        key_motion: crate::input::KeyMotion::Character,
+        cursor_x: Some(900.0), cursor_y: Some(900.0),
+        caret_x: (i == 2 || i == 7).then_some(200.0),
+        caret_y: (i == 2 || i == 7).then_some(300.0),
+    }).collect();
+    let analysis = ZoomProcessor::with_default_config().analyze_session(&session, &keys).unwrap();
+    let centers = &analysis.zoom_blocks[0].centers;
+    assert_eq!(centers.iter().map(|c| c.time).collect::<Vec<_>>(), [1200,1700]);
+    assert!(centers.iter().all(|c| c.x == 0.2 && c.y == 0.3));
+}
+
+#[test]
 fn test_modifier_keys_not_typing() {
     // Modifier keys should not count as typing
     let key_events: Vec<KeyEvent> = vec![
-        KeyEvent {
-            timestamp: 1000,
+        KeyEvent { shortcut: None,
+            is_release: false, timestamp: 1000,
             is_modifier: true,
             is_typing: false,
             key_motion: crate::input::KeyMotion::Character,
@@ -346,8 +459,8 @@ fn test_modifier_keys_not_typing() {
             caret_x: None,
             caret_y: None,
         }, // Cmd
-        KeyEvent {
-            timestamp: 1100,
+        KeyEvent { shortcut: None,
+            is_release: false, timestamp: 1100,
             is_modifier: false,
             is_typing: false,
             key_motion: crate::input::KeyMotion::Character,
@@ -356,8 +469,8 @@ fn test_modifier_keys_not_typing() {
             caret_x: None,
             caret_y: None,
         }, // Cmd+C (modified)
-        KeyEvent {
-            timestamp: 1200,
+        KeyEvent { shortcut: None,
+            is_release: false, timestamp: 1200,
             is_modifier: true,
             is_typing: false,
             key_motion: crate::input::KeyMotion::Character,
@@ -405,8 +518,8 @@ fn create_test_enhanced_move_event(timestamp: u64, x: f64, y: f64) -> EnhancedMo
 }
 
 fn create_test_key_event(timestamp: u64, is_typing: bool) -> KeyEvent {
-    KeyEvent {
-        timestamp,
+    KeyEvent { shortcut: None,
+        is_release: false, timestamp,
         is_modifier: false,
         is_typing,
         key_motion: crate::input::KeyMotion::Character,
@@ -454,5 +567,43 @@ fn create_test_session(mouse_events: Vec<EnhancedMouseEvent>, duration_ms: u64) 
             recording_fps: 60,
             recording_quality: 1.0,
         },
+    }
+}
+
+#[test]
+fn long_selection_holds_zoom_until_release_and_ignores_stationary_holds() {
+    for (moved,released,end) in [(true,true,11000),(true,false,12000),(false,true,4000)] {
+        let press=create_test_mouse_event(1000,100.0,100.0);
+        let mut movement=create_test_mouse_event(6000,if moved {600.0}else{100.0},100.0);
+        movement.base.event_type=crate::input::MouseEventType::Move;
+        let mut release=movement.clone(); release.base.timestamp=8000;
+        release.base.event_type=crate::input::MouseEventType::ButtonRelease{button:crate::input::MouseButton::Left};
+        let mut events=vec![press,movement]; if released {events.push(release);}
+        let session=create_test_session(events,12000);
+        let analysis=ZoomProcessor::with_default_config().analyze_session(&session,&[]).unwrap();
+        assert_eq!(analysis.zoom_blocks.len(),1);
+        assert_eq!(analysis.zoom_blocks[0].end_time,end);
+        assert!(analysis.zoom_blocks[0].loupe.is_none());
+    }
+}
+
+#[test]
+fn closely_spaced_selection_press_extends_the_existing_zoom() {
+    use crate::input::{MouseButton, MouseEventType};
+    for inside in [true, false] {
+        let first = create_test_mouse_event(1000,100.0,100.0);
+        let mut first_release = first.clone();
+        first_release.base.timestamp = 1050;
+        first_release.base.event_type = MouseEventType::ButtonRelease { button: MouseButton::Left };
+        let second = create_test_mouse_event(1200,if inside {100.0}else{1100.0},100.0);
+        let mut movement = create_test_mouse_event(6000,600.0,100.0);
+        movement.base.event_type = MouseEventType::Move;
+        let mut release = movement.clone();
+        release.base.timestamp = 8000;
+        release.base.event_type = MouseEventType::ButtonRelease { button: MouseButton::Left };
+        let session = create_test_session(vec![first,first_release,second,movement,release],12000);
+        let analysis = ZoomProcessor::with_default_config().analyze_session(&session,&[]).unwrap();
+        assert_eq!(analysis.zoom_blocks.len(),1);
+        assert_eq!(analysis.zoom_blocks[0].end_time,if inside {11000}else{4000});
     }
 }

@@ -1,3 +1,4 @@
+import { LOUPE_BACKDROP } from './LoupeSceneLayers';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { WALLPAPERS, type VisualSettings } from '../../../stores/editor';
@@ -104,7 +105,7 @@ export const BackgroundPlane: React.FC<BackgroundPlaneProps> = ({ width, height,
   }, [settings.backgroundType, settings.customBackgroundImage, settings.wallpaperId, width, height]);
 
   return (
-    <mesh ref={meshRef} position={[0, 0, -1]}>
+    <mesh ref={meshRef} position={[0, 0, -1]} userData={{ [LOUPE_BACKDROP]: true }}>
       <planeGeometry args={[width * 1.5, height * 1.5]} />
       {imageTexture ? (
         <meshBasicMaterial key="custom-image" map={imageTexture} color="#ffffff" toneMapped={false} />

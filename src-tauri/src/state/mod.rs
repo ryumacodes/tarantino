@@ -104,10 +104,13 @@ impl UnifiedAppState {
         self.ui.set_interface_mode(InterfaceMode::Recording);
         self.ui.set_tray_recording(None);
 
-        // Start recording through recording state manager
+        // Device screen recordings must not collect the Mac pointer.
+        let is_device = matches!(
+            config.target,
+            crate::recording::RecordingTarget::Device { .. }
+        );
         self.recording.start_recording(config).await?;
 
-        #[cfg(target_os = "linux")]
         {
             // Never carry input from a prior take into a recording that opts
             // out of tracking or cannot start its input listener.
@@ -118,7 +121,7 @@ impl UnifiedAppState {
             tracker.key_events.lock().clear();
         }
 
-        if crate::input::pointer_capture_consented() {
+        if !is_device && crate::input::pointer_capture_consented() {
             if let Err(e) = self.start_mouse_tracking().await {
                 println!("Warning: Failed to start mouse tracking: {}", e);
             }

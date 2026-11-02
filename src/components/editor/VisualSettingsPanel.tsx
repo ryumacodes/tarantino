@@ -1,3 +1,6 @@
+import { useShallow } from 'zustand/react/shallow';
+import { SCREEN_MOTION_OPTIONS } from '../../utils/motion/screenStyle';
+import { CURSOR_MOTION_OPTIONS } from '../../utils/motion/cursorStyle';
 import React from 'react';
 import {
   useEditorStore,
@@ -82,7 +85,12 @@ const ColorPicker: React.FC<ColorPickerProps> = ({ label, value, onChange }) => 
 );
 
 const VisualSettingsPanel: React.FC = () => {
-  const { visualSettings, updateVisualSettings, applyWallpaper, resetVisualSettings } = useEditorStore();
+  const { visualSettings, updateVisualSettings, applyWallpaper, resetVisualSettings } = useEditorStore(useShallow(state => ({
+    visualSettings: state.visualSettings,
+    updateVisualSettings: state.updateVisualSettings,
+    applyWallpaper: state.applyWallpaper,
+    resetVisualSettings: state.resetVisualSettings,
+  })));
 
   const backgroundTypes: { type: BackgroundType; label: string; icon: React.ReactNode }[] = [
     { type: 'solid', label: 'Solid', icon: <Square size={14} /> },
@@ -382,13 +390,23 @@ const VisualSettingsPanel: React.FC = () => {
       <div className="settings-section">
         <h4><Zap size={14} /> Animation</h4>
 
-        <div className="subsection-label">Zoom Speed</div>
+        <div className="subsection-label">Screen Motion</div>
+        <div className="button-group zoom-presets">
+          {SCREEN_MOTION_OPTIONS.map(({ preset, label }) => (
+            <button key={preset}
+              className={`preset-btn ${visualSettings.screenMotionStyle === preset ? 'active' : ''}`}
+              onClick={() => updateVisualSettings({ screenMotionStyle: preset })}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="subsection-label">Legacy Zoom Speed</div>
         <div className="button-group zoom-presets">
           {zoomPresets.map(({ preset, label }) => (
             <button
               key={preset}
-              className={`preset-btn ${visualSettings.zoomSpeedPreset === preset ? 'active' : ''}`}
-              onClick={() => updateVisualSettings({ zoomSpeedPreset: preset })}
+              className={`preset-btn ${!visualSettings.screenMotionStyle && visualSettings.zoomSpeedPreset === preset ? 'active' : ''}`}
+              onClick={() => updateVisualSettings({ zoomSpeedPreset: preset, screenMotionStyle: undefined })}
             >
               {label}
               <span className="preset-ms">{ZOOM_SPEED_PRESETS[preset].zoomIn}ms</span>
@@ -396,13 +414,13 @@ const VisualSettingsPanel: React.FC = () => {
           ))}
         </div>
 
-        <div className="subsection-label">Cursor Speed</div>
+        <div className="subsection-label">Cursor Motion</div>
         <div className="button-group cursor-presets">
-          {zoomPresets.map(({ preset, label }) => (
+          {CURSOR_MOTION_OPTIONS.map(({ preset, label }) => (
             <button
               key={preset}
-              className={`preset-btn ${visualSettings.cursorSpeedPreset === preset ? 'active' : ''}`}
-              onClick={() => updateVisualSettings({ cursorSpeedPreset: preset })}
+              className={`preset-btn ${visualSettings.cursorMotionStyle === preset ? 'active' : ''}`}
+              onClick={() => updateVisualSettings({ cursorMotionStyle: preset })}
             >
               {label}
             </button>

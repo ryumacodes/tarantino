@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app_menu;
+#[cfg(target_os = "macos")]
+mod capture_hotkeys;
 mod audio;
 mod auto_zoom;
 mod camera;
@@ -21,6 +24,7 @@ mod recording_commands;
 mod sidecar;
 mod state;
 mod video_processing;
+mod transcription;
 mod zoom_preview;
 
 use anyhow::Result;
@@ -59,6 +63,19 @@ fn setup_tray(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> 
         .on_menu_event(move |app, event| {
             println!("Tray menu event: {:?}", event.id);
             match event.id.as_ref() {
+                "new_recording" | "record_display" | "record_window" | "capture_settings" | "capture_shortcuts" => {
+                    if let Err(error) = commands::tray::dispatch_capture_action(app, event.id.as_ref()) {
+                        eprintln!("Capture menu action failed: {error}");
+                    }
+                }
+                "open_projects" => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(error) = commands::projects::open_project_library(app).await {
+                            eprintln!("Could not open projects: {error}");
+                        }
+                    });
+                }
                 "stop_recording" => {
                     println!("=== STOP RECORDING CLICKED ===");
                     let app_clone = app.clone();
@@ -152,6 +169,11 @@ async fn run() {
     }
 
     tauri::Builder::default()
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                commands::export_jobs::cancel_for_window(window.label());
+            }
+        })
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             // Capture configuration (from commands module)
@@ -206,6 +228,7 @@ async fn run() {
             commands::device::get_windows,
             commands::device::refresh_windows,
             commands::device::get_devices,
+            commands::device::get_screen_devices,
             commands::device::get_audio_devices,
             // Display preview
             commands::display_preview::show_display_preview,
@@ -224,15 +247,43 @@ async fn run() {
             commands::video::get_video_output_directory,
             commands::video::get_video_metadata,
             commands::video::extract_video_thumbnails,
+            commands::video::thumbnail_samples::extract_timeline_thumbnail_samples,
             commands::video::extract_video_preview_frames,
             commands::video::linux_native_preview_required,
             commands::video::export_video,
+            commands::export_jobs::cancel_export,
             commands::video::extract_audio_waveform,
+            commands::video::waveform::extract_audio_waveform_details,
+            commands::video::silence::detect_audio_silence,
             commands::video::read_sidecar_file,
             commands::video::compute_cursor_trajectory,
+            commands::video::cursor_images::load_cursor_images,
+            commands::motion::compute_zoom_trajectory,
+            commands::loupe::compute_loupe_trajectory,
+            commands::camera_opacity::compute_camera_opacity,
+            commands::projects::save_project,
+            commands::projects::portable::export_project_package,
+            commands::projects::picker::choose_project_package,
+            commands::projects::copy_job::cancel_project_package,
+            commands::projects::portable::import_project_package,
+            commands::presets::load_style_presets,
+            commands::presets::save_style_presets,
+            commands::presets::export_style_preset,
+            commands::audio_assets::import_background_audio,
+            commands::transcription::speech_status,
+            commands::transcription::speech_sources,
+            commands::transcription::install_speech_model,
+            commands::transcription::generate_transcript,
+            commands::transcription::cancel_transcription,
+            commands::audio_assets::import_background_audio_path,
+            commands::projects::load_project,
+            commands::projects::relink::relink_project_recording,
+            commands::projects::list_saved_projects,
+            commands::projects::recordings::list_unsaved_recordings,
             // Auto-zoom
             commands::zoom::load_auto_zoom_data,
             commands::zoom::save_auto_zoom_data,
+            commands::zoom_rebuild::regenerate_auto_zoom_data,
             // Misc
             commands::misc::log_to_terminal,
             commands::misc::reset_tray_to_idle,
@@ -240,6 +291,11 @@ async fn run() {
             commands::misc::exit,
         ])
         .setup(|app| {
+            app_menu::install(app.handle())?;
+            #[cfg(target_os = "macos")]
+            input::install_cursor_images(app.handle(), app.state::<Arc<UnifiedAppState>>().get_mouse_tracker());
+            #[cfg(target_os = "macos")]
+            capture_hotkeys::install(app.handle());
             if let Err(e) = setup_tray(app.handle()) {
                 eprintln!("Failed to setup system tray: {}", e);
             }

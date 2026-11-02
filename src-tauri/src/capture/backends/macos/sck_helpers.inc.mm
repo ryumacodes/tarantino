@@ -223,3 +223,17 @@ static bool sck_save_window_silhouette(CGImageRef source, NSString* video_path) 
     }
     return saved;
 }
+
+// Keep recording controls out of display/area output, including windows created
+// after capture begins. An explicitly selected window of this app is still kept.
+static SCContentFilter* sck_display_filter(SCShareableContent* content, SCDisplay* display, SCWindow* selected) {
+    pid_t ownPID = NSProcessInfo.processInfo.processIdentifier;
+    NSMutableArray<SCRunningApplication*>* excluded = [NSMutableArray array];
+    for (SCRunningApplication* application in content.applications) {
+        if (application.processID == ownPID) [excluded addObject:application];
+    }
+    NSArray<SCWindow*>* exceptions = selected && selected.owningApplication.processID == ownPID
+        ? @[selected] : @[];
+    return [[SCContentFilter alloc] initWithDisplay:display
+                              excludingApplications:excluded exceptingWindows:exceptions];
+}

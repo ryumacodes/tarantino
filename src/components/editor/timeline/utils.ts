@@ -72,3 +72,13 @@ export const calculateTimelineLayout = (
     tracksWidth: trackHeaderWidth + mediaWidth,
   };
 };
+
+/** Zoom relative to the displayed fit scale, including very short/long recordings. */
+export function fitTimelineZoom(duration: number, availableWidth: number) {
+  return duration > 0 && availableWidth > 0 ? availableWidth/duration/0.1 : 1;
+}
+export function stepTimelineZoom(zoom: number, direction: 'in'|'out', duration: number, availableWidth: number) {
+  const fit = fitTimelineZoom(duration,availableWidth);
+  const current = Math.max(zoom,fit);
+  return Math.max(fit,Math.min(Math.max(10,fit*10),direction==='in' ? current*1.5 : current/1.5));
+}

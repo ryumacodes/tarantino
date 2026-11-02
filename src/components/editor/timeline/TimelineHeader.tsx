@@ -1,5 +1,11 @@
+import { formatTime } from './utils';
+import { useEditorStore } from '../../../stores/editor';
+import { newSourceZoomRange } from '../../../utils/timeline/sourceRanges';
+import { removablePreviousClip } from '../../../utils/timeline/previousClip';
+import { TimelineTime } from './TimelineClock';
 import React from 'react';
 import {
+  Trash2,
   ZoomIn,
   ZoomOut,
   Maximize2,
@@ -15,7 +21,6 @@ import {
 import type { TimelineTool } from '../../../stores/editor/types';
 
 interface TimelineHeaderProps {
-  currentTime: number;
   duration: number;
   currentTool: TimelineTool;
   setCurrentTool: (tool: TimelineTool) => void;
@@ -27,19 +32,13 @@ interface TimelineHeaderProps {
   onToggleCollapse?: () => void;
   onAddZoomBlock: () => void;
   onSplitAtPlayhead: () => void;
+  onRemovePreviousClip?: () => void;
   isExporting: boolean;
 }
 
-export const formatTime = (ms: number): string => {
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  const remainingMs = Math.floor((ms % 1000) / 10);
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}.${remainingMs.toString().padStart(2, '0')}`;
-};
+export { formatTime } from './utils';
 
 const TimelineHeader: React.FC<TimelineHeaderProps> = ({
-  currentTime,
   duration,
   currentTool,
   setCurrentTool,
@@ -51,12 +50,15 @@ const TimelineHeader: React.FC<TimelineHeaderProps> = ({
   onToggleCollapse,
   onAddZoomBlock,
   onSplitAtPlayhead,
+  onRemovePreviousClip,
   isExporting,
 }) => {
+  const canAddZoom = useEditorStore(state => newSourceZoomRange(state,state.currentTime) !== null);
+  const canRemovePreviousClip = useEditorStore(state => removablePreviousClip(state,state.currentTime) !== null);
   return (
     <div className="timeline-header">
       <div className="timeline-info">
-        <span className="current-time">{formatTime(currentTime)}</span>
+        <TimelineTime className="current-time" />
         <span className="time-separator">/</span>
         <span className="total-time">{formatTime(duration)}</span>
       </div>
@@ -109,13 +111,22 @@ const TimelineHeader: React.FC<TimelineHeaderProps> = ({
           </button>
         </div>
 
+        <div className="tool-group">
+          <button className="tool-btn" title="Remove previous clip (X)"
+            aria-label="Remove previous clip"
+            disabled={isExporting || !canRemovePreviousClip || !onRemovePreviousClip}
+            onClick={onRemovePreviousClip}>
+            <Trash2 size={16} />
+          </button>
+        </div>
+
         {/* Add Zoom Block */}
         <div className="tool-group">
           <button
             className={`tool-btn ${isExporting ? 'disabled' : ''}`}
             onClick={() => !isExporting && onAddZoomBlock()}
-            title={isExporting ? "Disabled during export" : "Add Zoom Block"}
-            disabled={isExporting}
+            title={isExporting ? "Disabled during export" : !canAddZoom ? "Select a recorded section with room for a zoom" : "Add Zoom Block"}
+            disabled={isExporting || !canAddZoom}
           >
             <Plus size={16} />
           </button>

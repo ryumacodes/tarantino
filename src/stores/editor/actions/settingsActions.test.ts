@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_EXPORT_SETTINGS, DEFAULT_VISUAL_SETTINGS } from '../constants';
+import { useEditorStore } from '../store';
+import type { EditorState, EditorActions } from '../types';
 import { createSettingsActions } from './settingsActions';
 
-const createHarness = (overrides: Record<string, unknown> = {}) => {
-  const state: any = {
+const createHarness = (overrides: Partial<EditorState> = {}) => {
+  const state = {
+    ...useEditorStore.getInitialState(),
     videoWidth: 1920,
     videoHeight: 1080,
     visualSettings: { ...DEFAULT_VISUAL_SETTINGS },
@@ -13,8 +16,8 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
     historyIndex: -1,
     ...overrides,
   };
-  const set = (recipe: (draft: any) => void) => recipe(state);
-  const actions = createSettingsActions(set, () => state as any);
+  const set = (recipe: (draft: EditorState & EditorActions) => void) => recipe(state);
+  const actions = createSettingsActions(set, () => state);
   return { state, actions };
 };
 
@@ -81,4 +84,12 @@ describe('visual setting actions', () => {
     expect(state.visualSettings).toEqual(DEFAULT_VISUAL_SETTINGS);
     expect(state.visualSettings).not.toBe(DEFAULT_VISUAL_SETTINGS);
   });
+});
+
+it('automatic output uses rounded cropped source dimensions while explicit aspect remains selected', () => {
+  const {state,actions}=createHarness({videoWidth:128,videoHeight:64});
+  state.visualSettings.sourceCrop={x:0.5,y:0,width:0.5,height:1};
+  expect(actions.getExportDimensions()).toEqual({width:1080,height:1080});
+  state.visualSettings.aspectRatio='9:16';
+  expect(actions.getExportDimensions()).toEqual({width:608,height:1080});
 });

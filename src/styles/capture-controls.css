@@ -105,15 +105,19 @@
   border-bottom: 1px solid var(--border);
 }
 
-.capture-bar__dropdown--settings:has([data-linux]) {
+.capture-bar__dropdown--settings {
   position: fixed;
   top: 68px;
+  right: 20px;
+  transform: none;
+  animation: none;
+  backdrop-filter: none;
   margin-top: 0;
   max-height: calc(100vh - 88px);
   overflow-y: auto;
 }
 
-.capture-bar__dropdown--settings:has([data-linux]) .capture-settings-compact__dropdown {
+.capture-bar__dropdown--settings .capture-settings-compact__dropdown {
   position: static;
   width: 100%;
   min-width: 0;
@@ -384,3 +388,40 @@
   width: 14px;
   height: 14px;
 }
+
+.capture-countdown-setting {
+  border: 0;
+  padding: 10px;
+  color: var(--text-primary);
+}
+.capture-countdown-setting legend { font-size: 13px; color: var(--text-secondary); }
+.capture-countdown-setting > span { display: block; margin-bottom: 8px; }
+.capture-countdown-setting [role="group"] { display: flex; gap: 6px; }
+.capture-countdown-setting button {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.capture-countdown-setting button[aria-pressed="true"] { background: var(--accent); color: #111; }
+.capture-countdown {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  border-radius: 30px;
+  background: #151515;
+  color: var(--text-primary);
+  -webkit-app-region: no-drag;
+}
+.capture-countdown strong { font-variant-numeric: tabular-nums; color: var(--accent); }
+.capture-countdown button { padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.capture-countdown small { color: var(--text-secondary); margin-left: 8px; }

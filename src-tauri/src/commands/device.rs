@@ -88,3 +88,17 @@ pub async fn get_audio_devices(
 ) -> Result<state::AudioDevices, String> {
     state.get_audio_devices().await.map_err(|e| e.to_string())
 }
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn get_screen_devices()
+-> Result<Vec<crate::capture::backends::macos::device::ScreenDevice>, String> {
+    tokio::task::spawn_blocking(crate::capture::backends::macos::device::enumerate)
+        .await
+        .map_err(|e| e.to_string())
+}
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+pub async fn get_screen_devices() -> Result<Vec<String>, String> {
+    Ok(Vec::new())
+}

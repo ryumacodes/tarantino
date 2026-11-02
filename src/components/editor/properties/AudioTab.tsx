@@ -1,18 +1,26 @@
+import BackgroundAudioControls from './BackgroundAudioControls';
+import { useShallow } from 'zustand/react/shallow';
 import React from 'react';
 import { useEditorStore } from '../../../stores/editor';
 import type { TabProps } from './types';
 
 const AudioTab: React.FC<TabProps> = ({ isExporting = false }) => {
-  const { audioSettings, updateAudioSettings } = useEditorStore();
+  const { audioSettings, updateAudioSettings } = useEditorStore(useShallow(state => ({
+    audioSettings: state.audioSettings,
+    updateAudioSettings: state.updateAudioSettings,
+  })));
 
   return (
     <div className="tab-content">
+      <BackgroundAudioControls disabled={isExporting} />
       <div className="section">
         <div className="section-header">
           <h3>Audio Levels</h3>
         </div>
 
         <div className="control-group">
+          <label><input type="checkbox" checked={audioSettings.micMuted ?? false}
+            disabled={isExporting} onChange={event => updateAudioSettings({ micMuted: event.target.checked })} /> Mute microphone</label>
           <label>Microphone Gain</label>
           <div className="slider-control">
             <input
@@ -34,6 +42,8 @@ const AudioTab: React.FC<TabProps> = ({ isExporting = false }) => {
         </div>
 
         <div className="control-group">
+          <label><input type="checkbox" checked={audioSettings.systemMuted ?? false}
+            disabled={isExporting} onChange={event => updateAudioSettings({ systemMuted: event.target.checked })} /> Mute system audio</label>
           <label>System Audio Gain</label>
           <div className="slider-control">
             <input
@@ -71,7 +81,7 @@ const AudioTab: React.FC<TabProps> = ({ isExporting = false }) => {
               })}
               disabled={isExporting}
             />
-            <label htmlFor="noise-gate">Noise Reduction</label>
+            <label htmlFor="noise-gate">Microphone Noise Gate</label>
           </div>
         </div>
 
@@ -86,7 +96,7 @@ const AudioTab: React.FC<TabProps> = ({ isExporting = false }) => {
               })}
               disabled={isExporting}
             />
-            <label htmlFor="dual-track">Dual Track Export</label>
+            <label htmlFor="dual-track">Separate Audio Tracks</label>
           </div>
         </div>
       </div>

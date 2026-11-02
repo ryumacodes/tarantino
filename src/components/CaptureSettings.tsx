@@ -9,6 +9,7 @@ import {
 import { cn } from '../utils/cn';
 
 export interface CaptureConfig {
+  captureShortcuts?: boolean;
   includeCursor: boolean;
   cursorSize: 'small' | 'normal' | 'large';
   highlightClicks: boolean;

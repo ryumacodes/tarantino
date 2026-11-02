@@ -1,20 +1,38 @@
-import React, { useState, useEffect, useRef } from 'react';
+import {maskExportPayload} from "../utils/masks/export";
+import {captionExportPayload} from '../utils/captions/exportRaster';
+import {shortcutExportPayload} from "../utils/shortcuts/exportRaster";
+import { useShallow } from 'zustand/react/shallow';
+import { selectEditorShellInputs } from './editor/shellInputs';
+import { loadCameraSilence } from '../utils/camera/silence';
+import BackgroundAudioDrop from './editor/BackgroundAudioDrop';
+import BackgroundAudioPreview from './editor/preview/BackgroundAudioPreview';
+import { exportBackgroundAudio } from '../utils/audio/backgroundAudio';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import EditorTopBar from './editor/EditorTopBar';
 import VideoPreviewPanel from './editor/VideoPreviewPanel';
 import PropertiesPanel from './editor/PropertiesPanel';
 import ProfessionalTimeline from './editor/ProfessionalTimeline';
 import { EditorShortcutOverlays, type EditorShortcutAction } from './editor/EditorShortcutOverlays';
-import { useEditorStore, SPRING_PRESETS, type ZoomBlock } from '../stores/editor';
+import { useEditorStore } from '../stores/editor';
 import '../styles/dracula-theme.css';
+import { timelineDuration } from '../utils/timeline/previewTimeline';
+import { exportTimeline } from '../utils/timeline/exportTimeline';
+import { exportZoomBlocks } from '../utils/motion/zoomTrajectory';
+import { resolveScreenSpring } from '../utils/motion/screenStyle';
+import { resolveCursorSpring } from '../utils/motion/cursorStyle';
 
 interface EditorViewProps {
   onClose: () => void;
 }
 
 const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
+  const [audioImportRevision,setAudioImportRevision]=useState(0);
   const [showMouseOverlay, setShowMouseOverlay] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const exportInFlight = useRef(false);
+  const [canCancelExport, setCanCancelExport] = useState(false);
+  const [isCancellingExport, setIsCancellingExport] = useState(false);
+  const [exportStatus, setExportStatus] = useState<{ message: string; error?: boolean } | null>(null);
   const [exportProgress, setExportProgress] = useState(0);
   const [timelineCollapsed, setTimelineCollapsed] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -22,32 +40,27 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
   const [notesOpen, setNotesOpen] = useState(false);
   const [flags, setFlags] = useState<number[]>([]);
   const {
-    duration,
-    currentTime,
     setCurrentTime,
     isPlaying,
     setIsPlaying,
     videoFilePath,
-    trimStart,
-    trimEnd,
-    zoomKeyframes,
-    zoomAnalysis,
-    audioSettings,
     projectTitle,
     recordedAt,
     setProjectTitle
-  } = useEditorStore();
+  } = useEditorStore(useShallow(selectEditorShellInputs));
 
-  const handlePlayPause = () => {
-    if (!isPlaying && currentTime >= duration) {
-      setCurrentTime(0);
+
+  const handlePlayPause = useCallback(() => {
+    const state = useEditorStore.getState();
+    if (!state.isPlaying && state.currentTime >= timelineDuration(state)) {
+      state.setCurrentTime(0);
     }
-    setIsPlaying(!isPlaying);
-  };
+    state.setIsPlaying(!state.isPlaying);
+  }, []);
 
-  const handleSeek = (time: number) => {
+  const handleSeek = useCallback((time: number) => {
     setCurrentTime(time);
-  };
+  }, [setCurrentTime]);
 
   const handleExport = async () => {
     if (!videoFilePath || exportInFlight.current) return;
@@ -59,15 +72,19 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
     setNotesOpen(false);
     setIsExporting(true);
     setExportProgress(0);
+    setCanCancelExport(false);
+    setIsCancellingExport(false);
+    setExportStatus(null);
 
     let unlisten: (() => void) | undefined;
     try {
       const { invoke } = await import('@tauri-apps/api/core');
 
       const storeState = useEditorStore.getState();
+      const { trimStart, trimEnd, zoomKeyframes, zoomAnalysis, audioSettings } = storeState;
       const exportSettings = storeState.exportSettings;
       const visualSettings = storeState.visualSettings;
-      const zoomBlocks = storeState.zoomAnalysis?.zoom_blocks || [];
+      const zoomBlocks = exportZoomBlocks(storeState.zoomAnalysis, visualSettings);
       const dimensions = storeState.getExportDimensions();
 
       const projectTitleForExport = storeState.projectTitle || 'Untitled Recording';
@@ -76,24 +93,14 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
         output_path: null,
         project_title: projectTitleForExport,
         resolution: dimensions,
-        frame_rate: exportSettings.frameRate,
+        frame_rate: exportSettings.format === 'gif' ? Math.min(exportSettings.frameRate, 30) : exportSettings.frameRate,
         quality: exportSettings.quality,
         format: exportSettings.format,
         codec: exportSettings.format === 'mov' ? 'prores' : 'h264',
         trim_start: trimStart,
         trim_end: trimEnd,
-        zoom_blocks: zoomBlocks.map((block: ZoomBlock) => ({
-          start_time_ms: block.start_time,
-          end_time_ms: block.end_time,
-          zoom_level: block.zoom_factor,
-          center_x: block.center_x,
-          center_y: block.center_y,
-          kind: block.kind ?? 'click',
-          zoom_in_speed: block.zoom_in_speed ?? null,
-          zoom_out_speed: block.zoom_out_speed ?? null,
-          timing_adjusted: block.timing_adjusted ?? false,
-          centers: block.centers ?? [],
-        })),
+        ...exportTimeline(storeState),
+        zoom_blocks: zoomBlocks,
         zoom_keyframes: zoomKeyframes,
         zoom_analysis: zoomAnalysis,
         visual_settings: {
@@ -125,6 +132,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
           highlight_clicks: true,
           smoothing: visualSettings.cursorSmoothing ?? 0.15,
           style: visualSettings.cursorStyle ?? 'pointer',
+          optimize_cursor_types: visualSettings.optimizeCursorTypes ?? true,
           always_use_pointer: visualSettings.alwaysUsePointer ?? false,
           color: visualSettings.cursorColor ?? '#ffffff',
           highlight_color: visualSettings.cursorHighlightColor ?? '#ff6b6b',
@@ -135,9 +143,9 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
           trail_opacity: visualSettings.cursorTrailOpacity ?? 0.5,
           click_effect: visualSettings.clickEffect ?? 'ripple',
           speed_preset: visualSettings.cursorSpeedPreset ?? 'mellow',
-          spring_tension: SPRING_PRESETS[visualSettings.cursorSpeedPreset ?? 'mellow'].tension,
-          spring_friction: SPRING_PRESETS[visualSettings.cursorSpeedPreset ?? 'mellow'].friction,
-          spring_mass: SPRING_PRESETS[visualSettings.cursorSpeedPreset ?? 'mellow'].mass,
+          spring_tension: resolveCursorSpring(visualSettings).tension,
+          spring_friction: resolveCursorSpring(visualSettings).friction,
+          spring_mass: resolveCursorSpring(visualSettings).mass,
           rotation: visualSettings.cursorRotation ?? 0,
           rotate_while_moving: visualSettings.rotateCursorWhileMoving ?? false,
           rotation_intensity: visualSettings.rotationIntensity ?? 50,
@@ -145,15 +153,20 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
           idle_timeout: visualSettings.idleTimeout ?? 3000,
           stop_at_end: visualSettings.stopCursorAtEnd ?? false,
           stop_duration_ms: visualSettings.stopCursorDuration ?? 0,
+          shake_threshold: visualSettings.removeCursorShakes ? visualSettings.shakesThreshold : 0,
           loop_to_start: visualSettings.loopCursorPosition ?? false,
           loop_duration_ms: 500,
         },
+        background_audio: exportBackgroundAudio(audioSettings.backgroundAudio),
         audio_settings: {
+          mic_muted: audioSettings.micMuted ?? false,
+          system_muted: audioSettings.systemMuted ?? false,
           mic_gain: audioSettings.micGain,
           system_gain: audioSettings.systemGain,
           noise_gate: audioSettings.noiseGate,
           dual_track: audioSettings.dualTrack,
         },
+        source_crop: storeState.visualSettings.sourceCrop ?? null,
         source_width: storeState.videoWidth ?? null,
         source_height: storeState.videoHeight ?? null,
         capture_mode: storeState.captureMode ?? 'display',
@@ -164,38 +177,67 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
         window_mask_path: storeState.videoFilePath
           ? `${storeState.videoFilePath.replace(/\.[^/.]+$/, '')}.window-mask.png`
           : null,
+        screen_motion_style: visualSettings.screenMotionStyle ?? null,
         animation_speed: visualSettings.zoomSpeedPreset ?? 'mellow',
-        zoom_spring_tension: SPRING_PRESETS[visualSettings.zoomSpeedPreset ?? 'mellow'].tension,
-        zoom_spring_friction: SPRING_PRESETS[visualSettings.zoomSpeedPreset ?? 'mellow'].friction,
-        zoom_spring_mass: SPRING_PRESETS[visualSettings.zoomSpeedPreset ?? 'mellow'].mass,
+        zoom_spring_tension: resolveScreenSpring(visualSettings).tension,
+        zoom_spring_friction: resolveScreenSpring(visualSettings).friction,
+        zoom_spring_mass: resolveScreenSpring(visualSettings).mass,
         webcam_corner: visualSettings.webcamCorner ?? 'bottom-right',
         webcam_x: visualSettings.webcamX ?? 0.895,
         webcam_y: visualSettings.webcamY ?? 0.895,
+        webcam_enabled: visualSettings.webcamEnabled !== false,
+        webcam_layout: visualSettings.webcamLayout ?? 'overlay',
+        webcam_keyframes: storeState.webcamKeyframes,
+        webcam_silence_ranges: visualSettings.webcamEnabled === false ? [] : await loadCameraSilence(storeState),
         webcam_size: visualSettings.webcamSize ?? 0.15,
         webcam_shape: visualSettings.webcamShape ?? 'circle',
+        webcam_mirrored: visualSettings.webcamMirrored ?? false,
       };
 
+      const shortcuts = await shortcutExportPayload({...storeState,
+        trimStart:exportConfig.trim_start,trimEnd:exportConfig.trim_end},
+        dimensions.width,dimensions.height,exportConfig.frame_rate);
+      const masks = maskExportPayload({...storeState,trimStart:exportConfig.trim_start,trimEnd:exportConfig.trim_end},exportConfig.frame_rate);
+      const captions = await captionExportPayload({...storeState,trimStart:exportConfig.trim_start,trimEnd:exportConfig.trim_end},
+        dimensions.width,dimensions.height,exportConfig.frame_rate);
       const { listen } = await import('@tauri-apps/api/event');
       unlisten = await listen<{ current: number; total: number; percentage: number }>('export:progress', (event) => {
+        setCanCancelExport(true);
         setExportProgress(Math.round(event.payload.percentage));
       });
 
       const outputPath = await invoke<string>('export_video', {
         inputPath: videoFilePath,
-        settings: exportConfig
+        settings: {...exportConfig,shortcut_overlay:shortcuts,caption_overlay:captions,mask_overlay:masks}
       });
 
       setExportProgress(100);
-      alert(`Export completed successfully!\nSaved to: ${outputPath}`);
+      setExportStatus({ message: `Export complete. Saved to: ${outputPath}` });
     } catch (error: unknown) {
       console.error('[Export] Export failed:', error);
       const message = error instanceof Error ? error.message : String(error);
-      alert(`Export failed: ${message}`);
+      if (message === 'Export cancelled') setExportStatus({ message: 'Export cancelled.' });
+      else setExportStatus({ message: `Export failed: ${message}`, error: true });
     } finally {
       unlisten?.();
       exportInFlight.current = false;
       setIsExporting(false);
+      setIsCancellingExport(false);
+      setCanCancelExport(false);
       setExportProgress(0);
+    }
+  };
+
+  const handleCancelExport = async () => {
+    if (!canCancelExport || isCancellingExport) return;
+    setIsCancellingExport(true);
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const accepted = await invoke<boolean>('cancel_export');
+      if (!accepted) { setIsCancellingExport(false); setCanCancelExport(false); }
+    } catch (error) {
+      setIsCancellingExport(false);
+      setExportStatus({ message: `Could not cancel export: ${String(error)}`, error: true });
     }
   };
 
@@ -210,17 +252,14 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
     return () => document.removeEventListener('keydown', blockEditingKeys, true);
   }, [isExporting]);
 
-  const handleShowMouseOverlay = (show: boolean) => {
-    setShowMouseOverlay(show);
-  };
+  const handleToggleTimelineCollapse = useCallback(() => {
+    setTimelineCollapsed(collapsed => !collapsed);
+  }, []);
 
-  const handleToggleTimelineCollapse = () => {
-    setTimelineCollapsed(!timelineCollapsed);
-  };
-
-  const addFlag = () => {
-    setFlags((current) => [...current, currentTime]);
-  };
+  const addFlag = useCallback(() => {
+    const time = useEditorStore.getState().currentTime;
+    setFlags((current) => [...current, time]);
+  }, []);
 
   const runShortcutAction = (action: EditorShortcutAction) => {
     if (action === 'export') handleExport();
@@ -264,37 +303,26 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [commandOpen, shortcutsOpen, notesOpen, currentTime]);
+  }, [commandOpen, shortcutsOpen, notesOpen, videoFilePath, addFlag]);
 
-  // Keep editor playback on the media clock. Recreating a setInterval after
-  // every state update accumulates React/render overhead and makes preview
-  // time (including the cursor) run slower than the fixed-rate export clock.
+  // The timeline clock must advance through source cuts and empty gaps. Media
+  // follows this monotonic clock; source time must never overwrite edited time.
   useEffect(() => {
     if (!isPlaying) return;
-
-    let animationFrameId = 0;
-    const fallbackStartTime = useEditorStore.getState().currentTime;
-    const fallbackStartWallTime = performance.now();
-
-    const updatePlaybackTime = (now: number) => {
-      const video = window.__TARANTINO_VIDEO_ELEMENT;
-      const nextTime = video && video.readyState >= HTMLMediaElement.HAVE_METADATA
-        ? video.currentTime * 1000
-        : fallbackStartTime + (now - fallbackStartWallTime);
-
-      if (nextTime >= duration) {
-        setCurrentTime(duration);
-        setIsPlaying(false);
-        return;
-      }
-
-      setCurrentTime(nextTime);
-      animationFrameId = requestAnimationFrame(updatePlaybackTime);
+    let frame = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const state = useEditorStore.getState();
+      const end = timelineDuration(state);
+      const next = Math.min(end, state.currentTime + Math.max(0, now - last));
+      last = now;
+      state.setCurrentTime(next, 'playback');
+      if (next >= end) { state.setIsPlaying(false); return; }
+      frame = requestAnimationFrame(tick);
     };
-
-    animationFrameId = requestAnimationFrame(updatePlaybackTime);
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [isPlaying, duration, setCurrentTime, setIsPlaying]);
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [isPlaying]);
 
   // Format the recorded date for the status bar
   const formattedRecordedDate = recordedAt
@@ -309,6 +337,8 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
 
   return (
     <div className="editor-view" aria-busy={isExporting}>
+      <BackgroundAudioPreview />
+      <BackgroundAudioDrop disabled={isExporting} onImported={()=>setAudioImportRevision(value=>value+1)} />
       {/* Top Bar */}
       <EditorTopBar
         projectName={projectTitle}
@@ -317,8 +347,15 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
         onClose={onClose}
         isExporting={isExporting}
         exportProgress={exportProgress}
+        onCancelExport={handleCancelExport}
+        canCancelExport={canCancelExport}
+        isCancellingExport={isCancellingExport}
       />
 
+      {exportStatus && <div className="editor-export-status" data-error={exportStatus.error || undefined}>
+        <span role={exportStatus.error ? 'alert' : 'status'}>{exportStatus.message}</span>
+        <button type="button" onClick={() => setExportStatus(null)} aria-label="Dismiss export status">Dismiss</button>
+      </div>}
       {/* Main Content Area */}
       <div className="editor-main-content" inert={isExporting}>
         {/* Video Preview Panel - Left */}
@@ -334,7 +371,8 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
         {/* Properties Panel - Right */}
         <div className="editor-properties-section">
           <PropertiesPanel
-            onShowMouseOverlay={handleShowMouseOverlay}
+            audioImportRevision={audioImportRevision}
+            onShowMouseOverlay={setShowMouseOverlay}
             showMouseOverlay={showMouseOverlay}
             isExporting={isExporting}
           />

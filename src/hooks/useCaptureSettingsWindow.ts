@@ -1,13 +1,13 @@
 import { useEffect, type RefObject } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalSize } from '@tauri-apps/api/dpi';
-import { isLinuxRuntime } from '../utils/platform';
 
 export function useCaptureSettingsWindow(ref: RefObject<HTMLElement | null>) {
   useEffect(() => {
-    if (!isLinuxRuntime) return;
     const dropdown = ref.current?.closest<HTMLElement>('.capture-bar__dropdown--settings');
     if (!dropdown) return;
+    const content = dropdown.firstElementChild;
+    if (!(content instanceof HTMLElement)) return;
     const win = getCurrentWindow();
     let disposed = false;
     let observer: ResizeObserver | undefined;
@@ -16,7 +16,13 @@ export function useCaptureSettingsWindow(ref: RefObject<HTMLElement | null>) {
     let lastHeight = 0;
     const resize = () => {
       if (disposed || !original) return;
-      const height = Math.min(screen.availHeight - 100, Math.ceil(dropdown.scrollHeight + 88));
+      // Observe natural content, not the viewport-limited scroll container:
+      // opening output options can increase scrollHeight without resizing it.
+      const style = getComputedStyle(dropdown);
+      const chrome = ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth']
+        .reduce((sum, key) => sum + (parseFloat(style[key as keyof CSSStyleDeclaration] as string) || 0), 0);
+      const desiredHeight = Math.ceil(content.getBoundingClientRect().height + chrome + 88);
+      const height = Math.min(screen.availHeight - 100, desiredHeight);
       if (height === lastHeight) return;
       lastHeight = height;
       const size = new LogicalSize(original.width, Math.max(original.height, height));
@@ -26,7 +32,7 @@ export function useCaptureSettingsWindow(ref: RefObject<HTMLElement | null>) {
       if (disposed) return;
       original = size.toLogical(scale);
       observer = new ResizeObserver(resize);
-      observer.observe(dropdown);
+      observer.observe(content);
       resize();
     }).catch(console.error);
     return () => {

@@ -8,6 +8,7 @@ use super::types::ExportSettings;
 pub struct AudioTrackFiles {
     pub mic: Option<PathBuf>,
     pub system: Option<PathBuf>,
+    pub background: Option<PathBuf>,
 }
 
 impl AudioTrackFiles {
@@ -15,18 +16,28 @@ impl AudioTrackFiles {
         let artifacts = RecordingArtifacts::new(input_path);
         let mic = existing(artifacts.microphone());
         let system = existing(artifacts.system_audio());
-        Self { mic, system }
+        Self { mic, system, background: None }
     }
 
     pub fn has_any(&self) -> bool {
-        self.mic.is_some() || self.system.is_some()
+        self.mic.is_some() || self.system.is_some() || self.background.is_some()
     }
 }
 
-pub fn append_audio_inputs(args: &mut Vec<String>, tracks: &AudioTrackFiles) -> usize {
+pub fn append_audio_inputs(
+    args: &mut Vec<String>,
+    tracks: &AudioTrackFiles,
+    settings: &ExportSettings,
+) -> usize {
     let mut count = 0;
     for path in [&tracks.mic, &tracks.system].into_iter().flatten() {
+        super::codec_config::add_trim_settings(args, settings);
         args.extend(["-i".to_string(), path.to_string_lossy().to_string()]);
+        count += 1;
+    }
+    if let Some(path) = &tracks.background {
+        // The soundtrack has already been trimmed on the edited playback clock.
+        args.extend(["-i".into(), path.to_string_lossy().into_owned()]);
         count += 1;
     }
     count
@@ -49,6 +60,8 @@ pub fn append_audio_encode_args(
         idx
     });
 
+    let background_idx = tracks.background.as_ref().map(|_| next_input);
+
     let dual_track = settings
         .audio_settings
         .as_ref()
@@ -56,40 +69,59 @@ pub fn append_audio_encode_args(
         .unwrap_or(false);
 
     args.extend(["-map".to_string(), "0:v".to_string()]);
-    if dual_track && (mic_idx.is_some() || system_idx.is_some()) {
-        append_separate_tracks(args, mic_idx, system_idx);
-    } else if let Some(filter) = build_audio_filter(settings, mic_idx, system_idx) {
+    if dual_track && tracks.has_any() {
+        append_separate_tracks(args, settings, mic_idx, system_idx, background_idx);
+    } else if let Some(filter) = build_audio_filter(settings, mic_idx, system_idx, background_idx) {
         args.extend(["-filter_complex".to_string(), filter]);
         args.extend(["-map".to_string(), "[aout]".to_string()]);
-        append_aac_args(args);
+        append_audio_codec_args(args, settings);
     } else if let Some(idx) = mic_idx.or(system_idx) {
         args.extend(["-map".to_string(), format!("{}:a", idx)]);
-        append_aac_args(args);
+        append_audio_codec_args(args, settings);
     }
 }
 
 fn append_separate_tracks(
     args: &mut Vec<String>,
+    settings: &ExportSettings,
     mic_idx: Option<usize>,
     system_idx: Option<usize>,
+    background_idx: Option<usize>,
 ) {
-    if let Some(idx) = mic_idx {
-        args.extend(["-map".to_string(), format!("{}:a", idx)]);
+    let mut filters = Vec::new();
+    let mut labels = Vec::new();
+    for (mic, system, background, label) in [(mic_idx, None, None, "mic_out"), (None, system_idx, None, "system_out"), (None, None, background_idx, "background_out")] {
+        if let Some(filter) = build_audio_filter(settings, mic, system, background) {
+            filters.push(filter.replace("[aout]", &format!("[{label}]")));
+            labels.push(format!("[{label}]"));
+        }
     }
-    if let Some(idx) = system_idx {
-        args.extend(["-map".to_string(), format!("{}:a", idx)]);
+    if !filters.is_empty() {
+        args.extend(["-filter_complex".into(), filters.join(";")]);
+        for label in labels {
+            args.extend(["-map".into(), label]);
+        }
     }
-    append_aac_args(args);
+    append_audio_codec_args(args, settings);
 }
 
 fn build_audio_filter(
     settings: &ExportSettings,
     mic_idx: Option<usize>,
     system_idx: Option<usize>,
+    background_idx: Option<usize>,
 ) -> Option<String> {
     let audio = settings.audio_settings.as_ref();
-    let mic_gain = db_to_volume(audio.and_then(|a| a.mic_gain).unwrap_or(0.0));
-    let system_gain = db_to_volume(audio.and_then(|a| a.system_gain).unwrap_or(0.0));
+    let mic_gain = if audio.and_then(|a| a.mic_muted).unwrap_or(false) {
+        0.0
+    } else {
+        db_to_volume(audio.and_then(|a| a.mic_gain).unwrap_or(0.0))
+    };
+    let system_gain = if audio.and_then(|a| a.system_muted).unwrap_or(false) {
+        0.0
+    } else {
+        db_to_volume(audio.and_then(|a| a.system_gain).unwrap_or(0.0))
+    };
     let noise_gate = audio.and_then(|a| a.noise_gate).unwrap_or(false);
 
     let mut filters = Vec::new();
@@ -108,6 +140,10 @@ fn build_audio_filter(
         labels.push("[a_system]".to_string());
     }
 
+    if let Some(idx) = background_idx {
+        filters.push(format!("[{idx}:a]anull[a_background]"));
+        labels.push("[a_background]".into());
+    }
     if labels.is_empty() {
         return None;
     }
@@ -123,10 +159,15 @@ fn build_audio_filter(
     Some(filters.join(";"))
 }
 
-fn append_aac_args(args: &mut Vec<String>) {
+fn append_audio_codec_args(args: &mut Vec<String>, settings: &ExportSettings) {
     args.extend([
         "-c:a".to_string(),
-        "aac".to_string(),
+        if settings.format.as_deref() == Some("webm") {
+            "libopus"
+        } else {
+            "aac"
+        }
+        .to_string(),
         "-b:a".to_string(),
         "192k".to_string(),
         "-ac".to_string(),

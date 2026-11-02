@@ -97,7 +97,7 @@ const PermissionStatusComponent: React.FC<PermissionStatusProps> = ({
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [permissionStatus]);
+  }, [permissionStatus?.accessibility_granted, permissionStatus?.screen_recording_granted]);
 
   if (!permissionStatus) {
     return (

@@ -1,28 +1,27 @@
-import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { timelineStructureState } from './structureState';
+import { TimelineTime, CollapsedPlayhead } from './TimelineClock';
+import MusicTrack from './MusicTrack';
+import { projectSourceRange, newSourceZoomRange } from '../../../utils/timeline/sourceRanges';
+import { previewSample } from '../../../utils/timeline/previewTimeline';
+import { timelineDuration } from '../../../utils/timeline/previewTimeline';
+import React, { useRef, useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { Maximize2 } from 'lucide-react';
 import { useEditorStore } from '../../../stores/editor';
 import { useTimelineDrag, useZoomBlockDrag } from './hooks/useTimelineDrag';
-import TimelineHeader, { formatTime } from './TimelineHeader';
+import TimelineHeader from './TimelineHeader';
 import VideoTrack from './VideoTrack';
 import ZoomTrack from './ZoomTrack';
 import WebcamTrack from './WebcamTrack';
 import AudioTrack from './AudioTrack';
 import Playhead from './Playhead';
-import { calculateTimelineLayout } from './utils';
+import { calculateTimelineLayout, fitTimelineZoom, stepTimelineZoom } from './utils';
 import './timeline.css';
 
 interface ProfessionalTimelineProps {
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
   isExporting?: boolean;
-}
-
-interface VisibleTracks {
-  video: boolean;
-  smartZoom: boolean;
-  webcam: boolean;
-  microphone: boolean;
-  system: boolean;
 }
 
 const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
@@ -32,16 +31,10 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
 }) => {
   const timelineRef = useRef<HTMLDivElement>(null);
   const [timelineZoom, setTimelineZoom] = useState(1);
+  const [timelineScrollLeft, setTimelineScrollLeft] = useState(0);
   const [timelineViewportWidth, setTimelineViewportWidth] = useState(0);
-  const [visibleTracks, setVisibleTracks] = useState<VisibleTracks>({
-    video: true,
-    smartZoom: true,
-    webcam: true,
-    microphone: true,
-    system: true
-  });
 
-  const store = useEditorStore();
+  const store = useEditorStore(useShallow(timelineStructureState));
 
   // Early return if store is not initialized
   if (!store || !store.videoFilePath) {
@@ -62,11 +55,9 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
   }
 
   const {
-    duration,
-    currentTime,
     setCurrentTime,
     trimStart,
-    trimEnd,
+    trimEnd: storedTrimEnd,
     setTrimStart,
     setTrimEnd,
     zoomKeyframes,
@@ -95,6 +86,8 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
     hasWebcam,
   } = store;
 
+  const duration = timelineDuration(store);
+  const trimEnd = Math.min(storedTrimEnd, duration);
   const trackHeaderWidth = 140;
   const timelineLayout = calculateTimelineLayout(
     duration,
@@ -128,32 +121,28 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
   }, []);
 
   const seekVideo = useCallback((timeMs: number) => {
-    const seekFunction = window.__TARANTINO_SEEK_VIDEO;
-    if (seekFunction) {
-      seekFunction(timeMs);
-    } else {
-      const video = getVideoElement();
-      if (video) {
-        video.currentTime = timeMs / 1000;
-      }
-    }
-  }, [getVideoElement]);
+    setCurrentTime(timeMs);
+  }, [setCurrentTime]);
 
   const getTimeFromClientX = useCallback((clientX: number) => {
-    if (!timelineRef.current) return currentTime;
+    if (!timelineRef.current) return useEditorStore.getState().currentTime;
     const rect = timelineRef.current.getBoundingClientRect();
     const x = clientX - rect.left + timelineRef.current.scrollLeft - trackHeaderWidth;
     return Math.max(0, Math.min(duration, x / pixelsPerMs));
-  }, [currentTime, duration, pixelsPerMs]);
+  }, [duration, pixelsPerMs]);
 
   const splitAtTime = useCallback((time: number) => {
     if (isExporting) return;
+    store.beginHistoryGroup();
+    try {
     const newClipIds = store.cutClipsAtTime(time);
-    store.splitZoomBlocksAtTime(time);
+    const sourceTime = previewSample(store, time).sourceTime;
+    if (sourceTime !== null) store.splitZoomBlocksAtTime(Math.round(sourceTime));
     if (newClipIds.length > 0) {
       store.selectClips(newClipIds);
       setCurrentTool('select');
     }
+    } finally { store.endHistoryGroup(); }
     setCurrentTime(time);
     seekVideo(time);
   }, [isExporting, seekVideo, setCurrentTime, setCurrentTool, store]);
@@ -182,17 +171,21 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
 
   // Get zoom blocks
   const hasValidZoomData = zoomAnalysis && zoomAnalysis.zoom_blocks && zoomAnalysis.zoom_blocks.length > 0;
-  const zoomBlocks = hasValidZoomData ? zoomAnalysis!.zoom_blocks.map(block => ({
-    id: block.id,
-    startTime: block.start_time,
-    endTime: block.end_time,
-    zoomFactor: block.zoom_factor,
-    isManual: block.is_manual
-  })) : [];
+  const zoomBlocks = useMemo(() => hasValidZoomData ? zoomAnalysis!.zoom_blocks.flatMap(block =>
+    projectSourceRange(store, block.start_time, block.end_time).map(range => ({
+      ...range, id:block.id, zoomFactor:block.zoom_factor, isManual:block.is_manual,
+    }))) : [], [zoomAnalysis, store.clips, store.tracks]);
+  const mappedZoomKeyframes = useMemo(() => zoomKeyframes.flatMap(kf => projectSourceRange(store,kf.time,kf.time+kf.duration)
+    .map(range => ({...kf,id:`${kf.id}:${range.occurrenceId}`,time:range.startTime,duration:range.endTime-range.startTime}))), [zoomKeyframes, store.clips, store.tracks]);
+  const mappedPreviewZoom = useMemo(() => previewZoomAnalysis && {...previewZoomAnalysis, indicators:previewZoomAnalysis.indicators.flatMap(indicator =>
+    projectSourceRange(store,indicator.preview_start,indicator.preview_end).map(range => ({...indicator,
+      id:`${indicator.id}:${range.occurrenceId}`,preview_start:range.startTime,preview_end:range.endTime,
+      click_time:range.startTime+(indicator.click_time-range.sourceStart)/range.rate,
+    })))}, [previewZoomAnalysis, store.clips, store.tracks]);
 
   const { handleDragStart, handleResizeStart } = useZoomBlockDrag({
     pixelsPerMs,
-    duration,
+    duration: store.duration,
     updateZoomBlock,
     isExporting,
   });
@@ -205,6 +198,13 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
       }
 
       switch (e.key.toLowerCase()) {
+        case 'x':
+          if (!isExporting && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey
+            && !(e.target instanceof HTMLElement && e.target.isContentEditable)) {
+            store.removePreviousClip();
+            e.preventDefault();
+          }
+          break;
         case 'v':
           setCurrentTool('select');
           e.preventDefault();
@@ -233,21 +233,21 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
           break;
         case '+':
         case '=':
-          setTimelineZoom(prev => Math.min(prev * 1.5, 10));
+          setTimelineZoom(prev => stepTimelineZoom(prev,'in',duration,availableTimelineWidth));
           e.preventDefault();
           break;
         case '-':
-          setTimelineZoom(prev => Math.max(prev / 1.5, 0.1));
+          setTimelineZoom(prev => stepTimelineZoom(prev,'out',duration,availableTimelineWidth));
           e.preventDefault();
           break;
         case '0':
-          setTimelineZoom(1);
+          setTimelineZoom(fitTimelineZoom(duration,availableTimelineWidth));
           e.preventDefault();
           break;
         case ' ': {
-          const video = getVideoElement();
-          const wantPlay = video?.paused ?? true;
-          if (wantPlay && currentTime >= duration) {
+          const playback = useEditorStore.getState();
+          const wantPlay = !playback.isPlaying;
+          if (wantPlay && playback.currentTime >= duration) {
             seekVideo(0);
           }
           setVideoPlaying(wantPlay);
@@ -258,7 +258,9 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
         case 'delete':
           if (!isExporting) {
             if (selection.clipIds.length > 0) {
-              selection.clipIds.forEach((clipId) => store.deleteClip(clipId));
+              store.beginHistoryGroup();
+              try { selection.clipIds.forEach((clipId) => store.deleteClip(clipId)); }
+              finally { store.endHistoryGroup(); }
               clearSelection();
             } else if (selectedBlockId) {
               deleteZoomBlock(selectedBlockId);
@@ -271,7 +273,7 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [snappingEnabled, isExporting, setCurrentTool, setSnappingEnabled, setVideoPlaying, getVideoElement, currentTime, duration, seekVideo, splitAtTime, selection.clipIds, store, clearSelection, selectedBlockId, deleteZoomBlock]);
+  }, [availableTimelineWidth, snappingEnabled, isExporting, setCurrentTool, setSnappingEnabled, setVideoPlaying, getVideoElement, duration, seekVideo, splitAtTime, selection.clipIds, store, clearSelection, selectedBlockId, deleteZoomBlock]);
 
   const handleTimelineClick = (e: React.MouseEvent) => {
     if (!timelineRef.current || isDragging) return;
@@ -325,6 +327,8 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
 
   const handleAddZoomBlock = () => {
     if (isExporting) return;
+    const range = newSourceZoomRange(store, useEditorStore.getState().currentTime);
+    if (!range) return;
     const id = crypto.randomUUID();
     store.addZoomBlock({
       id,
@@ -332,33 +336,27 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
       click_y: 0.5,
       center_x: 0.5,
       center_y: 0.5,
-      start_time: currentTime,
-      end_time: currentTime + 2000,
+      ...range,
       zoom_factor: 2.0,
       is_manual: true
     });
   };
 
-  const fitTimeline = () => {
-    if (duration <= 0 || availableTimelineWidth <= 0) {
-      setTimelineZoom(1);
-      return;
-    }
-    setTimelineZoom(Math.max(0.1, Math.min(10, availableTimelineWidth / duration / 0.1)));
-  };
+  const fitTimeline = () => setTimelineZoom(fitTimelineZoom(duration,availableTimelineWidth));
 
-  const toggleTrackVisibility = (track: keyof VisibleTracks) => {
-    if (isExporting) return;
-    setVisibleTracks(prev => ({ ...prev, [track]: !prev[track] }));
+  const videoVisible = store.tracks.some(track =>
+    (track.type === 'video' || track.type === 'screen') && track.visible);
+  const toggleVideoVisibility = () => {
+    if (!isExporting) store.setVideoTracksVisible(!videoVisible);
   };
 
   // Collapsed view
   if (isCollapsed) {
     return (
       <div className="timeline-collapsed">
-        <div className="collapsed-playhead" style={{ left: `${(currentTime / duration) * 100}%` }} />
+        <CollapsedPlayhead duration={duration} />
         <div className="collapsed-controls">
-          <span className="time-display">{formatTime(currentTime)}</span>
+          <TimelineTime className="time-display" />
           <button
             className="editor-btn editor-btn--ghost editor-btn--small"
             onClick={onToggleCollapse}
@@ -380,31 +378,37 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
   return (
     <div className="professional-timeline">
       <TimelineHeader
-        currentTime={currentTime}
         duration={duration}
         currentTool={currentTool}
         setCurrentTool={setCurrentTool}
         snappingEnabled={snappingEnabled}
         setSnappingEnabled={setSnappingEnabled}
-        onZoomIn={() => setTimelineZoom(prev => Math.min(prev * 1.5, 10))}
-        onZoomOut={() => setTimelineZoom(prev => Math.max(prev / 1.5, 0.1))}
+        onZoomIn={() => setTimelineZoom(prev => stepTimelineZoom(prev,'in',duration,availableTimelineWidth))}
+        onZoomOut={() => setTimelineZoom(prev => stepTimelineZoom(prev,'out',duration,availableTimelineWidth))}
         onFitTimeline={fitTimeline}
         onToggleCollapse={onToggleCollapse}
         onAddZoomBlock={handleAddZoomBlock}
-        onSplitAtPlayhead={() => splitAtTime(currentTime)}
+        onSplitAtPlayhead={() => splitAtTime(useEditorStore.getState().currentTime)}
+        onRemovePreviousClip={() => store.removePreviousClip()}
         isExporting={isExporting}
       />
 
       <div
         className={`timeline-content ${cursorClass}`}
         ref={timelineRef}
+        onScroll={event => setTimelineScrollLeft(event.currentTarget.scrollLeft)}
         onClick={handleTimelineClick}
       >
         <div className="timeline-tracks" style={{ width: `${Math.max(timelineTracksWidth, 100)}px` }}>
-          {visibleTracks.video && (
+          {(
             <VideoTrack
               timelineWidth={timelineWidth}
+              viewportLeft={Math.max(0,timelineScrollLeft-trackHeaderWidth-100)}
+              viewportRight={timelineScrollLeft+Math.max(0,timelineViewportWidth-trackHeaderWidth)+100}
               pixelsPerMs={pixelsPerMs}
+              sourceDuration={store.duration}
+              sourcePath={videoFilePath}
+              tracks={store.tracks}
               thumbnails={thumbnails}
               thumbnailsLoading={thumbnailsLoading}
               trimStart={trimStart}
@@ -413,25 +417,27 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
               clips={clips}
               selectedClipIds={selection.clipIds}
               isExporting={isExporting}
-              onToggleVisibility={() => toggleTrackVisibility('video')}
+              visible={videoVisible}
+              onToggleVisibility={toggleVideoVisibility}
               onTrimStartDrag={(e) => handleMouseDown(e, 'trim-start')}
               onTrimEndDrag={(e) => handleMouseDown(e, 'trim-end')}
               onClipClick={handleClipClick}
             />
           )}
 
-          {visibleTracks.smartZoom && (
+          {(
             <ZoomTrack
               pixelsPerMs={pixelsPerMs}
               zoomBlocks={zoomBlocks}
-              zoomKeyframes={zoomKeyframes}
-              previewZoomAnalysis={previewZoomAnalysis}
+              zoomKeyframes={mappedZoomKeyframes}
+              previewZoomAnalysis={mappedPreviewZoom}
               zoomLoading={zoomLoading}
               previewZoomLoading={previewZoomLoading}
               zoomAnalysis={zoomAnalysis}
               selectedBlockId={selectedBlockId}
               isExporting={isExporting}
-              onToggleVisibility={() => toggleTrackVisibility('smartZoom')}
+              effectsEnabled={store.visualSettings.zoomEffectsEnabled !== false}
+              onToggleVisibility={() => store.updateVisualSettings({zoomEffectsEnabled: store.visualSettings.zoomEffectsEnabled === false})}
               onBlockClick={handleBlockClick}
               onBlockDoubleClick={handleBlockDoubleClick}
               onDragStart={(e, block) => {
@@ -442,40 +448,50 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
             />
           )}
 
-          {hasWebcam && visibleTracks.webcam && (
+          {hasWebcam && (
             <WebcamTrack
               pixelsPerMs={pixelsPerMs}
-              webcamKeyframes={webcamKeyframes}
+              webcamKeyframes={webcamKeyframes.flatMap(k=>projectSourceRange(store,k.time,k.time+0.001).map(r=>({...k,id:`${k.id}:${r.occurrenceId}`,time:r.startTime})))}
               isExporting={isExporting}
-              onToggleVisibility={() => toggleTrackVisibility('webcam')}
+              enabled={store.visualSettings.webcamEnabled !== false}
+              onToggleVisibility={() => store.updateVisualSettings({webcamEnabled: store.visualSettings.webcamEnabled === false})}
             />
           )}
 
-          {hasMicrophone && visibleTracks.microphone && (
+          {hasMicrophone && (
             <AudioTrack
+              viewportLeft={Math.max(0,timelineScrollLeft-trackHeaderWidth-100)}
+              viewportRight={timelineScrollLeft+Math.max(0,timelineViewportWidth-trackHeaderWidth)+100}
               type="microphone"
               duration={duration}
               pixelsPerMs={pixelsPerMs}
               audioPath={audioBasePath ? `${audioBasePath}.mic.wav` : null}
               isExporting={isExporting}
-              onToggleVisibility={() => toggleTrackVisibility('microphone')}
+              muted={store.audioSettings.micMuted ?? false}
+              onToggleMute={() => store.updateAudioSettings({micMuted: !store.audioSettings.micMuted})}
             />
           )}
 
-          {hasSystemAudio && visibleTracks.system && (
+          {hasSystemAudio && (
             <AudioTrack
+              viewportLeft={Math.max(0,timelineScrollLeft-trackHeaderWidth-100)}
+              viewportRight={timelineScrollLeft+Math.max(0,timelineViewportWidth-trackHeaderWidth)+100}
               type="system"
               duration={duration}
               pixelsPerMs={pixelsPerMs}
               audioPath={audioBasePath ? `${audioBasePath}.system.wav` : null}
               isExporting={isExporting}
-              onToggleVisibility={() => toggleTrackVisibility('system')}
+              muted={store.audioSettings.systemMuted ?? false}
+              onToggleMute={() => store.updateAudioSettings({systemMuted: !store.audioSettings.systemMuted})}
             />
           )}
 
+          {store.audioSettings.backgroundAudio && <MusicTrack music={store.audioSettings.backgroundAudio}
+            duration={duration} pixelsPerMs={pixelsPerMs} disabled={isExporting}
+            left={Math.max(0,timelineScrollLeft-trackHeaderWidth-100)}
+            right={timelineScrollLeft+Math.max(0,timelineViewportWidth-trackHeaderWidth)+100}/>}
           <Playhead
-            currentTime={currentTime}
-            pixelsPerMs={pixelsPerMs}
+                pixelsPerMs={pixelsPerMs}
             trackHeaderWidth={trackHeaderWidth}
             onMouseDown={(e) => handleMouseDown(e, 'playhead')}
           />
@@ -485,4 +501,4 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
   );
 };
 
-export default ProfessionalTimeline;
+export default React.memo(ProfessionalTimeline);

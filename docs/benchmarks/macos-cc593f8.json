@@ -1,0 +1,100 @@
+{
+  "revision": "cc593f87a632d72c11e8a36d435bf0b946e3f92f",
+  "hardware": {
+    "model": "MacBook Air",
+    "chip": "Apple M5",
+    "cpu_cores": 10,
+    "gpu_cores": 10,
+    "memory_gb": 24
+  },
+  "environment": {
+    "os": "macOS 27.0.1 (26A434)",
+    "graphics": "Metal",
+    "ffmpeg": "8.1",
+    "power": "AC, battery charged at 100%, low power mode off"
+  },
+  "export": {
+    "arch": "aarch64",
+    "debug_build": false,
+    "median_fps": 191.06748879279155,
+    "median_seconds": 1.570125833,
+    "os": "macos",
+    "runs": 5,
+    "sorted_seconds": [
+      1.50362075,
+      1.5434896249999999,
+      1.570125833,
+      1.597245083,
+      1.9245767919999999
+    ],
+    "zoom_blocks": 0,
+    "fixture": "5 seconds, 1920x1080, 60fps, 300 frames; padding, shadow and rounded corners",
+    "encoder": "h264_videotoolbox",
+    "warmup_runs": 1,
+    "validation": "All six outputs decoded to 300 frames at 1920x1080"
+  },
+  "verification": {
+    "frontend_tests_passed": 18,
+    "native_tests_passed": 52,
+    "native_tests_ignored": 1,
+    "macos_suite": "passed",
+    "linux_ci": "https://github.com/ryumacodes/tarantino/actions/runs/39292225718",
+    "linux_ci_jobs_passed": 11
+  },
+  "limitations": [
+    "One candidate batch; no matched baseline, so no regression or performance parity conclusion.",
+    "Does not measure recording overhead, unique captured FPS, preview responsiveness, audio, webcam, cursor or zoom effects.",
+    "No live SteamOS testing was performed on this Mac."
+  ],
+  "zoom_export_comparison": {
+    "fixture": "Generated 5-second testsrc2 1080p60 fixture; same settings except zoom blocks",
+    "warmup_runs_per_condition": 1,
+    "no_zoom": {
+      "arch": "aarch64",
+      "debug_build": false,
+      "median_fps": 207.01673436126532,
+      "median_seconds": 1.449158209,
+      "os": "macos",
+      "runs": 3,
+      "sorted_seconds": [
+        1.445353458,
+        1.449158209,
+        1.455661042
+      ],
+      "zoom_blocks": 0
+    },
+    "zoom": {
+      "arch": "aarch64",
+      "debug_build": false,
+      "median_fps": 207.4208736417025,
+      "median_seconds": 1.446334666,
+      "os": "macos",
+      "runs": 3,
+      "sorted_seconds": [
+        1.442147959,
+        1.446334666,
+        1.501595833
+      ],
+      "zoom_blocks": 1
+    },
+    "zoom_blocks": [
+      {
+        "start_time_ms": 4,
+        "end_time_ms": 4004,
+        "zoom_level": 2.0,
+        "center_x": 0.18125,
+        "center_y": 0.23981481481481481,
+        "kind": "click",
+        "centers": [
+          {
+            "x": 0.18125,
+            "y": 0.23981481481481481,
+            "time": 1004
+          }
+        ]
+      }
+    ],
+    "visual_verification": "Inspected matching frames at 2 seconds; 2x crop visible. All eight outputs validated as 300 frames at 1920x1080.",
+    "conclusion": "No observed zoom export penalty in this short batch; timing difference does not establish a speedup."
+  }
+}

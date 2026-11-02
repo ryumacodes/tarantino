@@ -1,3 +1,6 @@
+import {parseCaptionSettings} from "../../utils/captions/settings";
+import { parseShortcutSettings } from "../../utils/shortcuts/settings";
+import { createThumbnailActions } from './actions/thumbnailActions';
 // Editor Store Implementation - Main store composing slices
 
 import { create } from 'zustand';
@@ -36,17 +39,21 @@ import { createSettingsActions } from './actions/settingsActions';
 
 // Initial state
 const initialState: EditorState = {
+  recordingRevision: 0,
   videoFilePath: null,
   projectTitle: 'Untitled Recording',
   recordedAt: null,
   duration: 30000,
   currentTime: 0,
+  playbackRevision: 0,
   trimStart: 0,
   trimEnd: 30000,
   zoomKeyframes: [],
   webcamKeyframes: [],
   overlays: [],
   audioSettings: {
+    micMuted: false,
+    systemMuted: false,
     micGain: 0,
     systemGain: 0,
     noiseGate: false,
@@ -57,6 +64,7 @@ const initialState: EditorState = {
   thumbnailsLoading: false,
   history: [],
   historyIndex: -1,
+  historyGroup: null,
   hasWebcam: false,
   hasMicrophone: false,
   hasSystemAudio: false,
@@ -66,6 +74,13 @@ const initialState: EditorState = {
   previewZoomAnalysis: null,
   previewZoomLoading: false,
   mouseEvents: null,
+  shortcutSettings: parseShortcutSettings(undefined),
+  shortcutIntervals: [],
+  masks: [],
+  transcripts: [],
+  captionSettings: parseCaptionSettings(undefined),
+  typingRanges: [],
+  dismissedTypingRanges: [],
   mouseEventsLoading: false,
   videoWidth: null,
   videoHeight: null,
@@ -99,16 +114,30 @@ export const useEditorStore = create<EditorState & EditorActions>()(
     immer((set, get) => ({
       ...initialState,
 
-      get canUndo() {
-        return get().historyIndex > 0;
-      },
-
-      get canRedo() {
-        return get().historyIndex < get().history.length - 1;
-      },
+      canUndo: false,
+      canRedo: false,
 
       initializeEditor: (filePath, duration, hasWebcam = false, hasMicrophone = false, hasSystemAudio = false, videoWidth = null, videoHeight = null) => {
         set((state) => {
+          state.audioSettings.backgroundAudio = undefined;
+          state.recordingRevision = (state.recordingRevision ?? 0)+1;
+          state.isPlaying = false;
+          state.playbackRevision = state.playbackRevision+1;
+          state.mouseEvents = null;
+          state.typingRanges = [];
+          state.shortcutIntervals = [];
+          state.masks = [];
+          state.transcripts = [];
+          state.captionSettings = parseCaptionSettings(undefined);
+          state.shortcutSettings = parseShortcutSettings(undefined);
+          state.dismissedTypingRanges = [];
+          state.mouseEventsLoading = false;
+          state.displayResolution = null;
+          state.screenResolution = null;
+          state.recordingArea = null;
+          state.captureMode = null;
+          state.scaleFactor = 1;
+          state.selection = {clipIds:[],trackIds:[],keyframeIds:[]};
           state.videoFilePath = filePath;
           state.videoWidth = videoWidth;
           state.videoHeight = videoHeight;
@@ -131,6 +160,9 @@ export const useEditorStore = create<EditorState & EditorActions>()(
           state.thumbnailsLoading = false;
           state.history = [];
           state.historyIndex = -1;
+          state.historyGroup = null;
+          state.canUndo = false;
+          state.canRedo = false;
           state.zoomAnalysis = null;
           state.zoomLoading = false;
           state.selectedBlockId = null;
@@ -180,25 +212,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         get().loadZoomData(filePath);
       },
 
-      loadThumbnails: async (filePath) => {
-        set((state) => { state.thumbnailsLoading = true; });
-        try {
-          const durationSec = get().duration / 1000;
-          const count = Math.max(5, Math.min(50, Math.ceil(durationSec * 1.0)));
-          const thumbnailPaths = await invoke<string[]>('extract_video_thumbnails', {
-            videoPath: filePath,
-            thumbnailCount: count,
-            thumbnailWidth: 160
-          });
-          set((state) => {
-            state.thumbnails = thumbnailPaths;
-            state.thumbnailsLoading = false;
-          });
-        } catch (error) {
-          console.error('Failed to load thumbnails:', error);
-          set((state) => { state.thumbnailsLoading = false; });
-        }
-      },
+      ...createThumbnailActions(set, get),
 
       // Playback actions
       ...createPlaybackActions(set, get),

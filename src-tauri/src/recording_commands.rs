@@ -20,7 +20,8 @@ use target::{
     validate_recording_target,
 };
 use timer::start_recording_timer;
-use ui::{hide_ui_elements, restore_ui_elements};
+use ui::hide_ui_elements;
+pub(crate) use ui::restore_ui_elements;
 
 static STARTING_RECORDING: AtomicBool = AtomicBool::new(false);
 
@@ -33,6 +34,7 @@ pub struct RecordingCapabilities {
     display_preview_available: bool,
     automatic_zoom_available: bool,
     system_audio_available: bool,
+    shortcut_recording_available: bool,
 }
 
 #[tauri::command]
@@ -51,6 +53,7 @@ pub async fn get_recording_capabilities() -> RecordingCapabilities {
             display_preview_available: false,
             automatic_zoom_available: crate::input::pointer_tracking_available(),
             system_audio_available: crate::recording::linux::system_audio_available(),
+            shortcut_recording_available: false,
         };
     }
 
@@ -62,6 +65,7 @@ pub async fn get_recording_capabilities() -> RecordingCapabilities {
         display_preview_available: true,
         automatic_zoom_available: true,
         system_audio_available: true,
+        shortcut_recording_available: cfg!(target_os = "macos"),
     }
 }
 
@@ -70,10 +74,12 @@ pub async fn record_start_new(
     target_type: String,
     target_id: String,
     quality: String,
+    frame_rate: Option<u32>,
     include_cursor: bool,
     include_microphone: bool,
     include_system_audio: bool,
     capture_pointer_events: bool,
+    capture_shortcuts: Option<bool>,
     webcam_shape: Option<String>,
     output_path: Option<String>,
     app: AppHandle,
@@ -97,12 +103,15 @@ pub async fn record_start_new(
     #[cfg(not(target_os = "linux"))]
     let _ = capture_pointer_events;
 
+    if capture_shortcuts.unwrap_or(false) && !cfg!(target_os = "macos") {
+        return Err("Shortcut recording is not available on this platform".into());
+    }
     if state.recording.is_recording() || STOPPING_RECORDING.load(Ordering::Acquire) {
         return Err("Recording is already active".to_string());
     }
 
     #[cfg(target_os = "macos")]
-    {
+    if target_type != "device" {
         use crate::permissions::check_permissions;
         let permissions = check_permissions();
         if !permissions.screen_recording_granted {
@@ -150,6 +159,12 @@ pub async fn record_start_new(
         recording_config.microphone_device = maybe_mic_device;
     }
 
+    if let Some(fps) = frame_rate {
+        if !matches!(fps, 30 | 60 | 120) {
+            return Err("Frame rate must be 30, 60 or 120 fps".into());
+        }
+        recording_config.frame_rate = Some(fps);
+    }
     validate_recording_target(&state, &recording_config)?;
 
     let recording_output_path = recording_config.output_path.clone();
@@ -189,6 +204,7 @@ pub async fn record_start_new(
     #[cfg(target_os = "linux")]
     crate::input::set_pointer_capture_consent(capture_pointer_events);
 
+    state.get_mouse_tracker().lock().configure_shortcut_capture(capture_shortcuts.unwrap_or(false));
     if let Err(e) = state.start_recording(recording_config).await {
         #[cfg(target_os = "linux")]
         crate::input::set_pointer_capture_consent(previous_pointer_capture_consent);
@@ -310,10 +326,6 @@ pub async fn record_restart_new(
 
     start_recording_timer(app.clone(), Arc::clone(&*state), &recording_output_path).await;
 
-    if let Some(hud) = app.get_webview_window("recording-hud") {
-        let _ = hud.show();
-        let _ = hud.set_always_on_top(true);
-    }
 
     println!("Recording restarted successfully");
     Ok(())

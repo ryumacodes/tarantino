@@ -1,26 +1,31 @@
 import React from 'react';
-import { Mic, Volume2, Eye } from 'lucide-react';
+import { Mic, Volume2, VolumeX } from 'lucide-react';
 import AudioWaveform from '../AudioWaveform';
 
 interface AudioTrackProps {
   type: 'microphone' | 'system';
   duration: number;
+  viewportLeft:number;
+  viewportRight:number;
   pixelsPerMs: number;
   audioPath: string | null;
   isExporting: boolean;
-  onToggleVisibility: () => void;
+  muted: boolean;
+  onToggleMute: () => void;
 }
 
 const AudioTrack: React.FC<AudioTrackProps> = ({
   type,
   duration,
+  viewportLeft,viewportRight,
   pixelsPerMs,
   audioPath,
   isExporting,
-  onToggleVisibility,
+  muted,
+  onToggleMute,
 }) => {
   const Icon = type === 'microphone' ? Mic : Volume2;
-  const label = type === 'microphone' ? 'Microphone' : 'Audio';
+  const label = type === 'microphone' ? 'Microphone' : 'System audio';
 
   return (
     <div className="timeline-track">
@@ -31,14 +36,18 @@ const AudioTrack: React.FC<AudioTrackProps> = ({
         </div>
         <button
           className={`track-toggle ${isExporting ? 'disabled' : ''}`}
-          onClick={onToggleVisibility}
+          aria-label={`Mute ${label.toLowerCase()}`}
+          aria-pressed={muted}
+          title={`${muted ? 'Unmute' : 'Mute'} ${label.toLowerCase()}`}
+          onClick={event => { event.stopPropagation(); onToggleMute(); }}
           disabled={isExporting}
         >
-          <Eye size={12} />
+          {muted ? <VolumeX size={12} /> : <Volume2 size={12} />}
         </button>
       </div>
-      <div className="track-content">
+      <div className="track-content" style={{ opacity: muted ? 0.45 : 1 }}>
         <AudioWaveform
+          viewportLeft={viewportLeft} viewportRight={viewportRight}
           type={type}
           duration={duration}
           pixelsPerMs={pixelsPerMs}

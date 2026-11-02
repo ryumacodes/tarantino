@@ -1,50 +1,28 @@
-import React, { useRef, useState, useEffect, Suspense } from 'react';
+import {MaskBoundsEditor} from './MaskBoundsEditor';
+import type {PreviewCameraMotion} from '../../../utils/motion/cursorShutter';
+import {continuousPreviewMotion,type PreviewMotionSample} from '../../../utils/motion/previewContinuity';
+import {windowShutter} from '../../../utils/motion/windowShutter';
+import {TemporalWindowPreview,type TemporalWindowFrame} from './TemporalWindowPreview';
+import { previewCameraPose, previewCameraVelocity } from '../../../utils/motion/previewCamera';
+import type { SourceCrop } from '../../../utils/sourceCrop';
+import { resolveSourceCrop } from '../../../utils/sourceCrop';
+import { previewSample } from '../../../utils/timeline/previewTimeline';
+import { useShallow } from 'zustand/react/shallow';
+import { selectVideoInputs } from './hooks/videoInputs';
+import React, { useRef, useState, useEffect, useMemo, Suspense } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
-import { Text } from '@react-three/drei';
+import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { useEditorStore, SPRING_PRESETS, ZOOM_SPEED_PRESETS } from '../../../stores/editor';
+import { useEditorStore } from '../../../stores/editor';
 import { VideoMaterial, VideoFallback, LinuxNativeVideoOverlay } from './VideoMaterial';
 import { BackgroundPlane } from './BackgroundPlane';
 import { VideoShadow } from './VideoShadow';
 import { isLinuxRuntime } from '../../../utils/platform';
 
-interface SpringConfig {
-  tension: number;
-  friction: number;
-  mass: number;
-}
-
-interface SpringState {
-  value: number;
-  velocity: number;
-}
-
-const springStep = (
-  current: number,
-  target: number,
-  velocity: number,
-  config: SpringConfig,
-  dt: number
-): SpringState => {
-  const { tension, friction, mass } = config;
-  const safeDt = Math.min(dt, 0.064);
-
-  const displacement = current - target;
-  const springForce = -tension * displacement;
-  const dampingForce = -friction * velocity;
-  const acceleration = (springForce + dampingForce) / mass;
-
-  const newVelocity = velocity + acceleration * safeDt;
-  const newValue = current + newVelocity * safeDt;
-
-  const isSettled = Math.abs(displacement) < 0.0001 && Math.abs(newVelocity) < 0.0001;
-  if (isSettled) {
-    return { value: target, velocity: 0 };
-  }
-
-  return { value: newValue, velocity: newVelocity };
-};
+import { previewGeometry } from '../../../utils/previewGeometry';
+import { useCameraTrajectory } from './hooks/useCameraTrajectory';
+import {previewCameraPair} from '../../../utils/motion/previewCameraPair';
 
 interface VideoTransform {
   scale: number;
@@ -57,82 +35,24 @@ interface VideoTransform {
 }
 
 interface VideoViewerProps {
+  cameraMotionRef:React.MutableRefObject<PreviewCameraMotion|null>;
+  temporalWindowActive: React.MutableRefObject<boolean>;
   showMouseOverlay: boolean;
   isPlaying: boolean;
   velocityRef: React.MutableRefObject<{ scale: number; x: number; y: number }>;
   videoTransformRef: React.MutableRefObject<VideoTransform>;
 }
 
-const WINDOW_EDGE_DETAIL_MARGIN = 0.22;
-
-const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
-
-const smoothstep = (value: number): number => {
-  const t = clamp01(value);
-  return t * t * (3 - 2 * t);
-};
-
-interface ZoomCenter {
-  x: number;
-  y: number;
-  time: number;
-}
-
-const resolveCenterAtTime = (
-  centers: ZoomCenter[],
-  currentTime: number,
-  fallbackX: number,
-  fallbackY: number,
-  interpolate: boolean
-): { x: number; y: number } => {
-  if (centers.length === 0) {
-    return { x: fallbackX, y: fallbackY };
-  }
-
-  const sortedCenters = [...centers].sort((a, b) => a.time - b.time);
-  const first = sortedCenters[0];
-  if (currentTime <= first.time) {
-    return { x: first.x, y: first.y };
-  }
-
-  for (let i = 1; i < sortedCenters.length; i += 1) {
-    const previous = sortedCenters[i - 1];
-    const next = sortedCenters[i];
-    if (currentTime <= next.time) {
-      if (!interpolate || next.time <= previous.time) {
-        return { x: previous.x, y: previous.y };
-      }
-      const progress = clamp01((currentTime - previous.time) / (next.time - previous.time));
-      return {
-        x: previous.x + (next.x - previous.x) * progress,
-        y: previous.y + (next.y - previous.y) * progress,
-      };
-    }
-  }
-
-  const last = sortedCenters[sortedCenters.length - 1];
-  return { x: last.x, y: last.y };
-};
-
-const getWindowZoomAnchor = (value: number, scale: number): number => {
-  const edgeAnchor = Math.max(
-    WINDOW_EDGE_DETAIL_MARGIN,
-    Math.min(1 - WINDOW_EDGE_DETAIL_MARGIN, value)
-  );
-  const strength = smoothstep((scale - 1) / 1.0);
-  return value + (edgeAnchor - value) * strength;
-};
-
-export const VideoViewer: React.FC<VideoViewerProps> = ({
+export const VideoViewer = React.memo(function VideoViewer({
   showMouseOverlay,
+  cameraMotionRef,
+  temporalWindowActive,
   isPlaying,
   velocityRef,
   videoTransformRef
-}) => {
+}: VideoViewerProps) {
   const {
     videoFilePath,
-    zoomAnalysis,
-    currentTime,
     loadMouseEvents,
     visualSettings,
     displayResolution,
@@ -141,10 +61,22 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
     videoWidth,
     videoHeight,
     captureMode,
-  } = useEditorStore();
+    outputWidth, outputHeight,
+  } = useEditorStore(useShallow(selectVideoInputs));
+  const displayViewRef=useRef<SourceCrop>({x:0,y:0,width:1,height:1});
   const meshRef = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
-  const { viewport } = useThree();
+  const { viewport,gl } = useThree();
+  const nativeMaskRef=useRef<THREE.Texture|null>(null);
+  const shadowTextureRef=useRef<THREE.Texture|null>(null);
+  const shutterRef=useRef<ReturnType<typeof windowShutter>|null>(null);
+  const renderSize=useRef({width:1,height:1,pixelsPerUnit:1});
+  const whiteMask=useMemo(()=>{
+    const texture=new THREE.DataTexture(new Uint8Array([255,255,255,255]),1,1);
+    texture.needsUpdate=true;return texture;
+  },[]);
+  useEffect(()=>()=>whiteMask.dispose(),[whiteMask]);
+  const bufferSize=useMemo(()=>new THREE.Vector2(),[]);
 
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
@@ -169,265 +101,69 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
     loadVideo();
   }, [videoFilePath, loadMouseEvents]);
 
-  const ASPECT_MAP: Record<string, number> = {
-    '16:9': 16/9, '9:16': 9/16, '4:3': 4/3, '1:1': 1, '21:9': 21/9,
-  };
-  const sourceAspect = (videoWidth && videoHeight)
-    ? videoWidth / videoHeight
-    : (displayResolution ? displayResolution.width / displayResolution.height : 16 / 9);
-  const isWindowFocus = captureMode === 'window' && visualSettings.windowLayoutMode === 'focus';
-  const videoAspect = isWindowFocus
-    ? sourceAspect
-    : captureMode === 'window'
-      ? (ASPECT_MAP[visualSettings.aspectRatio] || sourceAspect)
-      : (displayResolution ? displayResolution.width / displayResolution.height : 16 / 9);
-  const viewportAspect = viewport.width / viewport.height;
+  const output = { width: outputWidth, height: outputHeight };
+  const originalSource = { width: videoWidth || displayResolution?.width || 1920,
+    height: videoHeight || displayResolution?.height || 1080 };
+  const crop = visualSettings.sourceCrop
+    ? resolveSourceCrop(visualSettings.sourceCrop,originalSource.width,originalSource.height) : undefined;
+  const geometry = previewGeometry({
+    output,
+    source: crop ?? originalSource,
+    viewport: { width: viewport.width, height: viewport.height },
+    padding: visualSettings.padding,
+    desktop: captureMode === 'window' && visualSettings.windowLayoutMode === 'desktop'
+      && screenResolution && recordingArea
+      ? { screen: screenResolution, window: crop ? {
+          width: Math.max(1,Math.round(recordingArea.width*crop.width/originalSource.width)),
+          height: Math.max(1,Math.round(recordingArea.height*crop.height/originalSource.height)),
+        } : recordingArea } : undefined,
+  });
+  const { canvasWidth: basePlaneWidth, canvasHeight: basePlaneHeight, planeWidth, planeHeight } = geometry;
 
-  let basePlaneWidth: number, basePlaneHeight: number;
-  const fitW = viewport.width;
-  const fitH = viewport.height;
-  if (videoAspect > viewportAspect) {
-    basePlaneWidth = fitW;
-    basePlaneHeight = fitW / videoAspect;
-  } else {
-    basePlaneHeight = fitH;
-    basePlaneWidth = fitH * videoAspect;
-  }
-  if (basePlaneWidth > fitW) {
-    basePlaneHeight *= fitW / basePlaneWidth;
-    basePlaneWidth = fitW;
-  }
-  if (basePlaneHeight > fitH) {
-    basePlaneWidth *= fitH / basePlaneHeight;
-    basePlaneHeight = fitH;
-  }
+  const paddedWidth=output.width-2*Math.floor(output.width*visualSettings.padding/100);
+  const paddedHeight=output.height-2*Math.floor(output.height*visualSettings.padding/100);
+  const outputCornerRadius=visualSettings.cornerRadius>0
+    ?Math.max(1,Math.min(paddedWidth,paddedHeight)*visualSettings.cornerRadius/200):0;
+  const inputShortSide=Math.min(planeWidth,planeHeight)*output.width/basePlaneWidth;
 
-  let planeWidth: number, planeHeight: number;
+  const { frames: cameraFrames, error: motionError } = useCameraTrajectory();
 
-  if (captureMode === 'window') {
-    const inset = Math.max(0.01, 1 - 2 * (visualSettings.padding / 100));
-    const contentW = basePlaneWidth * inset;
-    const contentH = basePlaneHeight * inset;
-    if (isWindowFocus) {
-      planeWidth = contentW;
-      planeHeight = contentH;
-    } else if (
-      screenResolution?.width &&
-      screenResolution?.height &&
-      recordingArea?.width &&
-      recordingArea?.height
-    ) {
-      // Desktop mode stages the selected window at the same proportion it
-      // occupied on its host display. The virtual display is aspect-fitted
-      // into the selected canvas, while the background remains fixed.
-      const desktopScale = Math.min(
-        contentW / screenResolution.width,
-        contentH / screenResolution.height
-      );
-      planeWidth = recordingArea.width * desktopScale;
-      planeHeight = recordingArea.height * desktopScale;
-    } else {
-      if (sourceAspect > videoAspect) {
-        planeWidth = contentW;
-        planeHeight = contentW / sourceAspect;
-      } else {
-        planeHeight = contentH;
-        planeWidth = contentH * sourceAspect;
-      }
-    }
-  } else {
-    const paddingFactor = 1 - 2 * (visualSettings.padding / 100);
-    planeWidth = basePlaneWidth * Math.max(0.01, paddingFactor);
-    planeHeight = basePlaneHeight * Math.max(0.01, paddingFactor);
-  }
-
-  const { getCursorAtTime } = useEditorStore();
-
-  const zoomSpring = useRef<SpringState>({ value: 1, velocity: 0 });
-  const cursorSpringX = useRef<SpringState>({ value: 0.5, velocity: 0 });
-  const cursorSpringY = useRef<SpringState>({ value: 0.5, velocity: 0 });
-  const prevActiveBlockRef = useRef<string | null>(null);
-  const lastBlockOutConfigRef = useRef<SpringConfig | null>(null);
-
-  const globalZoomConfig = SPRING_PRESETS[visualSettings.zoomSpeedPreset];
-  const cursorConfig = SPRING_PRESETS[visualSettings.cursorSpeedPreset];
-
-  const zoomPanConfig = {
-    tension: 80,
-    friction: 40,
-    mass: 2.0
-  };
-
-  const followPanConfig = {
-    tension: 520,
-    friction: 52,
-    mass: 1.0
-  };
-
-  useFrame((state, delta) => {
-    if (!meshRef.current) return;
-
-    let targetScale = 1;
-    let targetCenterX = 0.5;
-    let targetCenterY = 0.5;
-    let isZooming = false;
-    let isFollowPhase = false;
-    let isAdjustedExit = false;
-    let zoomSpringConfig: SpringConfig = lastBlockOutConfigRef.current ?? globalZoomConfig;
-
-    if (zoomAnalysis && zoomAnalysis.zoom_blocks.length > 0) {
-      const activeBlockIndex = zoomAnalysis.zoom_blocks.findIndex(
-        block => currentTime >= block.start_time && currentTime <= block.end_time
-      );
-      const activeBlock = activeBlockIndex >= 0
-        ? zoomAnalysis.zoom_blocks[activeBlockIndex]
-        : undefined;
-
-      if (activeBlock) {
-        isZooming = true;
-        targetScale = activeBlock.zoom_factor;
-
-        const blockInConfig = activeBlock.zoom_in_speed
-          ? SPRING_PRESETS[activeBlock.zoom_in_speed] : globalZoomConfig;
-        const blockOutConfig = activeBlock.zoom_out_speed
-          ? SPRING_PRESETS[activeBlock.zoom_out_speed] : globalZoomConfig;
-
-        const blockKey = activeBlock.id;
-        if (prevActiveBlockRef.current !== blockKey) {
-          prevActiveBlockRef.current = blockKey;
-          const alreadyZoomed = zoomSpring.current.value > 1.1;
-          if (!alreadyZoomed) {
-            cursorSpringX.current = { value: activeBlock.center_x, velocity: 0 };
-            cursorSpringY.current = { value: activeBlock.center_y, velocity: 0 };
-          }
-        }
-
-        zoomSpringConfig = blockInConfig;
-        const cursorPos = getCursorAtTime(currentTime);
-        const centers = activeBlock.centers ?? [];
-        const firstCenterTime = centers.length > 0
-          ? Math.min(...centers.map(center => center.time))
-          : activeBlock.start_time;
-
-        const anchorCenter = resolveCenterAtTime(
-          centers,
-          currentTime,
-          activeBlock.center_x,
-          activeBlock.center_y,
-          activeBlock.kind === 'typing'
-        );
-        const anchorCenterX = anchorCenter.x;
-        const anchorCenterY = anchorCenter.y;
-
-        if (currentTime >= firstCenterTime && activeBlock.kind === 'typing') {
-          isFollowPhase = true;
-          targetCenterX = anchorCenterX;
-          targetCenterY = anchorCenterY;
-        } else if (currentTime >= firstCenterTime && cursorPos) {
-          isFollowPhase = true;
-          targetCenterX = cursorPos.x;
-          targetCenterY = cursorPos.y;
-        } else {
-          targetCenterX = anchorCenterX;
-          targetCenterY = anchorCenterY;
-        }
-
-        const nextBlock = zoomAnalysis.zoom_blocks[activeBlockIndex + 1];
-        const hasContinuousNextBlock = Boolean(
-          nextBlock && nextBlock.start_time <= activeBlock.end_time + 1
-        );
-        if (activeBlock.timing_adjusted && !hasContinuousNextBlock) {
-          const outPreset = activeBlock.zoom_out_speed ?? visualSettings.zoomSpeedPreset;
-          const zoomOutLeadMs = ZOOM_SPEED_PRESETS[outPreset].zoomOut;
-          const zoomOutStart = Math.max(
-            activeBlock.start_time,
-            activeBlock.end_time - zoomOutLeadMs
-          );
-          if (currentTime >= zoomOutStart) {
-            isZooming = false;
-            isFollowPhase = false;
-            isAdjustedExit = true;
-            targetScale = 1;
-            targetCenterX = 0.5;
-            targetCenterY = 0.5;
-            zoomSpringConfig = blockOutConfig;
-          }
-        }
-
-        lastBlockOutConfigRef.current = blockOutConfig;
-      }
-    }
-
-    if (!isZooming && !isAdjustedExit) {
-      targetCenterX = 0.5;
-      targetCenterY = 0.5;
-      prevActiveBlockRef.current = null;
-    }
-
-    targetCenterX = Math.max(0.0, Math.min(1.0, targetCenterX));
-    targetCenterY = Math.max(0.0, Math.min(1.0, targetCenterY));
-
-    const panSpringConfig = isFollowPhase ? followPanConfig : (isZooming ? zoomPanConfig : cursorConfig);
-    cursorSpringX.current = springStep(
-      cursorSpringX.current.value,
-      targetCenterX,
-      cursorSpringX.current.velocity,
-      panSpringConfig,
-      delta
-    );
-    cursorSpringY.current = springStep(
-      cursorSpringY.current.value,
-      targetCenterY,
-      cursorSpringY.current.velocity,
-      panSpringConfig,
-      delta
-    );
-
-    zoomSpring.current = springStep(
-      zoomSpring.current.value,
-      targetScale,
-      zoomSpring.current.velocity,
-      zoomSpringConfig,
-      delta
-    );
-
-    const animatedScale = zoomSpring.current.value;
-    let animatedCenterX = cursorSpringX.current.value;
-    let animatedCenterY = cursorSpringY.current.value;
-
-    if (captureMode === 'window') {
-      animatedCenterX = Math.max(0.0, Math.min(1.0, animatedCenterX));
-      animatedCenterY = Math.max(0.0, Math.min(1.0, animatedCenterY));
-    }
-
-    const meshCenterX = animatedCenterX - 0.5;
-    const meshCenterY = -(animatedCenterY - 0.5);
-
-    let offsetX = -meshCenterX * (animatedScale - 1) * planeWidth;
-    let offsetY = -meshCenterY * (animatedScale - 1) * planeHeight;
-
-    if (captureMode === 'window' && animatedScale > 1.0) {
-      const anchorX = getWindowZoomAnchor(animatedCenterX, animatedScale);
-      const anchorY = getWindowZoomAnchor(animatedCenterY, animatedScale);
-      const sourceX = (animatedCenterX - 0.5) * planeWidth;
-      const sourceY = (0.5 - animatedCenterY) * planeHeight;
-      const anchorLocalX = (anchorX - 0.5) * planeWidth;
-      const anchorLocalY = (0.5 - anchorY) * planeHeight;
-      offsetX = anchorLocalX - sourceX * animatedScale;
-      offsetY = anchorLocalY - sourceY * animatedScale;
-    }
-
-    const MIN_VELOCITY_THRESHOLD = 0.15;
-    const panVelocity = Math.sqrt(
-      cursorSpringX.current.velocity ** 2 +
-      cursorSpringY.current.velocity ** 2
-    );
-    const velocityScale = Math.max(0.1, animatedScale);
-    velocityRef.current = {
-      scale: 0,
-      x: panVelocity > MIN_VELOCITY_THRESHOLD ? cursorSpringX.current.velocity * velocityScale * 10 : 0,
-      y: panVelocity > MIN_VELOCITY_THRESHOLD ? cursorSpringY.current.velocity * velocityScale * 10 : 0,
-    };
+  const previousMotion = useRef<PreviewMotionSample|null>(null);
+  useEffect(()=>()=>{cameraMotionRef.current=null;},[cameraMotionRef]);
+  useFrame(() => {
+    const state = useEditorStore.getState();
+    window.__TARANTINO_CURRENT_TIME = previewSample(state, state.currentTime).sourceTime ?? 0;
+    if (!meshRef.current) {cameraMotionRef.current=null;return;}
+    const frameRate=state.exportSettings.format==='gif'?Math.min(state.exportSettings.frameRate,30):state.exportSettings.frameRate;
+    const pair=previewCameraPair(state,state.currentTime,cameraFrames,frameRate);
+    const {sample}=pair;
+    const motionSample:PreviewMotionSample={playing:state.isPlaying,revision:state.playbackRevision,
+      clipId:sample.clipId,sourceTime:sample.sourceTime,sourcePath:sample.sourceFilePath??state.videoFilePath,
+      rate:sample.rate,trajectory:cameraFrames,clips:state.clips,tracks:state.tracks};
+    const continuous=pair.canBlur&&continuousPreviewMotion(previousMotion.current,motionSample);
+    previousMotion.current=motionSample;
+    const [animatedScale, animatedCenterX, animatedCenterY] = pair.now;
+    const previous = pair.before;
+    const pose = previewCameraPose(animatedScale,animatedCenterX,animatedCenterY,
+      captureMode==='window',planeWidth,planeHeight);
+    const before = previewCameraPose(previous[0],previous[1],previous[2],
+      captureMode==='window',planeWidth,planeHeight);
+    cameraMotionRef.current=motionError||!videoFilePath?null:{now:pose,before,frames:cameraFrames,
+      beforeSourceTime:pair.beforeSourceTime,beforeCursorHidden:pair.beforeCursorHidden,
+      fps:pair.fps,continuous:isPlaying&&continuous,timelineTime:state.currentTime,revision:state.playbackRevision};
+    gl.getDrawingBufferSize(bufferSize);
+    const renderWidth=Math.max(1,Math.round(bufferSize.x*basePlaneWidth/viewport.width));
+    const renderHeight=Math.max(1,Math.round(bufferSize.y*basePlaneHeight/viewport.height));
+    const pixelsPerUnit=renderWidth/basePlaneWidth;
+    renderSize.current={width:renderWidth,height:renderHeight,pixelsPerUnit};
+    shutterRef.current=windowShutter(pose,before,{width:renderWidth,height:renderHeight,
+      planeWidth,planeHeight,pixelsPerUnit},{continuous:isPlaying&&continuous,
+      samplesPerSecond:pair.fps,rate:1,
+      pan:visualSettings.motionBlurPanIntensity/100,zoom:visualSettings.motionBlurZoomIntensity/100});
+    const {offsetX,offsetY}=pose;
+    displayViewRef.current=pose.view;
+    velocityRef.current=previewCameraVelocity(pose,before,planeWidth,planeHeight,
+      pair.fps,1,isPlaying && continuous);
 
     if (captureMode === 'window') {
       if (groupRef.current) {
@@ -441,26 +177,39 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
         groupRef.current.scale.set(1, 1, 1);
         groupRef.current.position.set(0, 0, 0);
       }
-      meshRef.current.scale.set(
-        planeWidth * animatedScale,
-        planeHeight * animatedScale,
-        1
-      );
-      meshRef.current.position.set(offsetX, offsetY, 0);
+      meshRef.current.scale.set(planeWidth,planeHeight,1);
+      meshRef.current.position.set(0,0,0);
     }
 
-    videoTransformRef.current.scale = animatedScale;
+    videoTransformRef.current.scale = pose.scale;
     videoTransformRef.current.offsetX = offsetX;
     videoTransformRef.current.offsetY = offsetY;
     videoTransformRef.current.viewportWidth = viewport.width;
     videoTransformRef.current.viewportHeight = viewport.height;
     videoTransformRef.current.planeWidth = planeWidth;
     videoTransformRef.current.planeHeight = planeHeight;
-  });
+  },-2);
 
-  useEffect(() => {
-    window.__TARANTINO_CURRENT_TIME = currentTime;
-  }, [currentTime]);
+  const temporalFrame=():TemporalWindowFrame|null=>{
+    const shutter=shutterRef.current,material=meshRef.current?.material;
+    if(captureMode!=='window'||!visualSettings.motionBlurEnabled||!shutter?.active||linuxNativeOverlayEnabled
+      ||!(material instanceof THREE.MeshBasicMaterial)||!material.map
+      ||(visualSettings.shadowEnabled&&!shadowTextureRef.current))return null;
+    const {width,height,pixelsPerUnit}=renderSize.current;
+    const inputWidth=planeWidth*pixelsPerUnit,inputHeight=planeHeight*pixelsPerUnit;
+    const contentWidth=output.width-2*Math.floor(output.width*visualSettings.padding/100);
+    const contentHeight=output.height-2*Math.floor(output.height*visualSettings.padding/100);
+    const radius=visualSettings.cornerRadius>0?Math.max(1,Math.min(contentWidth,contentHeight)*visualSettings.cornerRadius/200):0;
+    return {width,height,input:{source:material.map,mask:nativeMaskRef.current??whiteMask,
+      shadow:shadowTextureRef.current??whiteMask,before:shutter.before,now:shutter.now,
+      inputSize:[inputWidth,inputHeight],baseCenter:[width/2,height/2],
+      sourceSize:[(material.map.isRenderTargetTexture?(material.map.image as {width:number}).width:originalSource.width)*material.map.repeat.x,
+        (material.map.isRenderTargetTexture?(material.map.image as {height:number}).height:originalSource.height)*material.map.repeat.y],
+      cornerRadius:radius*width/output.width,hasNativeMask:!!nativeMaskRef.current,
+      shadowEnabled:visualSettings.shadowEnabled,sourceTransform:material.map.matrix,
+      maskTransform:nativeMaskRef.current?.matrix}};
+  };
+
 
   if (!videoFilePath) {
     return (
@@ -474,7 +223,7 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
     );
   }
 
-  if (videoError) {
+  if (videoError || motionError) {
     return (
       <group ref={groupRef}>
         <BackgroundPlane width={basePlaneWidth} height={basePlaneHeight} settings={visualSettings} />
@@ -482,15 +231,11 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
           <planeGeometry args={[1, 1]} />
           <meshBasicMaterial color="#1a1a1a" toneMapped={false} />
         </mesh>
-        {!isLinuxRuntime && <Text
-          position={[0, 0, 0.1]}
-          fontSize={0.3}
-          color="#ff5555"
-          anchorX="center"
-          anchorY="middle"
-        >
-          {videoError}
-        </Text>}
+        <Html center>
+          <div role="alert" style={{ color: '#ff5555', width: 280, textAlign: 'center' }}>
+            {videoError ?? motionError}
+          </div>
+        </Html>
       </group>
     );
   }
@@ -503,44 +248,52 @@ export const VideoViewer: React.FC<VideoViewerProps> = ({
           <planeGeometry args={[1, 1]} />
           <meshBasicMaterial color="#1a1a1a" toneMapped={false} />
         </mesh>
-        {/* A font-backed loading label can suspend the entire Linux canvas
-            before loadVideo runs when packaged CSP blocks the font worker. */}
-        {!isLinuxRuntime && <Text
-          position={[0, 0, 0.1]}
-          fontSize={0.4}
-          color="#6272a4"
-          anchorX="center"
-          anchorY="middle"
-        >
-          Loading video...
-        </Text>}
+        {/* Keep loading UI independent of font loading: suspending this
+            component prevents its effect from starting the media load. */}
+        <Html center>
+          <div role="status" style={{ color: '#6272a4', whiteSpace: 'nowrap' }}>
+            Loading video...
+          </div>
+        </Html>
       </group>
     );
   }
 
   return (
-    <group ref={groupRef}>
+    <>
       <BackgroundPlane width={basePlaneWidth} height={basePlaneHeight} settings={visualSettings} />
-      <VideoShadow width={planeWidth} height={planeHeight} settings={visualSettings} />
+      <group ref={groupRef}>
+      <VideoShadow textureRef={shadowTextureRef} canvasWidth={basePlaneWidth} canvasHeight={basePlaneHeight}
+        inputWidth={Math.round(planeWidth/basePlaneWidth*output.width)}
+        inputHeight={Math.round(planeHeight/basePlaneHeight*output.height)}
+        outputWidth={output.width} outputHeight={output.height} settings={visualSettings} />
       <mesh ref={meshRef} scale={[planeWidth, planeHeight, 1]}>
         <planeGeometry args={[1, 1]} />
         <Suspense fallback={<VideoFallback />}>
           <VideoMaterial
+            viewRef={displayViewRef}
             videoUrl={videoUrl}
             isPlaying={isPlaying}
             cornerRadius={visualSettings.cornerRadius}
+            cornerRadiusRatio={outputCornerRadius/inputShortSide}
+            temporalMaskRef={nativeMaskRef}
             aspectRatio={planeWidth / planeHeight}
             cleanupWindowCorners={captureMode === 'window'}
             suppressTimeUpdates={linuxNativeOverlayEnabled}
           />
         </Suspense>
+        <MaskBoundsEditor viewRef={displayViewRef}/>
         {isLinuxRuntime && (
           <LinuxNativeVideoOverlay
             isPlaying={isPlaying}
+            viewRef={displayViewRef}
             onEnabledChange={setLinuxNativeOverlayEnabled}
           />
         )}
       </mesh>
-    </group>
+      </group>
+      <TemporalWindowPreview original={groupRef} activeRef={temporalWindowActive}
+        canvasWidth={basePlaneWidth} canvasHeight={basePlaneHeight} getFrame={temporalFrame}/>
+    </>
   );
-};
+});

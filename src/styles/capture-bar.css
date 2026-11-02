@@ -89,6 +89,8 @@
 .capture-bar__mode {
   display: flex;
   align-items: center;
+  white-space: nowrap;
+  flex-shrink: 0;
   gap: 4px;
   height: 36px;
   padding: 0 8px;
@@ -251,6 +253,7 @@
 }
 
 .capture-bar__record {
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;

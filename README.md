@@ -115,7 +115,19 @@ pnpm tauri:dev       # Run the development app
 pnpm test:unit       # Run frontend unit tests
 pnpm test:macos      # Run the complete macOS verification suite
 pnpm tauri:build     # Build the packaged app
+pnpm build:macos     # Build and verify a certificate-signed macOS release app
 ```
+
+For repeated macOS recording tests, use `pnpm build:macos`. It uses the existing
+`Tarantino Local Development` code-signing certificate, or the certificate named
+by `APPLE_SIGNING_IDENTITY`, and fails if that identity is unavailable. It does
+not create certificates or change privacy settings. The generic build defaults
+to ad-hoc signing, whose executable-hash identity changes with rebuilds and can
+invalidate existing privacy grants even when Settings still shows an enabled
+toggle. A certificate-signed build must be granted access initially; keeping the
+same certificate and bundle identifier allows subsequent builds to retain the
+same designated requirement. The build command verifies the resulting signature.
+Local signing does not notarize the app for distribution.
 
 For permission debugging, Tarantino can also run as a raw binary. In this mode, macOS associates capture permissions with the terminal that launched it:
 

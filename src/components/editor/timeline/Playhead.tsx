@@ -1,18 +1,18 @@
+import { useEditorStore } from '../../../stores/editor';
 import React from 'react';
 
 interface PlayheadProps {
-  currentTime: number;
   pixelsPerMs: number;
   trackHeaderWidth: number;
   onMouseDown: (e: React.MouseEvent) => void;
 }
 
 const Playhead: React.FC<PlayheadProps> = ({
-  currentTime,
   pixelsPerMs,
   trackHeaderWidth,
   onMouseDown,
 }) => {
+  const currentTime = useEditorStore(state => state.currentTime);
   return (
     <div
       className="timeline-playhead"

@@ -38,7 +38,19 @@ impl VideoProcessor {
 
     /// Get information about a video file using FFprobe with caching
     pub async fn get_video_info(&self, video_path: impl AsRef<Path>) -> Result<VideoInfo> {
-        let path = video_path.as_ref().to_path_buf();
+        self.get_video_info_with_control(video_path.as_ref(), None)
+            .await
+    }
+
+    async fn get_video_info_with_control(
+        &self,
+        video_path: &Path,
+        control: Option<&super::export_control::ExportControl>,
+    ) -> Result<VideoInfo> {
+        if let Some(control) = control {
+            control.check()?;
+        }
+        let path = video_path.to_path_buf();
 
         // Check cache first
         if let Ok(cache) = self.metadata_cache.read() {
@@ -53,21 +65,43 @@ impl VideoProcessor {
 
         let metadata = std::fs::metadata(&path)?;
 
-        // Use FFmpeg manager to probe video information
-        let manager = get_ffmpeg_manager();
-        let probe_operation = FFmpegOperation::Probe {
-            input: path.clone(),
-        };
-
-        let result = manager
-            .execute_operation(probe_operation, OperationPriority::Normal)
-            .await
-            .map_err(|e| anyhow!("Failed to execute ffprobe: {}", e))?;
-
-        let output_data = match result {
-            OperationResult::Success(data) => data,
-            OperationResult::Timeout => return Err(anyhow!("FFprobe operation timed out")),
-            OperationResult::Error(err) => return Err(anyhow!("FFprobe failed: {}", err)),
+        let output_data = if let Some(control) = control {
+            let output = control.output(
+                std::process::Command::new("ffprobe")
+                    .args([
+                        "-v",
+                        "quiet",
+                        "-print_format",
+                        "json",
+                        "-show_format",
+                        "-show_streams",
+                        "-select_streams",
+                        "v:0",
+                    ])
+                    .arg(&path),
+            )?;
+            if !output.status.success() {
+                return Err(anyhow!(
+                    "FFprobe failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+            output.stdout
+        } else {
+            let result = get_ffmpeg_manager()
+                .execute_operation(
+                    FFmpegOperation::Probe {
+                        input: path.clone(),
+                    },
+                    OperationPriority::Normal,
+                )
+                .await
+                .map_err(|e| anyhow!("Failed to execute ffprobe: {}", e))?;
+            match result {
+                OperationResult::Success(data) => data,
+                OperationResult::Timeout => return Err(anyhow!("FFprobe operation timed out")),
+                OperationResult::Error(err) => return Err(anyhow!("FFprobe failed: {}", err)),
+            }
         };
 
         let probe_result: serde_json::Value = serde_json::from_slice(&output_data)
@@ -188,7 +222,10 @@ impl VideoProcessor {
         let input_path = input_path.as_ref();
 
         // Get video info
-        let video_info = self.get_video_info(input_path).await?;
+        let control = settings.cancellation.clone().unwrap_or_default();
+        let video_info = self
+            .get_video_info_with_control(input_path, Some(&control))
+            .await?;
 
         // Delegate to export module
         export::export_video(

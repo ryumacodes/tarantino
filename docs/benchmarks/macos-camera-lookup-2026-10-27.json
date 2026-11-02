@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-27",
+  "platform": "macOS 27.0.1 arm64",
+  "runtime": "Node v25.8.1 / Vitest 4.1.10",
+  "baseRevision": "cc593f8",
+  "worktree": "dirty",
+  "method": "Same-process alternating linear/indexed order, 6 batches per input size, 100 warm-up lookups per function; 6000 deterministic seeks per batch. Checksums matched.",
+  "scope": "Warm camera keyframe lookup microbenchmark. Index construction, WebKit, decoding, GPU rendering and UI frame pacing excluded. Stress sizes are not claims about typical projects.",
+  "results": [
+    {
+      "keys": 100,
+      "samples": 6000,
+      "batchesMs": {
+        "linear": [
+          19.37220800000003,
+          2.632665999999972,
+          2.533374999999978,
+          2.4227920000000154,
+          2.8275840000000017,
+          2.202583000000004
+        ],
+        "indexed": [
+          1.9917500000000246,
+          1.68179200000003,
+          2.135832999999991,
+          1.308667000000014,
+          0.9901669999999854,
+          1.1394169999999804
+        ]
+      },
+      "medianMs": {
+        "linear": 2.583020499999975,
+        "indexed": 1.495229500000022
+      }
+    },
+    {
+      "keys": 1000,
+      "samples": 6000,
+      "batchesMs": {
+        "linear": [
+          20.27254099999999,
+          16.43237499999998,
+          18.06904099999997,
+          17.09174999999999,
+          15.729917,
+          12.970958999999993
+        ],
+        "indexed": [
+          2.1419579999999883,
+          1.8370840000000044,
+          1.4755409999999642,
+          1.350541000000021,
+          1.0079999999999814,
+          0.7653329999999983
+        ]
+      },
+      "medianMs": {
+        "linear": 16.762062499999985,
+        "indexed": 1.4130409999999927
+      }
+    },
+    {
+      "keys": 20000,
+      "samples": 6000,
+      "batchesMs": {
+        "linear": [
+          320.95837500000005,
+          275.223791,
+          217.47112500000003,
+          192.58850000000007,
+          172.60529199999996,
+          159.71941700000002
+        ],
+        "indexed": [
+          0.98275000000001,
+          1.2168750000000728,
+          0.6392080000000533,
+          0.7253749999999854,
+          0.5845829999998386,
+          0.5727920000001632
+        ]
+      },
+      "medianMs": {
+        "linear": 205.02981250000005,
+        "indexed": 0.6822915000000194
+      }
+    }
+  ]
+}

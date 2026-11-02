@@ -29,7 +29,8 @@ pub struct Mp4Muxer {
     pps: Option<Vec<u8>>,
     pending_samples: Vec<EncodedFrame>, // Store frames until we have SPS/PPS
     pending_timed_sample: Option<EncodedFrame>,
-    default_duration_ms: u32,
+    first_timestamp_us: Option<u64>,
+    default_duration_ticks: u32,
     timeline_duration: u64,
 }
 
@@ -52,7 +53,8 @@ impl Mp4Muxer {
         );
 
         // Timescale: use fps * 1000 for sub-frame precision
-        let timescale = fps * 1000;
+        let timescale = fps.max(1).checked_mul(1000)
+            .ok_or_else(|| anyhow::anyhow!("Invalid frame rate"))?;
 
         // Create MP4 writer with config
         let config = Mp4Config {
@@ -81,7 +83,8 @@ impl Mp4Muxer {
             pps: None,
             pending_samples: Vec::new(),
             pending_timed_sample: None,
-            default_duration_ms: (1000 / fps.max(1)).max(1),
+            first_timestamp_us: None,
+            default_duration_ticks: 1000,
             timeline_duration: 0,
         })
     }
@@ -317,7 +320,7 @@ impl Mp4Muxer {
     }
 
     /// Internal frame writing after track is initialized
-    fn write_frame_internal(&mut self, frame: &EncodedFrame, duration_ms: u32) -> Result<()> {
+    fn write_frame_internal(&mut self, frame: &EncodedFrame, sample_duration: u32) -> Result<()> {
         let track_id = self
             .track_id
             .ok_or_else(|| anyhow::anyhow!("Track not initialized"))?;
@@ -325,13 +328,9 @@ impl Mp4Muxer {
         // Convert from Annex B (start codes) to AVCC (length prefixes)
         let avcc_data = self.convert_to_avcc(&frame.data);
 
-        // Calculate sample duration in timescale units
-        // duration_ms is in milliseconds, timescale is fps * 1000
-        let sample_duration = (duration_ms as u64 * self.timescale as u64) / 1000;
-
         let sample = Mp4Sample {
             start_time: self.timeline_duration,
-            duration: sample_duration as u32,
+            duration: sample_duration,
             rendering_offset: 0,
             is_sync: frame.is_keyframe,
             bytes: bytes::Bytes::from(avcc_data),
@@ -343,7 +342,7 @@ impl Mp4Muxer {
             .ok_or_else(|| anyhow::anyhow!("Writer not available"))?;
 
         writer.write_sample(track_id, &sample)?;
-        self.timeline_duration += sample_duration;
+        self.timeline_duration += u64::from(sample_duration);
         self.frame_count += 1;
 
         if self.frame_count % 100 == 0 {
@@ -355,16 +354,16 @@ impl Mp4Muxer {
 
     /// Write an encoded frame to the MP4 file
     fn queue_timed_sample(&mut self, frame: EncodedFrame) -> Result<()> {
+        let origin = *self.first_timestamp_us.get_or_insert(frame.timestamp_us);
+        let timestamp = frame.timestamp_us;
         if let Some(previous) = self.pending_timed_sample.replace(frame) {
-            let current_timestamp = self
-                .pending_timed_sample
-                .as_ref()
-                .map(|sample| sample.timestamp_us)
-                .unwrap_or(previous.timestamp_us);
-            let duration_ms = (((current_timestamp.saturating_sub(previous.timestamp_us)) + 500)
-                / 1000)
-                .max(1) as u32;
-            self.write_frame_internal(&previous, duration_ms)?;
+            // Rescale absolute offsets, not individually rounded intervals. This
+            // prevents sub-millisecond rounding from accumulating over a take.
+            let end_tick = ((timestamp.saturating_sub(origin) as u128 * self.timescale as u128
+                + 500_000) / 1_000_000) as u64;
+            let duration = u32::try_from(end_tick.saturating_sub(self.timeline_duration).max(1))
+                .map_err(|_| anyhow::anyhow!("Video sample duration exceeds MP4 limit"))?;
+            self.write_frame_internal(&previous, duration)?;
         }
         Ok(())
     }
@@ -423,13 +422,15 @@ impl Mp4Muxer {
         }
 
         if let Some(last_frame) = self.pending_timed_sample.take() {
-            let written_ms = self.timeline_duration * 1000 / self.timescale as u64;
-            let tail_duration_ms = target_duration_ms
-                .map(|target| target.saturating_sub(written_ms))
-                .unwrap_or(self.default_duration_ms as u64)
-                .max(self.default_duration_ms as u64)
-                .min(u32::MAX as u64) as u32;
-            self.write_frame_internal(&last_frame, tail_duration_ms)?;
+            let requested_end = target_duration_ms.map(|ms|
+                (ms as u128 * self.timescale as u128 / 1000).min(u64::MAX as u128) as u64);
+            let tail_ticks = requested_end
+                .map(|end| end.saturating_sub(self.timeline_duration))
+                .unwrap_or(u64::from(self.default_duration_ticks))
+                .max(u64::from(self.default_duration_ticks));
+            let tail_ticks = u32::try_from(tail_ticks)
+                .map_err(|_| anyhow::anyhow!("Final video sample exceeds MP4 limit"))?;
+            self.write_frame_internal(&last_frame, tail_ticks)?;
         }
 
         if let Some(mut writer) = self.writer.take() {
@@ -451,3 +452,6 @@ impl Mp4Muxer {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,5 +1,12 @@
 //! Video processing commands
 
+pub mod waveform;
+pub mod cursor_images;
+pub mod silence;
+
+mod edited_cursor;
+pub mod thumbnail_samples;
+
 use crate::state::UnifiedAppState;
 use crate::video_processing::{ExportSettings, ProcessingProgress, VideoInfo, VideoProcessor};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -211,6 +218,79 @@ pub fn linux_native_preview_required() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn preview_fixed_pointer_suppresses_shape_motion_constraints() {
+        let path = std::env::temp_dir().join(format!("cursor-shape-preview-{}.json",uuid::Uuid::new_v4()));
+        let events=(0..=100).map(|i|serde_json::json!({"timestamp":i*10,"x":i*4,"y":50,
+            "event_type":"Move"})).collect::<Vec<_>>();
+        std::fs::write(&path,serde_json::to_vec(&serde_json::json!({
+            "display_width":1000,"display_height":500,"mouse_events":events,
+            "cursor_images":{"images":[{},{}],"changes":[
+                {"timestamp":0,"image_id":0},{"timestamp":250,"image_id":1}]}
+        })).unwrap()).unwrap();
+        let mut errors=Vec::new();
+        for fixed in [false,true] {
+            let response=super::compute_cursor_trajectory(path.to_string_lossy().into_owned(),1000,120,1000,500,
+                1.0,false,2000,false,0,false,None,None,Some(470.0),Some(70.0),Some(3.0),
+                None,None,None,None,Some(fixed),Some(false)).await.unwrap();
+            let frames:Vec<Vec<f32>>=serde_json::from_str(&response).unwrap();
+            errors.push((frames[30][0] as f64*1000.0-100.0).abs());
+        }
+        std::fs::remove_file(path).unwrap();
+        assert!(errors[0]<=6.0,"shape constraint error: {}",errors[0]);
+        assert!(errors[1]>errors[0]+1.0,"fixed pointer should not anticipate a hidden shape change: {errors:?}");
+    }
+
+    #[tokio::test]
+    async fn preview_cursor_uses_the_same_crop_coordinates_as_export() {
+        let path = std::env::temp_dir().join(format!("cursor-crop-{}.json",uuid::Uuid::new_v4()));
+        std::fs::write(&path,r#"[{"timestamp":0,"x":96,"y":32}]"#).unwrap();
+        let crop = crate::video_processing::source_crop::SourceCrop{x:0.5,y:0.0,width:0.5,height:1.0};
+        let result = super::compute_cursor_trajectory(path.to_string_lossy().into_owned(),100,60,128,64,
+            1.0,false,2000,false,0,false,None,Some(crop),None,None,None,None,None,None,None,None,Some(false)).await.unwrap();
+        let frames:Vec<Vec<f32>>=serde_json::from_str(&result).unwrap();
+        assert!(frames.iter().all(|frame| frame[0]==0.5 && frame[1]==0.5 && frame[2]==1.0));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn preview_cursor_command_applies_selected_spring() {
+        let path =
+            std::env::temp_dir().join(format!("cursor-motion-{}.json", uuid::Uuid::new_v4()));
+        std::fs::write(
+            &path,
+            r#"[{"timestamp":0,"x":20,"y":20},{"timestamp":500,"x":80,"y":80}]"#,
+        )
+        .unwrap();
+        let mut positions = Vec::new();
+        for (tension, friction, mass) in [(1.0, 0.0, 0.0), (470.0, 70.0, 3.0)] {
+            let result = super::compute_cursor_trajectory(
+                path.to_string_lossy().into_owned(),
+                1000,
+                60,
+                100,
+                100,
+                3.0,
+                false,
+                2000,
+                false,
+                0,
+                false,
+                None,
+                None,
+                Some(tension),
+                Some(friction),
+                Some(mass),
+                None,None,None,None,None,Some(false))
+            .await
+            .unwrap();
+            let frames: Vec<Vec<f32>> = serde_json::from_str(&result).unwrap();
+            positions.push(frames[30][0]);
+        }
+        std::fs::remove_file(path).unwrap();
+        assert!((positions[0] - 0.8).abs() < 0.0001);
+        assert!(positions[1] < positions[0]);
+    }
     use super::{
         read_thumbnail_data_url, read_thumbnail_data_urls, split_jpeg_stream, thumbnail_data_url,
     };
@@ -270,8 +350,10 @@ pub async fn export_video(
     window: tauri::WebviewWindow,
     state: State<'_, Arc<UnifiedAppState>>,
     input_path: String,
-    settings: ExportSettings,
+    mut settings: ExportSettings,
 ) -> Result<String, String> {
+    let job = super::export_jobs::ExportJob::begin(window.label())?;
+    settings.cancellation = Some(job.control.clone());
     if state.get_app_status().await.is_recording {
         return Err("Finish the active recording before exporting.".to_string());
     }
@@ -286,6 +368,7 @@ pub async fn export_video(
     let (progress_tx, progress_rx) = std::sync::mpsc::channel::<ProcessingProgress>();
     let (result_tx, result_rx) = std::sync::mpsc::channel::<Result<std::path::PathBuf, String>>();
 
+    let _ = window.emit("export:progress", serde_json::json!({"current":0,"total":0,"percentage":0}));
     std::thread::spawn(move || {
         let rt = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
@@ -311,13 +394,17 @@ pub async fn export_video(
                 .map_err(|e| e.to_string())
         });
 
+        let result = if job.control.check().is_err() {
+            Err(crate::video_processing::export_control::CANCELLED.into())
+        } else { result };
+        drop(job);
         let _ = result_tx.send(result);
     });
 
     loop {
         match progress_rx.try_recv() {
             Ok(progress) => {
-                let _ = app.emit(
+                let _ = window.emit(
                     "export:progress",
                     serde_json::json!({
                         "current": progress.current_frame,
@@ -352,97 +439,7 @@ pub async fn extract_audio_waveform(
     audio_path: String,
     samples_per_second: u32,
 ) -> Result<Vec<f32>, String> {
-    let path = Path::new(&audio_path);
-    if !path.exists() {
-        return Err(format!("Audio file not found: {}", audio_path));
-    }
-
-    println!(
-        "Extracting waveform from: {} at {} samples/sec",
-        audio_path, samples_per_second
-    );
-
-    // Get audio duration
-    let duration_output = Command::new("ffprobe")
-        .args([
-            "-v",
-            "quiet",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            &audio_path,
-        ])
-        .output()
-        .map_err(|e| format!("Failed to run ffprobe: {}", e))?;
-
-    let duration_str = String::from_utf8_lossy(&duration_output.stdout);
-    let duration: f32 = duration_str.trim().parse().unwrap_or(0.0);
-
-    if duration <= 0.0 {
-        return Err("Could not determine audio duration".to_string());
-    }
-
-    let total_samples = (duration * samples_per_second as f32) as usize;
-    println!(
-        "Audio duration: {}s, extracting {} peak samples",
-        duration, total_samples
-    );
-
-    // Extract raw audio as f32 mono PCM
-    let raw_output = Command::new("ffmpeg")
-        .args([
-            "-i",
-            &audio_path,
-            "-vn",
-            "-ac",
-            "1",
-            "-ar",
-            "8000",
-            "-f",
-            "f32le",
-            "-",
-        ])
-        .output()
-        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
-
-    if !raw_output.status.success() {
-        return Err(format!(
-            "FFmpeg failed: {}",
-            String::from_utf8_lossy(&raw_output.stderr)
-        ));
-    }
-
-    // Parse raw PCM data as f32 samples
-    let raw_samples: Vec<f32> = raw_output
-        .stdout
-        .chunks_exact(4)
-        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-        .collect();
-
-    if raw_samples.is_empty() {
-        return Err("No audio samples extracted".to_string());
-    }
-
-    // Compute peaks by downsampling
-    let samples_per_peak = raw_samples.len() / total_samples.max(1);
-    let mut peaks: Vec<f32> = Vec::with_capacity(total_samples);
-
-    for i in 0..total_samples {
-        let start = i * samples_per_peak;
-        let end = ((i + 1) * samples_per_peak).min(raw_samples.len());
-
-        if start < raw_samples.len() {
-            let peak = raw_samples[start..end]
-                .iter()
-                .map(|s| s.abs())
-                .fold(0.0f32, f32::max);
-            peaks.push(peak.min(1.0));
-        }
-    }
-
-    println!("Extracted {} waveform peaks", peaks.len());
-    Ok(peaks)
+    waveform::extract(&audio_path,samples_per_second).await.map(|data|data.peaks)
 }
 
 #[tauri::command]
@@ -465,72 +462,166 @@ pub async fn compute_cursor_trajectory(
     stop_cursor_at_end: bool,
     stop_cursor_duration: u64,
     loop_cursor_position: bool,
+    shake_threshold: Option<f64>,
+    source_crop: Option<crate::video_processing::source_crop::SourceCrop>,
+    spring_tension: Option<f64>,
+    spring_friction: Option<f64>,
+    spring_mass: Option<f64>,
+    rotation: Option<f64>,
+    rotate_while_moving: Option<bool>,
+    rotation_intensity: Option<f64>,
+    edit: Option<edited_cursor::EditedCursorRequest>,
+    always_use_pointer: Option<bool>,
+    optimize_cursor_types: Option<bool>,
 ) -> Result<String, String> {
-    use crate::cursor_renderer::simulate_cursor_positions;
-    use crate::video_processing::export::load_raw_cursor_events;
+    use crate::cursor_renderer::simulate_cursor_frames_from;
+    use crate::video_processing::export::load_filtered_cursor_events;
     use crate::video_processing::types::CursorSettings;
 
-    let path = std::path::Path::new(&mouse_json_path);
-    if !path.exists() {
-        return Err(format!("Mouse events file not found: {}", mouse_json_path));
-    }
-
-    let events = load_raw_cursor_events(path, video_width, video_height);
-    if events.is_empty() {
-        return Err("No cursor events found".to_string());
-    }
-
-    let settings = CursorSettings {
-        enabled: Some(true),
-        size: Some(cursor_scale),
-        style: Some("pointer".to_string()),
-        speed_preset: Some("mellow".to_string()),
-        spring_tension: Some(170.0),
-        spring_friction: Some(30.0),
-        spring_mass: Some(1.0),
-        hide_when_idle: Some(hide_cursor_when_idle),
-        idle_timeout: Some(idle_timeout),
-        stop_at_end: Some(stop_cursor_at_end),
-        stop_duration_ms: Some(stop_cursor_duration),
-        loop_to_start: Some(loop_cursor_position),
-        loop_duration_ms: Some(500),
-        rotation: Some(0.0),
-        rotate_while_moving: Some(false),
-        rotation_intensity: Some(50.0),
-        trail_enabled: Some(false),
-        trail_length: Some(10),
-        trail_opacity: Some(0.5),
-        click_effect: Some("ripple".to_string()),
-        highlight_clicks: Some(true),
-        smoothing: Some(0.15),
-        always_use_pointer: Some(false),
-        color: Some("#ffffff".to_string()),
-        highlight_color: Some("#ff6b6b".to_string()),
-        ripple_color: Some("#64b4ff".to_string()),
-        shadow_intensity: Some(30.0),
+    let spring = crate::cursor_renderer::SpringConfig {
+        tension: spring_tension.unwrap_or(170.0),
+        friction: spring_friction.unwrap_or(30.0),
+        mass: spring_mass.unwrap_or(1.0),
     };
+    if !spring.tension.is_finite()
+        || spring.tension <= 0.0
+        || !spring.friction.is_finite()
+        || spring.friction < 0.0
+        || !spring.mass.is_finite()
+        || spring.mass < 0.0
+        || rotation.is_some_and(|value| !value.is_finite())
+        || rotation_intensity.is_some_and(|value| !value.is_finite())
+        || !(1..=240).contains(&fps)
+    {
+        return Err("Invalid cursor motion settings".to_string());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = std::path::Path::new(&mouse_json_path);
+        if !path.exists() {
+            return Err(format!("Mouse events file not found: {}", mouse_json_path));
+        }
 
-    let spring = crate::video_processing::export::resolve_spring_preset("mellow");
+        let activity = crate::cursor_renderer::typing_activity::TypingActivity::load(path);
+        let typing = |time| activity.active(time);
+        let mut events = load_filtered_cursor_events(path, video_width, video_height, shake_threshold.unwrap_or(0.0));
+        let crop = source_crop.map(|rect| rect.resolve(video_width,video_height)).transpose().map_err(|error| error.to_string())?;
+        crate::video_processing::source_crop::remap_motion(crop,&mut events,&mut []);
+        if events.is_empty() {
+            return Err("No cursor events found".to_string());
+        }
 
-    // No zoom trajectory for preview — zoom is handled by the video mesh transform
-    let positions =
-        simulate_cursor_positions(&events, &spring, fps as f64, duration_ms, &None, &settings);
+        let settings = CursorSettings {
+            shake_threshold,
+            enabled: Some(true),
+            size: Some(cursor_scale),
+            style: Some("pointer".to_string()),
+            speed_preset: Some("mellow".to_string()),
+            spring_tension: Some(spring.tension),
+            spring_friction: Some(spring.friction),
+            spring_mass: Some(spring.mass),
+            hide_when_idle: Some(hide_cursor_when_idle),
+            idle_timeout: Some(idle_timeout),
+            stop_at_end: Some(stop_cursor_at_end),
+            stop_duration_ms: Some(stop_cursor_duration),
+            loop_to_start: Some(loop_cursor_position),
+            loop_duration_ms: Some(500),
+            rotation,
+            rotate_while_moving,
+            rotation_intensity,
+            trail_enabled: Some(false),
+            trail_length: Some(10),
+            trail_opacity: Some(0.5),
+            click_effect: Some("ripple".to_string()),
+            highlight_clicks: Some(true),
+            smoothing: Some(0.15),
+            always_use_pointer,
+            optimize_cursor_types,
+            color: Some("#ffffff".to_string()),
+            highlight_color: Some("#ff6b6b".to_string()),
+            ripple_color: Some("#64b4ff".to_string()),
+            shadow_intensity: Some(30.0),
+        };
 
-    // Serialize to compact JSON array of [x, y, opacity, isClicking, rippleProgress, rippleX, rippleY]
-    let frames: Vec<Vec<f32>> = positions
-        .iter()
-        .map(|p| {
-            vec![
-                p.x,
-                p.y,
-                p.opacity,
-                p.is_clicking,
-                p.ripple_progress,
-                p.ripple_x,
-                p.ripple_y,
-            ]
-        })
-        .collect();
+        // Project directly to compact arrays without allocating unused trail data.
+        let rotation_points = if rotate_while_moving.unwrap_or(false) {
+            crate::video_processing::export::load_rotation_points(path,shake_threshold.unwrap_or(0.0))
+        } else {Vec::new()};
+        if let Some(request)=edit.as_ref() {
+            if let Some(result)=edited_cursor::prepare_with_input(request,&events,&rotation_points,&settings,&spring,duration_ms,fps,Some(&activity),
+                Some((path,(video_width,video_height),source_crop)))? {
+                return Ok(result);
+            }
+        }
+        let rotation_points = if loop_cursor_position {
+            crate::cursor_renderer::loop_path::rotation_points(&rotation_points,duration_ms,500)
+        } else {rotation_points};
+        let rotation_keys = crate::cursor_renderer::rotation::horizontal_tilt(&rotation_points,rotation_intensity.unwrap_or(30.0)/100.0);
+        let planned=crate::cursor_renderer::planner::runtime::prepare(path,(video_width,video_height),source_crop,None,path,
+            duration_ms as f64,&settings,spring).map_err(|e|e.to_string())?;
+        let position=|time|planned.as_ref().unwrap().at(time);
+        let pressed=|time|planned.as_ref().unwrap().pressed_at_source(time,spring.mass!=0.0);
+        let frames = simulate_cursor_frames_from(
+            &events,
+            &spring,
+            fps as f64,
+            duration_ms,
+            &None,
+            &settings,
+            0,
+            fps as f64,
+            Some(&rotation_keys),
+            Some(&typing),
+            planned.as_ref().map(|_|&position as &dyn Fn(f64)->[f64;2]),
+            planned.as_ref().map(|_|(&pressed as &dyn Fn(f64)->bool,60.0)),
+            |p| {
+                [
+                    p.x,
+                    p.y,
+                    p.opacity,
+                    p.is_clicking,
+                    p.ripple_progress,
+                    p.ripple_x,
+                    p.ripple_y,
+                    p.rotation,
+                    p.fade_blur_radius,
+                    p.press_amount,
+                ]
+            },
+        );
+        serde_json::to_string(&frames).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
 
-    serde_json::to_string(&frames).map_err(|e| e.to_string())
+#[cfg(test)]
+mod cursor_rotation_tests {
+    #[tokio::test]
+    async fn preview_rotation_matches_export_simulation() {
+        use crate::cursor_renderer::{simulate_cursor_positions_for_range_with_rotation,SpringConfig};
+        let path=std::env::temp_dir().join(format!("cursor-rotation-{}.json",uuid::Uuid::new_v4()));
+        std::fs::write(&path,r#"[{"timestamp":0,"x":20,"y":20},{"timestamp":500,"x":80,"y":20},{"timestamp":800,"x":30,"y":20}]"#).unwrap();
+        let events=crate::video_processing::export::load_filtered_cursor_events(&path,100,100,0.0);
+        for dynamic in [false,true] {
+            let result=super::compute_cursor_trajectory(path.to_string_lossy().into_owned(),1000,120,100,100,
+                1.0,false,2000,false,0,false,None,None,None,None,None,Some(45.0),Some(dynamic),Some(100.0),None,None,Some(false)).await.unwrap();
+            let frames:Vec<Vec<f32>>=serde_json::from_str(&result).unwrap();
+            let settings=serde_json::from_value(serde_json::json!({"rotation":45,"rotate_while_moving":dynamic,"rotation_intensity":100})).unwrap();
+            let points=crate::video_processing::export::load_rotation_points(&path,0.0);
+            let keys=crate::cursor_renderer::rotation::horizontal_tilt(&points,1.0);
+            let expected=simulate_cursor_positions_for_range_with_rotation(&events,&SpringConfig{tension:170.0,friction:30.0,mass:1.0},120.0,
+                crate::video_processing::export_range::ExportRange {start_ms:0,end_ms:1000},&None,&settings,Some(&keys))
+                .into_iter().map(|p|p.rotation).collect::<Vec<_>>();
+            assert_eq!(frames.iter().map(|p|p[7]).collect::<Vec<_>>(),expected);
+            if dynamic {
+                assert!(frames.iter().any(|p|(p[7]-45.0).abs()>1.0));
+                let resized=super::compute_cursor_trajectory(path.to_string_lossy().into_owned(),1000,120,400,300,
+                    1.0,false,2000,false,0,false,None,None,None,None,None,Some(45.0),Some(true),Some(100.0),None,None,Some(false)).await.unwrap();
+                let resized:Vec<Vec<f32>>=serde_json::from_str(&resized).unwrap();
+                assert_eq!(frames.iter().map(|p|p[7]).collect::<Vec<_>>(),resized.iter().map(|p|p[7]).collect::<Vec<_>>());
+            }
+            else {assert!(frames.iter().all(|p|p[7]==45.0));}
+        }
+        std::fs::remove_file(path).unwrap();
+    }
 }

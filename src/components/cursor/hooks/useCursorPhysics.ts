@@ -1,46 +1,11 @@
 import { useCallback } from 'react';
-import type { SpringState, SpringConfig } from '../types';
+import { removePointerShakes, type PointerSample } from '../../../utils/motion/pointerFilter';
+export { springStep } from '../../../utils/motion/spring';
 
-/**
- * Spring physics step function
- * Simulates a damped spring for smooth cursor movement
- */
-export const springStep = (
-  current: number,
-  target: number,
-  velocity: number,
-  config: SpringConfig,
-  dt: number
-): SpringState => {
-  const { tension, friction, mass } = config;
-  const safeDt = Math.min(dt, 0.064); // Cap at ~15fps minimum
-
-  const displacement = current - target;
-  const springForce = -tension * displacement;
-  const dampingForce = -friction * velocity;
-  const acceleration = (springForce + dampingForce) / mass;
-
-  const newVelocity = velocity + acceleration * safeDt;
-  const newValue = current + newVelocity * safeDt;
-
-  // Snap to target if close enough and velocity is low
-  if (Math.abs(displacement) < 0.5 && Math.abs(newVelocity) < 0.5) {
-    return { value: target, velocity: 0 };
-  }
-
-  return { value: newValue, velocity: newVelocity };
-};
-
-/**
- * Linear interpolation helper
- */
 export const lerp = (a: number, b: number, t: number): number => {
   return a + (b - a) * Math.min(1, Math.max(0, t));
 };
 
-/**
- * Parse hex color to RGB values
- */
 export const parseColor = (hex: string): { r: number; g: number; b: number } => {
   const match = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
   if (match) {
@@ -53,32 +18,9 @@ export const parseColor = (hex: string): { r: number; g: number; b: number } => 
   return { r: 100, g: 180, b: 255 }; // default blue
 };
 
-/**
- * Hook for filtering mouse shake events
- */
 export const useShakeFilter = (removeCursorShakes: boolean) => {
-  return useCallback((events: any[], threshold: number): any[] => {
-    if (!removeCursorShakes || threshold <= 0) return events;
-
-    return events.filter((event, i) => {
-      if (i === 0 || event.event_type.Move === undefined) return true;
-
-      // Find previous move event
-      let prevMoveIndex = i - 1;
-      while (prevMoveIndex >= 0 && events[prevMoveIndex].event_type.Move === undefined) {
-        prevMoveIndex--;
-      }
-      if (prevMoveIndex < 0) return true;
-
-      const prev = events[prevMoveIndex];
-      const dx = event.x - prev.x;
-      const dy = event.y - prev.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      const timeDelta = event.timestamp - prev.timestamp;
-
-      // Remove if small movement in short time (shake)
-      return !(distance < threshold && timeDelta < 100);
-    });
+  return useCallback(<T extends PointerSample>(events: T[], threshold: number): T[] => {
+    return removeCursorShakes ? removePointerShakes(events, threshold) : events;
   }, [removeCursorShakes]);
 };
 

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useEditorStore } from '../store';
+import type { EditorState, EditorActions } from '../types';
 import { createClipsActions } from './clipsActions';
 import { createPlaybackActions } from './playbackActions';
 import { createZoomActions } from './zoomActions';
@@ -30,8 +32,9 @@ const track = (id: string) => ({
   order: 0,
 });
 
-const harness = (state: any, factory: (set: any, get: any) => any) => {
-  const set = (recipe: (draft: any) => void) => recipe(state);
+type Store = EditorState & EditorActions;
+const harness = <T,>(state: Store, factory: (set: (recipe: (draft: Store) => void) => void, get: () => Store) => T) => {
+  const set = (recipe: (draft: Store) => void) => recipe(state);
   const actions = factory(set, () => state);
   Object.assign(state, actions);
   return actions;
@@ -42,11 +45,24 @@ beforeEach(() => {
 });
 
 describe('timeline clip actions', () => {
+  it.each([0.5, 2, 4])('preserves source time when splitting a %sx clip', (rate) => {
+    const original = { ...clip('clip-a'), playbackRate: rate, duration: 1000 / rate };
+    const videoTrack = track('track-a');
+    videoTrack.clips.push(original);
+    const state = { ...useEditorStore.getInitialState(), clips: [original], tracks: [videoTrack] };
+    const actions = harness(state, createClipsActions);
+    const midpoint = original.startTime + original.duration / 2;
+    actions.cutClip(original.id, midpoint);
+    expect(state.clips[0].sourceOut).toBe(550);
+    expect(state.clips[1].sourceIn).toBe(550);
+    expect(state.clips[1].sourceOut).toBe(1050);
+    expect(state.clips[0].duration + state.clips[1].duration).toBe(1000 / rate);
+  });
   it('cuts a clip while preserving its source mapping', () => {
     const original = clip('clip-a');
     const videoTrack = track('track-a');
     videoTrack.clips.push(original);
-    const state: any = {
+    const state = { ...useEditorStore.getInitialState(),
       clips: [original],
       tracks: [videoTrack],
       selection: { clipIds: [], trackIds: [], keyframeIds: [] },
@@ -71,7 +87,7 @@ describe('timeline clip actions', () => {
     const original = clip('clip-a');
     const videoTrack = track('track-a');
     videoTrack.clips.push(original);
-    const state: any = {
+    const state = { ...useEditorStore.getInitialState(),
       clips: [original],
       tracks: [videoTrack],
       selection: { clipIds: [], trackIds: [], keyframeIds: [] },
@@ -80,9 +96,9 @@ describe('timeline clip actions', () => {
     };
     const actions = harness(state, createClipsActions);
 
-    actions.setClipPlaybackRate('clip-a', 10);
-    expect(original.playbackRate).toBe(4);
-    expect(original.duration).toBe(250);
+    actions.setClipPlaybackRate('clip-a', 100);
+    expect(original.playbackRate).toBe(24);
+    expect(original.duration).toBeCloseTo(1000 / 24);
   });
 
   it('moves a clip between tracks without duplicating it', () => {
@@ -90,7 +106,7 @@ describe('timeline clip actions', () => {
     const first = track('track-a');
     const second = track('track-b');
     first.clips.push(original);
-    const state: any = {
+    const state = { ...useEditorStore.getInitialState(),
       clips: [original],
       tracks: [first, second],
       selection: { clipIds: [], trackIds: [], keyframeIds: [] },
@@ -124,9 +140,9 @@ describe('zoom block actions', () => {
   };
 
   it('clamps block end time and marks manual center edits', () => {
-    const state: any = {
+    const state = { ...useEditorStore.getInitialState(),
       duration: 5_000,
-      zoomAnalysis: { zoom_blocks: [structuredClone(zoomBlock)] },
+      zoomAnalysis: { total_clicks: 0, session_duration: 5000, config: {enabled:true,zoom_factor:2,zoom_duration:5000,min_click_spacing:500}, zoom_blocks: [structuredClone(zoomBlock)] },
       history: [],
       historyIndex: -1,
       selectedBlockId: null,
@@ -142,10 +158,17 @@ describe('zoom block actions', () => {
     });
   });
 
+  it('returns a manually positioned zoom to automatic following', () => {
+    const state = { ...useEditorStore.getInitialState(), duration: 5000, zoomAnalysis: { total_clicks: 0, session_duration: 5000, config: {enabled:true,zoom_factor:2,zoom_duration:5000,min_click_spacing:500}, zoom_blocks: [{ ...zoomBlock, is_manual: true }] }, history: [], historyIndex: -1 };
+    const actions = harness(state, createZoomActions);
+    actions.updateZoomBlock('zoom-a', { center_x: 0.5, center_y: 0.5, is_manual: false });
+    expect(state.zoomAnalysis.zoom_blocks[0].is_manual).toBe(false);
+  });
+
   it('splits centers and timing at the requested frame time', () => {
-    const state: any = {
+    const state = { ...useEditorStore.getInitialState(),
       duration: 5_000,
-      zoomAnalysis: { zoom_blocks: [structuredClone(zoomBlock)] },
+      zoomAnalysis: { total_clicks: 0, session_duration: 5000, config: {enabled:true,zoom_factor:2,zoom_duration:5000,min_click_spacing:500}, zoom_blocks: [structuredClone(zoomBlock)] },
       history: [],
       historyIndex: -1,
       selectedBlockId: null,
@@ -162,6 +185,7 @@ describe('zoom block actions', () => {
     });
     expect(state.zoomAnalysis.zoom_blocks[1]).toMatchObject({
       id: 'generated-id',
+      is_manual: false,
       start_time: 2_000,
       end_time: 4_000,
       centers: [{ x: 0.6, y: 0.6, time: 3_000 }],
@@ -171,7 +195,7 @@ describe('zoom block actions', () => {
 
 describe('playback actions', () => {
   it('updates playback state and records trim edits in history', () => {
-    const state: any = {
+    const state = { ...useEditorStore.getInitialState(),
       isPlaying: false,
       currentTime: 0,
       trimStart: 0,
@@ -191,7 +215,24 @@ describe('playback actions', () => {
     expect(state.currentTime).toBe(2_500);
     expect(state.trimStart).toBe(500);
     expect(state.trimEnd).toBe(9_000);
-    expect(state.historyIndex).toBe(1);
-    expect(state.history).toHaveLength(2);
+    expect(state.historyIndex).toBe(2);
+    expect(state.history).toHaveLength(3);
+  });
+});
+
+describe('playback motion invalidation',()=>{
+  it('distinguishes clock advancement from explicit seeks and playback transitions',()=>{
+    const state={...useEditorStore.getInitialState(),isPlaying:false,currentTime:0,playbackRevision:0};
+    const actions=harness(state,createPlaybackActions);
+    actions.setIsPlaying(true);
+    expect(state.playbackRevision).toBe(1);
+    actions.setCurrentTime(16,'playback');actions.setCurrentTime(32,'playback');
+    expect(state.playbackRevision).toBe(1);
+    actions.setCurrentTime(33);
+    expect(state.playbackRevision).toBe(2);
+    actions.setIsPlaying(false);actions.setIsPlaying(false);
+    expect(state.playbackRevision).toBe(3);
+    actions.setIsPlaying(true);
+    expect(state.playbackRevision).toBe(4);
   });
 });

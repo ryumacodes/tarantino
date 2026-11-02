@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateTimelineLayout } from './utils';
+import { calculateTimelineLayout, fitTimelineZoom, stepTimelineZoom } from './utils';
 
 describe('calculateTimelineLayout', () => {
   it('fills the usable viewport for a short recording', () => {
@@ -25,4 +25,15 @@ describe('calculateTimelineLayout', () => {
     expect(layout.tracksWidth).toBeCloseTo(1_640);
     expect(layout.pixelsPerMs).toBeCloseTo(0.15);
   });
+});
+
+it.each([100,3000,3600000])('zooms immediately and fits a %sms recording',duration=>{
+  const fit=fitTimelineZoom(duration,1060);
+  const zoom=stepTimelineZoom(fit,'in',duration,1060);
+  expect(calculateTimelineLayout(duration,1200,140,zoom).mediaWidth).toBeCloseTo(1590);
+  expect(stepTimelineZoom(zoom,'out',duration,1060)).toBeCloseTo(fit);
+  expect(calculateTimelineLayout(duration,1200,140,fit).mediaWidth).toBeCloseTo(1060);
+});
+it('starts zooming from the displayed fit when the stored zoom is below it',()=>{
+  expect(stepTimelineZoom(1,'in',3000,1060)).toBeCloseTo(5.3);
 });

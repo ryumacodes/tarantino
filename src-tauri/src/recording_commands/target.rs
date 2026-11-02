@@ -121,12 +121,10 @@ pub(super) fn build_recording_config(
                 include_shadow: true,
             }
         }
-        "device" => {
-            RecordingTarget::Device {
-                device_id: target_id,
-                device_type: DeviceType::Camera, // Default to camera for now
-            }
-        }
+        "device" => RecordingTarget::Device {
+            device_id: target_id,
+            device_type: DeviceType::IOSDevice,
+        },
         _ => return Err("Invalid target type".to_string()),
     };
 
@@ -153,6 +151,7 @@ pub(super) fn build_recording_config(
     Ok(RecordingConfig {
         target,
         quality: quality_preset,
+        frame_rate: None,
         output_format: OutputFormat {
             container: Container::MP4,
             codec: VideoCodec::H264,

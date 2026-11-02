@@ -37,8 +37,8 @@ coverage
 !.env.sample
 
 # Local workspace/tool artifacts
+/oss-research/
 .claude/settings.local.json
-.codex/
 .kisuke/
 .cursor/
 .tmp/

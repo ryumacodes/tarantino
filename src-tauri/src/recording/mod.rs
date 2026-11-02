@@ -89,20 +89,18 @@ impl RecordingAPI {
                 RecordingTarget::Window { window_id, .. } => {
                     (*window_id, CaptureSourceType::Window)
                 }
-                RecordingTarget::Device { .. } => {
-                    anyhow::bail!("Device capture is not supported yet")
-                }
+                RecordingTarget::Device { .. } => (0, CaptureSourceType::Display),
             };
 
-            let fps = match config.quality {
-                QualityPreset::Low => 30,
-                QualityPreset::Medium => 30,
-                QualityPreset::High => 60,
-                QualityPreset::Lossless => 60,
-            };
+            let fps = config.fps();
 
             // Create capture backend
-            let mut backend = CaptureBackendFactory::create_backend()?;
+            let mut backend: Box<dyn NativeCaptureBackend> = match &config.target {
+                RecordingTarget::Device { device_id, .. } => Box::new(
+                    crate::capture::backends::macos::device::DeviceBackend::new(device_id.clone()),
+                ),
+                _ => CaptureBackendFactory::create_backend()?,
+            };
 
             // Configure capture
             let capture_config = CaptureConfig {
@@ -144,6 +142,7 @@ impl RecordingAPI {
             let artifacts = artifacts::RecordingArtifacts::new(&out_path);
             let system_audio_path = artifacts.system_audio();
             let mic_audio_path = artifacts.microphone();
+            let (video_origin_tx, video_origin_rx) = tokio::sync::watch::channel(None);
             self.audio_task = crate::audio::spawn_audio_tasks(
                 audio_rx,
                 if config.include_system_audio {
@@ -158,6 +157,7 @@ impl RecordingAPI {
                 },
                 config.microphone_device.clone(),
                 audio_stop_signal,
+                Some(video_origin_rx),
             );
 
             // Spawn video recording task
@@ -167,6 +167,7 @@ impl RecordingAPI {
                 fps,
                 stop_signal,
                 Arc::clone(&self.video_start_time),
+                video_origin_tx,
             ));
         }
 
@@ -187,6 +188,7 @@ impl RecordingAPI {
                 },
                 config.microphone_device.clone(),
                 Arc::clone(&self.stop_signal),
+                None,
             );
         }
 
@@ -229,6 +231,13 @@ impl RecordingAPI {
     }
 
     pub async fn signal_stop(&mut self) -> Result<String> {
+        if !matches!(self.current_state, RecordingState::Recording | RecordingState::Paused) {
+            anyhow::bail!("No active recording to stop");
+        }
+        let path = self.temp_path.as_ref()
+            .filter(|path| !path.as_os_str().is_empty())
+            .ok_or_else(|| anyhow::anyhow!("Active recording has no output path"))?
+            .to_string_lossy().into_owned();
         #[cfg(target_os = "macos")]
         {
             // Signal stop to native recording
@@ -274,12 +283,7 @@ impl RecordingAPI {
         }
 
         self.current_state = RecordingState::Stopping;
-        Ok(self
-            .temp_path
-            .clone()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string())
+        Ok(path)
     }
 
     pub async fn wait_for_completion(&mut self) -> Result<String> {
@@ -403,4 +407,30 @@ pub enum RecordingState {
     Stopping,
     Completed,
     Error,
+}
+
+#[cfg(test)]
+mod stop_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn inactive_stop_never_returns_a_previous_or_empty_path() {
+        for state in [RecordingState::Idle, RecordingState::Stopping, RecordingState::Completed, RecordingState::Error] {
+            for path in [None, Some(PathBuf::from("previous.mp4"))] {
+                let mut api = RecordingAPI::new().unwrap();
+                api.current_state = state.clone();
+                api.temp_path = path;
+                assert!(api.signal_stop().await.is_err());
+                assert_eq!(std::mem::discriminant(&api.current_state), std::mem::discriminant(&state));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn stop_requires_an_output_path_before_changing_state() {
+        let mut api = RecordingAPI::new().unwrap();
+        api.current_state = RecordingState::Recording;
+        assert!(api.signal_stop().await.is_err());
+        assert!(matches!(api.current_state, RecordingState::Recording));
+    }
 }

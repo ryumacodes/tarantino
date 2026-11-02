@@ -1,0 +1,664 @@
+{
+  "revision": "cc593f87a632d72c11e8a36d435bf0b946e3f92f",
+  "hardware": {
+    "model": "MacBook Air",
+    "chip": "Apple M5",
+    "cpu_cores": 10,
+    "gpu_cores": 10,
+    "memory_gb": 24
+  },
+  "environment": {
+    "os": "macOS 27.0.1 (26A434)",
+    "graphics": "Metal",
+    "ffmpeg": "8.1",
+    "power": "AC, battery charged at 100%, low power mode off"
+  },
+  "export": {
+    "arch": "aarch64",
+    "debug_build": false,
+    "median_fps": 191.06748879279155,
+    "median_seconds": 1.570125833,
+    "os": "macos",
+    "runs": 5,
+    "sorted_seconds": [
+      1.50362075,
+      1.5434896249999999,
+      1.570125833,
+      1.597245083,
+      1.9245767919999999
+    ],
+    "zoom_blocks": 0,
+    "fixture": "5 seconds, 1920x1080, 60fps, 300 frames; padding, shadow and rounded corners",
+    "encoder": "h264_videotoolbox",
+    "warmup_runs": 1,
+    "validation": "All six outputs decoded to 300 frames at 1920x1080"
+  },
+  "verification": {
+    "frontend_tests_passed": 18,
+    "native_tests_passed": 52,
+    "native_tests_ignored": 1,
+    "macos_suite": "passed",
+    "linux_ci": "https://github.com/ryumacodes/tarantino/actions/runs/39292225718",
+    "linux_ci_jobs_passed": 11
+  },
+  "limitations": [
+    "One candidate batch; no matched baseline, so no regression or performance parity conclusion.",
+    "Does not measure recording overhead, unique captured FPS, preview responsiveness, audio, webcam, cursor or zoom effects.",
+    "No live SteamOS testing was performed on this Mac."
+  ],
+  "zoom_export_comparison": {
+    "fixture": "Generated 5-second testsrc2 1080p60 fixture; same settings except zoom blocks",
+    "warmup_runs_per_condition": 1,
+    "no_zoom": {
+      "arch": "aarch64",
+      "debug_build": false,
+      "median_fps": 207.01673436126532,
+      "median_seconds": 1.449158209,
+      "os": "macos",
+      "runs": 3,
+      "sorted_seconds": [
+        1.445353458,
+        1.449158209,
+        1.455661042
+      ],
+      "zoom_blocks": 0
+    },
+    "zoom": {
+      "arch": "aarch64",
+      "debug_build": false,
+      "median_fps": 207.4208736417025,
+      "median_seconds": 1.446334666,
+      "os": "macos",
+      "runs": 3,
+      "sorted_seconds": [
+        1.442147959,
+        1.446334666,
+        1.501595833
+      ],
+      "zoom_blocks": 1
+    },
+    "zoom_blocks": [
+      {
+        "start_time_ms": 4,
+        "end_time_ms": 4004,
+        "zoom_level": 2.0,
+        "center_x": 0.18125,
+        "center_y": 0.23981481481481481,
+        "kind": "click",
+        "centers": [
+          {
+            "x": 0.18125,
+            "y": 0.23981481481481481,
+            "time": 1004
+          }
+        ]
+      }
+    ],
+    "visual_verification": "Inspected matching frames at 2 seconds; 2x crop visible. All eight outputs validated as 300 frames at 1920x1080.",
+    "conclusion": "No observed zoom export penalty in this short batch; timing difference does not establish a speedup."
+  },
+  "date": "2026-10-24",
+  "status": "Partial: recording measurements awaiting renewed macOS screen capture approval for rebuilt app",
+  "recording_runs": {
+    "capped_idle": {
+      "pid": 96250,
+      "resource_samples": [
+        {
+          "elapsed": 1.0194394590216689,
+          "uptime": 337452.195372125,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 2.019030791998375,
+          "uptime": 337453.194963458,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 3.016982667031698,
+          "uptime": 337454.192915333,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 4.018500167003367,
+          "uptime": 337455.194432833,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 5.019189750018995,
+          "uptime": 337456.195122416,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 6.0143324169912376,
+          "uptime": 337457.190265083,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 7.019024959008675,
+          "uptime": 337458.194957625,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 8.019610250019468,
+          "uptime": 337459.195542916,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 9.019602584012318,
+          "uptime": 337460.19553525,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 10.021132334019057,
+          "uptime": 337461.197065,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 11.034308834001422,
+          "uptime": 337462.2102415,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 12.025857625005301,
+          "uptime": 337463.201790291,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 13.01951062498847,
+          "uptime": 337464.195443291,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 14.015432959015016,
+          "uptime": 337465.191365625,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 15.015721125004347,
+          "uptime": 337466.191653791,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 16.01527758402517,
+          "uptime": 337467.19121025,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 17.02044895902509,
+          "uptime": 337468.196381625,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 18.025546916993335,
+          "uptime": 337469.201479583,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 19.0209687090246,
+          "uptime": 337470.196901375,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 20.021865000016987,
+          "uptime": 337471.197797666,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 21.01737908401992,
+          "uptime": 337472.19331175,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 22.020271292014513,
+          "uptime": 337473.196203958,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 23.02096116699977,
+          "uptime": 337474.196893833,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 24.021014917001594,
+          "uptime": 337475.196947583,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 25.01819145900663,
+          "uptime": 337476.194124125,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 26.018894084030762,
+          "uptime": 337477.19482675,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 27.021072584029753,
+          "uptime": 337478.19700525,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 28.022533375013154,
+          "uptime": 337479.198466041,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 29.022336249996442,
+          "uptime": 337480.198268916,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 30.02224570902763,
+          "uptime": 337481.198178375,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        }
+      ],
+      "mean_resources": {
+        "recorder_cpu_percent": 0.0,
+        "recorder_rss_mib": 94.39635416666667
+      },
+      "limitations": [
+        "CPU percent is relative to one logical core.",
+        "RSS sums the recorder and descendants; shared pages may be counted more than once.",
+        "Processes which start and exit entirely between samples are not counted.",
+        "GPU utilization is not sampled."
+      ],
+      "workload_samples": [
+        {
+          "capped": true,
+          "fps": 59.99999200017298,
+          "frames": 300,
+          "height": 1080,
+          "seconds": 5.00000066665234,
+          "uptime": 337458.190646125,
+          "width": 1920
+        },
+        {
+          "capped": true,
+          "fps": 59.399661916539685,
+          "frames": 297,
+          "height": 1080,
+          "seconds": 5.000028458365705,
+          "uptime": 337463.19067458337,
+          "width": 1920
+        },
+        {
+          "capped": true,
+          "fps": 60.00034834115502,
+          "frames": 301,
+          "height": 1080,
+          "seconds": 5.016637541644741,
+          "uptime": 337468.207312125,
+          "width": 1920
+        },
+        {
+          "capped": true,
+          "fps": 60.007976973879444,
+          "frames": 301,
+          "height": 1080,
+          "seconds": 5.015999791678041,
+          "uptime": 337473.2233119167,
+          "width": 1920
+        },
+        {
+          "capped": true,
+          "fps": 59.991617171316285,
+          "frames": 300,
+          "height": 1080,
+          "seconds": 5.00069866667036,
+          "uptime": 337478.22401058336,
+          "width": 1920
+        }
+      ],
+      "mean_workload_fps": 59.880083740812296,
+      "condition": "Recorder idle; source enumeration denied by macOS. Not an operational ready-to-record baseline."
+    },
+    "uncapped_idle": {
+      "pid": 96250,
+      "resource_samples": [
+        {
+          "elapsed": 1.0289600410033017,
+          "uptime": 337496.142086166,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 2.0302550829946995,
+          "uptime": 337497.143381208,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 3.034717415983323,
+          "uptime": 337498.147843541,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 4.031976666010451,
+          "uptime": 337499.145102791,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 5.029278624977451,
+          "uptime": 337500.14240475,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 6.026918290997855,
+          "uptime": 337501.140044416,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 7.028895666007884,
+          "uptime": 337502.142021791,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 8.030230665986892,
+          "uptime": 337503.143356791,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 9.029697290970944,
+          "uptime": 337504.142823416,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 10.03010962496046,
+          "uptime": 337505.14323575,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 11.027764957980253,
+          "uptime": 337506.140891083,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 12.031774125003722,
+          "uptime": 337507.14490025,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 13.032188415993005,
+          "uptime": 337508.145314541,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 14.030100125004537,
+          "uptime": 337509.14322625,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 15.029498749994673,
+          "uptime": 337510.142624875,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 16.029232957982458,
+          "uptime": 337511.142359083,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 17.0256209159852,
+          "uptime": 337512.138747041,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 18.030120290990453,
+          "uptime": 337513.143246416,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 19.031810457992833,
+          "uptime": 337514.144936583,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 20.03209929098375,
+          "uptime": 337515.145225416,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 21.028200833010487,
+          "uptime": 337516.141326958,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 22.036200665985234,
+          "uptime": 337517.149326791,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 23.044142708007712,
+          "uptime": 337518.157268833,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 24.03337591601303,
+          "uptime": 337519.146502041,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 25.027706291002687,
+          "uptime": 337520.140832416,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.40625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 26.03419837501133,
+          "uptime": 337521.1473245,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 27.043194708006922,
+          "uptime": 337522.156320833,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 28.03533466596855,
+          "uptime": 337523.148460791,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 29.03237008297583,
+          "uptime": 337524.145496208,
+          "recorder_cpu_percent": 0.0,
+          "recorder_rss_mib": 94.390625,
+          "process_count": 1
+        },
+        {
+          "elapsed": 30.050254833011422,
+          "uptime": 337525.163380958,
+          "recorder_cpu_percent": 1.9648589881418987,
+          "recorder_rss_mib": 97.0,
+          "process_count": 1
+        }
+      ],
+      "mean_resources": {
+        "recorder_cpu_percent": 0.06549529960472995,
+        "recorder_rss_mib": 94.48333333333333
+      },
+      "limitations": [
+        "CPU percent is relative to one logical core.",
+        "RSS sums the recorder and descendants; shared pages may be counted more than once.",
+        "Processes which start and exit entirely between samples are not counted.",
+        "GPU utilization is not sampled."
+      ],
+      "workload_samples": [
+        {
+          "capped": false,
+          "fps": 676.17850315348,
+          "frames": 3381,
+          "height": 1080,
+          "seconds": 5.000158958369866,
+          "uptime": 337503.6426661667,
+          "width": 1920
+        },
+        {
+          "capped": false,
+          "fps": 611.5752312067655,
+          "frames": 3058,
+          "height": 1080,
+          "seconds": 5.000202499970328,
+          "uptime": 337508.6428686667,
+          "width": 1920
+        },
+        {
+          "capped": false,
+          "fps": 636.5732639194223,
+          "frames": 3183,
+          "height": 1080,
+          "seconds": 5.000210000027437,
+          "uptime": 337513.6430786667,
+          "width": 1920
+        },
+        {
+          "capped": false,
+          "fps": 559.5729909509386,
+          "frames": 2805,
+          "height": 1080,
+          "seconds": 5.012750874971971,
+          "uptime": 337518.6558295417,
+          "width": 1920
+        },
+        {
+          "capped": false,
+          "fps": 559.7735087157392,
+          "frames": 2799,
+          "height": 1080,
+          "seconds": 5.000236625026446,
+          "uptime": 337523.6560661667,
+          "width": 1920
+        }
+      ],
+      "mean_workload_fps": 608.7098611334355,
+      "condition": "Recorder idle; source enumeration denied by macOS. Not an operational ready-to-record baseline."
+    }
+  },
+  "recording_workload": {
+    "source": "scripts/macos-performance-workload.swift",
+    "resolution": "1920x1080 backing pixels in a 960x540 point window",
+    "renderer": "Native NSOpenGLView, animated spokes, swap interval zero; timer at 60 Hz or 0.1 ms",
+    "comparison_limit": "Different workload from Linux glxgears. Capped/uncapped rates count submitted rendered frames, not unique displayed frames; no cross-platform speedup inference."
+  },
+  "remaining": [
+    "Reauthorize rebuilt release app and repeat ready-state baselines.",
+    "Capped and uncapped recordings with process samples, decoded frame counts, timestamp gaps and stop latency.",
+    "Live click/auto-zoom recording and editor preview measurement.",
+    "GPU utilization not collected."
+  ]
+}

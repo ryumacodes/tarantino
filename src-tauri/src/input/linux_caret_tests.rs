@@ -218,8 +218,8 @@ async fn check_native_event(
         {
             let tracker = tracker.lock();
             tracker.key_events.lock().clear();
-            tracker.add_key_event(KeyEvent {
-                timestamp: now_ms(),
+            tracker.add_key_event(KeyEvent { shortcut: None,
+                is_release: false, timestamp: now_ms(),
                 is_modifier: false,
                 is_typing: true,
                 key_motion: KeyMotion::Character,

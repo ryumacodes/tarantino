@@ -11,11 +11,15 @@ pub fn create_idle_tray_menu(
     app: &tauri::AppHandle,
 ) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
     let menu = MenuBuilder::new(app)
-        .item(
-            &MenuItemBuilder::with_id("status", "Ready to Record")
-                .enabled(false)
-                .build(app)?,
-        )
+        .item(&MenuItemBuilder::with_id("new_recording", "New Recording…").build(app)?)
+        .separator()
+        .item(&MenuItemBuilder::with_id("record_display", "Record Display…").build(app)?)
+        .item(&MenuItemBuilder::with_id("record_window", "Record Window…").build(app)?)
+        .separator()
+        .item(&MenuItemBuilder::with_id("capture_settings", "Settings…").build(app)?)
+        .item(&MenuItemBuilder::with_id("capture_shortcuts", "Keyboard Shortcuts…").build(app)?)
+        .separator()
+        .item(&MenuItemBuilder::with_id("open_projects", "Open Project…").build(app)?)
         .separator()
         .item(&MenuItemBuilder::with_id("quit", "Quit Tarantino").build(app)?)
         .build()?;
@@ -27,6 +31,7 @@ pub fn create_recording_tray_menu_with_time(
     app: &tauri::AppHandle,
     elapsed: Option<&str>,
 ) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
+    crate::app_menu::set_recording(app, true);
     let status_text = match elapsed {
         Some(t) => format!("🔴 Recording — {}", t),
         None => "🔴 Recording".to_string(),
@@ -77,6 +82,9 @@ pub async fn update_main_tray_timer_cmd(
                 .map_err(|e| format!("Failed to set recording menu: {}", e))?;
         }
 
+        #[cfg(target_os = "macos")]
+        tray.set_title(Some(elapsed_time.strip_prefix("00:").unwrap_or(&elapsed_time)))
+            .map_err(|error| format!("Failed to update menu-bar timer: {error}"))?;
         let tooltip_text = format!("Recording: {}", elapsed_time);
         let _ = tray.set_tooltip(Some(&tooltip_text));
     } else {
@@ -88,10 +96,13 @@ pub async fn update_main_tray_timer_cmd(
 
 /// Reset tray to idle state (helper function - actual command in main.rs)
 pub async fn reset_tray_to_idle_impl(app: tauri::AppHandle) -> Result<(), String> {
+    crate::app_menu::set_recording(&app, false);
     // Clear the stored recording menu item
     *RECORDING_STATUS_ITEM.lock().unwrap() = None;
 
     if let Some(tray) = app.tray_by_id("main") {
+        #[cfg(target_os = "macos")]
+        tray.set_title(None::<&str>).map_err(|error| error.to_string())?;
         // Reset tooltip
         let _ = tray.set_tooltip(Some("Tarantino - Ready to Record"));
 
@@ -106,4 +117,24 @@ pub async fn reset_tray_to_idle_impl(app: tauri::AppHandle) -> Result<(), String
     } else {
         Err("Failed to get main tray".to_string())
     }
+}
+
+/// Only actions backed by a capture-bar workflow are exposed in the idle menu.
+pub fn capture_action_for_menu(id: &str) -> Option<&'static str> {
+    match id {
+        "new_recording" => Some("new"),
+        "record_display" => Some("display"),
+        "record_window" => Some("window"),
+        "capture_settings" => Some("settings"),
+        "capture_shortcuts" => Some("shortcuts"),
+        _ => None,
+    }
+}
+
+pub fn dispatch_capture_action(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
+    use tauri::Emitter;
+    let action = capture_action_for_menu(id).ok_or("Unknown capture menu action")?;
+    super::misc::bring_capture_bar_to_front(app)?;
+    app.emit_to("capture-bar", "capture-menu-action", action)
+        .map_err(|error| error.to_string())
 }

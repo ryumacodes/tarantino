@@ -92,7 +92,7 @@ impl GpuCompositor {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -331,6 +331,12 @@ impl GpuCompositor {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {binding:10,visibility:wgpu::ShaderStages::COMPUTE,
+                    ty:wgpu::BindingType::StorageTexture {access:wgpu::StorageTextureAccess::WriteOnly,
+                        format:wgpu::TextureFormat::Rgba8Unorm,view_dimension:wgpu::TextureViewDimension::D2},count:None},
+                wgpu::BindGroupLayoutEntry {binding:11,visibility:wgpu::ShaderStages::COMPUTE,
+                    ty:wgpu::BindingType::StorageTexture {access:wgpu::StorageTextureAccess::WriteOnly,
+                        format:wgpu::TextureFormat::Rgba8Unorm,view_dimension:wgpu::TextureViewDimension::D2},count:None},
             ],
         });
 
@@ -354,6 +360,7 @@ impl GpuCompositor {
             label: Some("Bilinear Sampler"),
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -383,13 +390,6 @@ impl GpuCompositor {
             "dotted" => 4.0,
             _ => 0.0,
         };
-        let always_pointer = cc.and_then(|c| c.always_use_pointer).unwrap_or(false);
-        let cursor_style_final = if always_pointer {
-            0.0
-        } else {
-            cursor_style_val
-        };
-
         let color_hex = cc.and_then(|c| c.color.as_deref()).unwrap_or("#ffffff");
         let (cr, cg, cb) = crate::cursor_renderer::parse_hex_rgb(color_hex);
         let cursor_color = [cr as f32 / 255.0, cg as f32 / 255.0, cb as f32 / 255.0];
@@ -422,26 +422,41 @@ impl GpuCompositor {
             cursor_style_str
         );
 
+        let loupe_layers=layers::StageLayers::new(&device,1,1);
         Ok(Self {
             device,
             queue,
             composite_pipeline,
             bind_group_layout,
             source_texture,
+            mask_stage: None,
+            mask_placement: None,
             output_texture,
+            caption_stage: None,
+            caption_frame: 0,
+            shortcut_stage: None,
+            shortcut_draws: Vec::new(),
+            loupe_pass: None,
+            loupe_content: None,
+            loupe_layers,
+            loupe_layered_pass:None,
             download_buffer,
             uniform_buffer,
             trail_buffer,
             cursor_texture,
+            cursor_tile: None,
+            recorded_cursor: None,
             cursor_enabled: cursor_has_shape,
             cursor_size,
             ripple_color,
-            cursor_style: cursor_style_final,
+            cursor_style: cursor_style_val,
             cursor_color,
             cursor_highlight_color,
             cursor_shadow_intensity,
             click_effect: click_effect_val,
             webcam_texture,
+            webcam_rect: None,
+            webcam_opacity: 1.0,
             background_texture,
             corner_mask_texture,
             shadow_texture,
@@ -452,6 +467,7 @@ impl GpuCompositor {
             padded_bytes_per_row,
             config,
             prev_zoom_state: None,
+            prev_cursor_pose: None,
         })
     }
 }

@@ -30,6 +30,12 @@ pub fn build_gpu_config(
         .and_then(|path| match image::open(path) {
             Ok(image) => {
                 println!("[Window Mask] loaded native silhouette: {}", path);
+                let image = if let Some(rect) = settings.source_crop {
+                    match rect.resolve(image.width(),image.height()) {
+                        Ok(crop) => image.crop_imm(crop.x,crop.y,crop.width,crop.height),
+                        Err(_) => return None,
+                    }
+                } else { image };
                 Some(image.to_rgba8())
             }
             Err(error) => {
@@ -51,7 +57,7 @@ pub fn build_gpu_config(
 
     let shadow_enabled = visual.and_then(|v| v.shadow_enabled).unwrap_or(false);
     let shadow_blur = visual.and_then(|v| v.shadow_blur).unwrap_or(20.0) as f32;
-    let shadow_intensity = visual.and_then(|v| v.shadow_intensity).unwrap_or(0.5) as f32;
+    let shadow_intensity = (visual.and_then(|v| v.shadow_intensity).unwrap_or(50.0) / 100.0).clamp(0.0, 1.0) as f32;
     let shadow_offset_x = visual.and_then(|v| v.shadow_offset_x).unwrap_or(0.0) as f32;
     let shadow_offset_y = visual.and_then(|v| v.shadow_offset_y).unwrap_or(10.0) as f32;
 
@@ -100,16 +106,53 @@ pub fn build_gpu_config(
             })
         });
 
-    // Compute input dimensions
-    // Display mode: aspect-fit source to fill content area (existing behavior).
-    // Window Focus uses the original source aspect; Window Desktop stages that
-    // source inside the selected canvas ratio.
+    let (input_w, input_h, input_off_x, input_off_y) = input_layout(
+        settings, source_width, source_height, content_w, content_h);
+
+    println!(
+        "[GPU Config] output={}x{}, content={}x{}, input={}x{} offset=({},{})",
+        out_w, out_h, content_w, content_h, input_w, input_h, input_off_x, input_off_y
+    );
+
+    GpuCompositorConfig {
+        output_width: out_w,
+        output_height: out_h,
+        content_width: content_w,
+        content_height: content_h,
+        content_offset_x: padding_x,
+        content_offset_y: padding_y,
+        input_width: input_w,
+        input_height: input_h,
+        input_offset_x: input_off_x,
+        input_offset_y: input_off_y,
+        background_color,
+        background_gradient,
+        background_image,
+        window_mask,
+        corner_radius,
+        shadow_enabled,
+        shadow_blur,
+        shadow_intensity,
+        shadow_offset_x,
+        shadow_offset_y,
+        webcam: webcam,
+        webcam_mirrored: settings.webcam_mirrored.unwrap_or(false),
+        device_frame,
+        motion_blur_enabled,
+        frame_rate: settings.frame_rate.unwrap_or(60) as f64,
+        motion_blur_pan_intensity,
+        motion_blur_zoom_intensity,
+        window_mode: settings.capture_mode.as_deref() == Some("window"),
+        clip_cursor_to_video: settings.source_crop.is_some(),
+    }
+}
+
+/// Geometry only: shared by compositing and camera activity grouping.
+pub(crate) fn input_layout(settings: &types::ExportSettings, source_width: Option<u32>,
+    source_height: Option<u32>, content_w: u32, content_h: u32) -> (u32,u32,u32,u32) {
+    let visual = settings.visual_settings.as_ref();
     let is_window_mode = settings.capture_mode.as_deref() == Some("window");
-    let is_focus_window = visual
-        .and_then(|v| v.window_layout_mode.as_deref())
-        .unwrap_or("focus")
-        == "focus";
-    let (input_w, input_h, input_off_x, input_off_y) =
+    let is_focus_window = visual.and_then(|v| v.window_layout_mode.as_deref()).unwrap_or("focus") == "focus";
         if let (Some(sw), Some(sh)) = (source_width, source_height) {
             if sw > 0 && sh > 0 {
                 if is_window_mode && is_focus_window {
@@ -153,41 +196,7 @@ pub fn build_gpu_config(
         } else {
             // No source dims — fallback: input == content
             (content_w, content_h, 0, 0)
-        };
-
-    println!(
-        "[GPU Config] output={}x{}, content={}x{}, input={}x{} offset=({},{})",
-        out_w, out_h, content_w, content_h, input_w, input_h, input_off_x, input_off_y
-    );
-
-    GpuCompositorConfig {
-        output_width: out_w,
-        output_height: out_h,
-        content_width: content_w,
-        content_height: content_h,
-        content_offset_x: padding_x,
-        content_offset_y: padding_y,
-        input_width: input_w,
-        input_height: input_h,
-        input_offset_x: input_off_x,
-        input_offset_y: input_off_y,
-        background_color,
-        background_gradient,
-        background_image,
-        window_mask,
-        corner_radius,
-        shadow_enabled,
-        shadow_blur,
-        shadow_intensity,
-        shadow_offset_x,
-        shadow_offset_y,
-        webcam: webcam,
-        device_frame,
-        motion_blur_enabled,
-        motion_blur_pan_intensity,
-        motion_blur_zoom_intensity,
-        window_mode: settings.capture_mode.as_deref() == Some("window"),
-    }
+        }
 }
 
 fn aspect_fit_input(
@@ -235,7 +244,13 @@ fn proportional_window_input(
 
 #[cfg(test)]
 mod tests {
-    use super::proportional_window_input;
+    use super::{aspect_fit_input, proportional_window_input};
+
+    #[test]
+    fn portrait_and_padded_square_layouts_match_preview_geometry() {
+        assert_eq!(aspect_fit_input(1920, 1080, 608, 1080), (608, 342, 0, 369));
+        assert_eq!(aspect_fit_input(1920, 1080, 800, 800), (800, 450, 0, 175));
+    }
 
     #[test]
     fn desktop_layout_preserves_window_proportion_within_host_display() {
@@ -461,4 +476,20 @@ fn resolve_background_color(visual: &types::VisualSettings) -> Option<&str> {
         }
     }
     visual.background_color.as_deref()
+}
+
+#[cfg(test)]
+mod shadow_intensity_tests {
+    use super::*;
+    #[test]
+    fn visual_shadow_percentage_is_normalized_once() {
+        for (percentage,expected) in [(0.0,0.0),(40.0,0.4),(100.0,1.0),(150.0,1.0),(-5.0,0.0)] {
+            let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+                "resolution":{"width":96,"height":64},
+                "visual_settings":{"shadow_enabled":true,"shadow_intensity":percentage}
+            })).unwrap();
+            let config=build_gpu_config_with_webcam(&settings,&None,Some(96),Some(64));
+            assert!((config.shadow_intensity-expected).abs()<0.00001);
+        }
+    }
 }

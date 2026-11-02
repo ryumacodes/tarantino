@@ -1,0 +1,5 @@
+.shortcut-controls input[type="range"] { width:100%; accent-color:var(--editor-accent,#f12c28); }
+.shortcut-controls input[type="checkbox"] { width:16px; height:16px; margin:0; accent-color:var(--editor-accent,#f12c28); }
+.shortcut-controls .control-group > label:has(input) { display:flex; align-items:center; gap:8px; }
+.shortcut-controls .control-group button { border:1px solid var(--editor-border,#48423b); border-radius:6px; padding:5px 10px; background:var(--editor-bg-secondary,#282521); color:inherit; }
+.shortcut-controls .control-group button:disabled { opacity:0.4; }

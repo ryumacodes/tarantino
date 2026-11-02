@@ -76,9 +76,10 @@ impl GpuCompositor {
             return;
         }
 
-        let source_view = self
-            .source_texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let source = if self.mask_placement.is_some() {
+            self.mask_stage.as_ref().expect("Mask stage initialized").texture()
+        } else { &self.source_texture };
+        let source_view = source.create_view(&wgpu::TextureViewDescriptor::default());
         let output_view = self
             .output_texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -111,6 +112,8 @@ impl GpuCompositor {
             .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()))
             .unwrap_or(placeholder_view_for_background);
 
+        let foreground_layer=self.loupe_layers.foreground.create_view(&Default::default());
+        let background_layer=self.loupe_layers.background.create_view(&Default::default());
         self.bind_group = Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Composite BG"),
             layout: &self.bind_group_layout,
@@ -155,6 +158,8 @@ impl GpuCompositor {
                     binding: 9,
                     resource: wgpu::BindingResource::TextureView(&background_view),
                 },
+                wgpu::BindGroupEntry {binding:10,resource:wgpu::BindingResource::TextureView(&foreground_layer)},
+                wgpu::BindGroupEntry {binding:11,resource:wgpu::BindingResource::TextureView(&background_layer)},
             ],
         }));
         self.bind_group_dirty = false;
@@ -276,80 +281,7 @@ impl GpuCompositor {
     ) -> wgpu::Texture {
         let out_w = config.output_width;
         let out_h = config.output_height;
-        let mut data = vec![0u8; (out_w * out_h * 4) as usize];
-
-        if config.shadow_enabled {
-            let blur_radius = config.shadow_blur as i32;
-            let intensity = config.shadow_intensity;
-            let offset_x = config.shadow_offset_x as i32;
-            let offset_y = config.shadow_offset_y as i32;
-            let content_w = config.content_width as i32;
-            let content_h = config.content_height as i32;
-            let cx = config.content_offset_x as i32 + offset_x;
-            let cy = config.content_offset_y as i32 + offset_y;
-            let corner_radius = config.corner_radius;
-
-            // Generate shadow shape (content rect with rounded corners, offset)
-            let mut shadow_mask = vec![0.0f32; (out_w * out_h) as usize];
-            for y in 0..out_h as i32 {
-                for x in 0..out_w as i32 {
-                    let lx = x - cx;
-                    let ly = y - cy;
-                    if lx >= 0 && lx < content_w && ly >= 0 && ly < content_h {
-                        let alpha = Self::rounded_corner_alpha(
-                            lx as f32,
-                            ly as f32,
-                            content_w as f32,
-                            content_h as f32,
-                            corner_radius,
-                        );
-                        shadow_mask[(y as u32 * out_w + x as u32) as usize] = alpha * intensity;
-                    }
-                }
-            }
-
-            // Box blur (separable: horizontal then vertical)
-            if blur_radius > 0 {
-                let mut temp = vec![0.0f32; (out_w * out_h) as usize];
-                let kernel = (blur_radius * 2 + 1) as f32;
-
-                // Horizontal pass
-                for y in 0..out_h as i32 {
-                    for x in 0..out_w as i32 {
-                        let mut sum = 0.0;
-                        for dx in -blur_radius..=blur_radius {
-                            let sx = (x + dx).clamp(0, out_w as i32 - 1);
-                            sum += shadow_mask[(y as u32 * out_w + sx as u32) as usize];
-                        }
-                        temp[(y as u32 * out_w + x as u32) as usize] = sum / kernel;
-                    }
-                }
-
-                // Vertical pass
-                for y in 0..out_h as i32 {
-                    for x in 0..out_w as i32 {
-                        let mut sum = 0.0;
-                        for dy in -blur_radius..=blur_radius {
-                            let sy = (y + dy).clamp(0, out_h as i32 - 1);
-                            sum += temp[(sy as u32 * out_w + x as u32) as usize];
-                        }
-                        shadow_mask[(y as u32 * out_w + x as u32) as usize] = sum / kernel;
-                    }
-                }
-            }
-
-            // Write shadow to texture data (black color with alpha from mask)
-            for y in 0..out_h {
-                for x in 0..out_w {
-                    let idx = ((y * out_w + x) * 4) as usize;
-                    let alpha = shadow_mask[(y * out_w + x) as usize];
-                    data[idx] = 0; // R
-                    data[idx + 1] = 0; // G
-                    data[idx + 2] = 0; // B
-                    data[idx + 3] = (alpha * 255.0).clamp(0.0, 255.0) as u8;
-                }
-            }
-        }
+        let data = Self::shadow_pixels(config);
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Shadow"),
@@ -388,4 +320,58 @@ impl GpuCompositor {
 
         texture
     }
+    pub(super) fn shadow_pixels(config: &GpuCompositorConfig) -> Vec<u8> {
+        let out_w = config.output_width;
+        let out_h = config.output_height;
+        let mut data = vec![0u8; (out_w * out_h * 4) as usize];
+
+        if config.shadow_enabled {
+            let blur_radius = config.shadow_blur as i32;
+            let intensity = config.shadow_intensity;
+            let offset_x = config.shadow_offset_x as i32;
+            let offset_y = config.shadow_offset_y as i32;
+            let content_w = config.input_width as i32;
+            let content_h = config.input_height as i32;
+            let cx = (config.content_offset_x + config.input_offset_x) as i32 + offset_x;
+            let cy = (config.content_offset_y + config.input_offset_y) as i32 + offset_y;
+            let corner_radius = config.corner_radius;
+
+            // Cast the fitted recording silhouette, excluding layout letterboxing.
+            let mut shadow_mask = vec![0.0f32; (out_w * out_h) as usize];
+            for y in 0..out_h as i32 {
+                for x in 0..out_w as i32 {
+                    let lx = x - cx;
+                    let ly = y - cy;
+                    if lx >= 0 && lx < content_w && ly >= 0 && ly < content_h {
+                        let alpha = Self::rounded_corner_alpha(
+                            lx as f32,
+                            ly as f32,
+                            content_w as f32,
+                            content_h as f32,
+                            corner_radius,
+                        );
+                        shadow_mask[(y as u32 * out_w + x as u32) as usize] = alpha * intensity;
+                    }
+                }
+            }
+
+            super::shadow_blur::blur(&mut shadow_mask, out_w as usize, out_h as usize,
+                blur_radius.max(0) as usize);
+
+            // Write shadow to texture data (black color with alpha from mask)
+            for y in 0..out_h {
+                for x in 0..out_w {
+                    let idx = ((y * out_w + x) * 4) as usize;
+                    let alpha = shadow_mask[(y * out_w + x) as usize];
+                    data[idx] = 0; // R
+                    data[idx + 1] = 0; // G
+                    data[idx + 2] = 0; // B
+                    data[idx + 3] = (alpha * 255.0).clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+
+        data
+    }
+
 }
