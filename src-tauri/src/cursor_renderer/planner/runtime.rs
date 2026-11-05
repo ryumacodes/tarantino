@@ -6,6 +6,7 @@ use std::path::Path;
 
 pub struct Prepared {
     motion: MotionTrack,
+    lead: super::timing::LeadSchedule,
     source_press: super::press::PressTrack,
     width: f64,
     height: f64,
@@ -16,6 +17,8 @@ impl Prepared {
     pub fn pressed_at_source(&self, time: f64, smooth: bool) -> bool {
         self.source_press.pressed(time, smooth)
     }
+    pub fn target_time_of(&self, time: f64) -> f64 { self.lead.target_time_of(time) }
+
     pub fn at(&self, time: f64) -> [f64; 2] {
         let position = time * 60.0 / 1000.0;
         let position = if (position-position.round()).abs()<1e-7 {position.round()} else {position};
@@ -124,6 +127,7 @@ pub fn prepare(
     )?;
     Ok(Some(Prepared {
         motion: plan.motion,
+        lead: plan.lead,
         source_press,
         width: mapped.width,
         height: mapped.height,

@@ -1,6 +1,6 @@
 //! Cursor simulation in output time for edited exports.
 use super::{CursorEvent,CursorFrameState,SpringConfig};
-use super::{edited_path::{map_cursor,map_recording},rotation::{MotionPoint,horizontal_tilt}};
+use super::{edited_path::{map_cursor,map_recording},rotation::MotionPoint};
 use crate::video_processing::{timeline::EditTimeline,CursorSettings,zoom_trajectory::{ZoomFrameState,CAMERA_SIMULATION_FPS}};
 
 pub(crate) fn simulate(
@@ -25,21 +25,44 @@ pub(crate) fn simulate_with_planned_path(
 )->Vec<CursorFrameState> {
     let press_animation=planned.and_then(|p|super::edited_press::build(timeline,recording,animation_fps,
         spring,settings,|source|p.pressed_at_source(source,spring.mass!=0.0)));
-    let segments=map_cursor(events,timeline,recording);
-    let physical_segments=map_recording(physical,timeline,recording);
+    let mut motion_timeline=timeline.clone();
+    for segment in &mut motion_timeline.segments {segment.hide_cursor=false;}
+    let segments=map_cursor(events,&motion_timeline,recording);
+    let physical_segments=map_recording(physical,&motion_timeline,recording);
     let count=(timeline.duration_ms*fps/1000.0).ceil() as usize;
     let mut output=vec![CursorFrameState::default();count];
     let opening=segments.first().and_then(|segment|segment.motion.points.first()).copied();
-    let physical_opening=physical_segments.first().and_then(|segment|segment.points.first()).copied();
+    let mut rotation=super::edited_rotation::EditedRotation::new(physical,&physical_segments,planned,settings,timeline.duration_ms);
     let loop_cutoff=timeline.duration_ms-settings.loop_duration_ms.unwrap_or(500) as f64;
-    for segment in segments {
-        let motion=segment.motion;
+    let freeze_time=if settings.stop_at_end.unwrap_or(false) {
+        (timeline.duration_ms-settings.stop_duration_ms.unwrap_or(0) as f64).max(0.0)
+    } else {timeline.duration_ms};
+    let visibility_targets=|time:f64| {
+        let mapped_time=time.min(freeze_time);
+        let index=segments.partition_point(|segment|segment.motion.output_end_ms<=mapped_time);
+        let segment=segments.get(index).or_else(||
+            (mapped_time>=timeline.duration_ms).then(||segments.last()).flatten());
+        let Some(segment)=segment else {return (false,false,false);};
+        let motion=&segment.motion;
+        if mapped_time<motion.output_start_ms {return (false,false,false);}
+        let source=motion.source_start_ms+(mapped_time.min(motion.output_end_ms)-motion.output_start_ms)*motion.rate;
+        let count=events.partition_point(|event|event.timestamp_ms as f64<=source);
+        let latest=count.checked_sub(1).map(|index|&events[index]);
+        let idle=settings.hide_when_idle.unwrap_or(false) && latest.is_some_and(|event|
+            source-event.timestamp_ms as f64+(time-freeze_time).max(0.0)*motion.rate>settings.idle_timeout.unwrap_or(2000) as f64);
+        (latest.is_some(),idle,activity.is_some_and(|a|a.active(source)))
+    };
+    let mut visibility=super::simulation::visibility::VisibilityTimeline::new();
+    for segment in &segments {
+        let motion=&segment.motion;
+        if timeline.source_at(motion.output_start_ms).is_some_and(|(segment,_)|segment.hide_cursor) {continue;}
         let start=motion.output_start_ms;
         let end=motion.output_end_ms;
         let duration=(end-start).ceil() as u64;
         let mut local=settings.clone();
         // The closing behavior belongs to the edited output, not every cut.
         local.loop_to_start=Some(false);
+        local.rotate_while_moving=Some(false);
         local.stop_at_end=Some(settings.stop_at_end.unwrap_or(false) && end==timeline.duration_ms);
         let loop_active=settings.loop_to_start.unwrap_or(false);
         let prepare=|points:&[MotionPoint],initial:Option<MotionPoint>| {
@@ -65,9 +88,6 @@ pub(crate) fn simulate_with_planned_path(
             local_events.push(CursorEvent{ is_release: false,timestamp_ms,x:click.x,y:click.y,is_click:true});
         }
         local_events.sort_by_key(|event|event.timestamp_ms);
-        let physical_path=physical_segments.iter().find(|part|part.output_start_ms==start)
-            .map(|part|prepare(&part.points,physical_opening)).unwrap_or_default();
-        let keys=horizontal_tilt(&physical_path,settings.rotation_intensity.unwrap_or(30.0)/100.0);
         let local_zoom=source_zoom.as_ref().filter(|frames|!frames.is_empty()).map(|frames| {
             (0..(duration as f64*CAMERA_SIMULATION_FPS/1000.0).ceil() as usize).map(|index| {
                 let source=motion.source_start_ms+index as f64*1000.0/CAMERA_SIMULATION_FPS*motion.rate;
@@ -82,7 +102,7 @@ pub(crate) fn simulate_with_planned_path(
         let typing = |time| activity.is_some_and(|a| a.active(motion.source_start_ms + time * motion.rate));
         let position=|time|planned.unwrap().at(start+time);
         let frames=super::simulate_cursor_frames_from(&local_events,&local_spring,CAMERA_SIMULATION_FPS,duration,
-            &local_zoom,&local,0,CAMERA_SIMULATION_FPS,Some(&keys),activity.map(|_| &typing as &dyn Fn(f64)->bool),
+            &local_zoom,&local,0,CAMERA_SIMULATION_FPS,None,activity.map(|_| &typing as &dyn Fn(f64)->bool),
             planned.map(|_|&position as &dyn Fn(f64)->[f64;2]),None,Clone::clone);
         let first=(start*fps/1000.0-1e-7).ceil().max(0.0) as usize;
         let last=(end*fps/1000.0-1e-7).ceil().max(0.0) as usize;
@@ -107,6 +127,12 @@ pub(crate) fn simulate_with_planned_path(
                     output[index].x=position[0] as f32;
                     output[index].y=position[1] as f32;
                 }
+                let time=index as f64*1000.0/fps;
+                if let Some(rotation)=rotation.as_mut() {output[index].rotation=rotation.at(time);}
+                let [opacity,blur]=visibility.sample(time,&visibility_targets);
+                let has_pointer=visibility_targets(time).0;
+                output[index].set_visibility(if has_pointer {opacity as f32} else {0.0},
+                    if has_pointer {blur as f32} else {0.0},settings.trail_opacity.unwrap_or(0.5) as f32);
                 output[index].press_amount=press_animation.as_ref().map_or(0.0,|a|a.at(index as f64*1000.0/fps) as f32);
             }
         }
@@ -128,6 +154,57 @@ mod tests {
         simulate(events,&physical,&plan,"recording.mp4",&SpringConfig{tension:170.0,friction:30.0,mass:0.0},
             &serde_json::from_value(settings).unwrap(),&None,120.0)
     }
+    #[test]
+    fn splitting_a_moving_clip_preserves_rotation_target_and_momentum() {
+        let physical=(0..=200).map(|i|MotionPoint{time_ms:i as f64*10.0,
+            x:if i<60 {i as f64*10.0} else {600.0-(i-60) as f64*4.0},y:100.0}).collect::<Vec<_>>();
+        let events=physical.iter().map(|p|CursorEvent{timestamp_ms:p.time_ms as u64,x:p.x/1000.0,y:0.1,
+            is_click:false,is_release:false}).collect::<Vec<_>>();
+        let whole=EditTimeline::build(&[clip("whole",0.0,0.0,2000.0,1.0)],0.0,2000.0).unwrap();
+        let split=EditTimeline::build(&[clip("a",0.0,0.0,737.25,1.0),
+            clip("b",737.25,737.25,1262.75,1.0)],0.0,2000.0).unwrap();
+        let settings=serde_json::from_value(serde_json::json!({"rotate_while_moving":true,"rotation_intensity":100,"rotation":7})).unwrap();
+        let spring=SpringConfig{tension:170.0,friction:30.0,mass:0.0};
+        for fps in [24.0,60.0,120.0,144.0] {
+            let run=|plan:&EditTimeline|simulate(&events,&physical,plan,"recording.mp4",&spring,&settings,&None,fps);
+            if fps==24.0 {
+                assert!((run(&split)[18].rotation as f64-13.899027884665369).abs()<1e-5);
+            }
+            for (index,(a,b)) in run(&whole).iter().zip(run(&split)).enumerate() {
+                assert!((a.rotation-b.rotation).abs()<1e-5,"{fps}fps frame{index}: {} != {}",a.rotation,b.rotation);
+            }
+        }
+    }
+
+    #[test]
+    fn splitting_during_typing_keeps_fade_and_blur_progress() {
+        let path=std::env::temp_dir().join(format!("cursor-fade-cut-{}.json",uuid::Uuid::new_v4()));
+        std::fs::write(&path,serde_json::json!({"mouse_events":[{"timestamp":0},{"timestamp":700}],
+            "key_events":[{"timestamp":100},{"timestamp":200},{"timestamp":300}]}).to_string()).unwrap();
+        let activity=super::super::typing_activity::TypingActivity::load(&path);
+        let events=[CursorEvent{is_release:false,timestamp_ms:0,x:0.2,y:0.3,is_click:false},
+            CursorEvent{is_release:false,timestamp_ms:700,x:0.4,y:0.3,is_click:false}];
+        let settings=serde_json::from_value(serde_json::json!({})).unwrap();
+        let spring=SpringConfig{tension:170.0,friction:30.0,mass:0.0};
+        let whole=EditTimeline::build(&[clip("whole",0.0,0.0,1000.0,1.0)],0.0,1000.0).unwrap();
+        let split=EditTimeline::build(&[clip("a",0.0,0.0,337.25,1.0),
+            clip("b",337.25,337.25,662.75,1.0)],0.0,1000.0).unwrap();
+        for fps in [24.0,60.0,120.0,144.0] {
+            let run=|timeline:&EditTimeline|simulate_with_activity(&events,&[],timeline,"recording.mp4",
+                &spring,&settings,&None,fps,Some(&activity));
+            if fps==24.0 {
+                let frames=run(&split);
+                assert!((frames[9].opacity as f64-0.36043692705320135).abs()<1e-6);
+                assert!((frames[9].fade_blur_radius as f64-2.585170331737275).abs()<1e-6);
+            }
+            for (index,(a,b)) in run(&whole).iter().zip(run(&split)).enumerate() {
+                assert!((a.opacity-b.opacity).abs()<1e-6,"{fps}fps frame{index}: {} != {}",a.opacity,b.opacity);
+                assert!((a.fade_blur_radius-b.fade_blur_radius).abs()<1e-6);
+            }
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn fractional_clip_start_keeps_planned_position_in_output_time() {
         let sidecar = std::env::temp_dir().join(format!("cursor-fractional-{}.json",uuid::Uuid::new_v4()));

@@ -33,6 +33,16 @@ impl LeadSchedule {
         Ok(())
     }
 
+    pub fn target_time_of(&self, event_time: f64) -> f64 {
+        let mut lower=event_time-601.0;
+        let mut upper=event_time;
+        for _ in 0..24 {
+            let middle=(lower+upper)/2.0;
+            if middle+self.at(middle)>=event_time {upper=middle;} else {lower=middle;}
+        }
+        upper
+    }
+
     /// Unconstrained plan, used when choosing a candidate approach.
     pub fn planned_at(&self, time: f64) -> f64 {
         let count = self.knots.partition_point(|&(t, _)| t <= time);
@@ -128,6 +138,31 @@ impl SpeedSchedule {
             strongest = strongest.max(log_speed * weight);
         }
         strongest.exp()
+    }
+}
+
+#[cfg(test)]
+mod target_time_tests {
+    use super::*;
+    #[test]
+    #[ignore="requires external target-time fixtures"]
+    fn target_time_matches_external_cases() {
+        let path=std::env::var("TARANTINO_TARGET_TIME_FIXTURES").unwrap();
+        let cases:serde_json::Value=serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let mut count=0;
+        for case in cases.as_array().unwrap() {
+            let mut lead=LeadSchedule::new(serde_json::from_value(case["cuts"].clone()).unwrap()).unwrap();
+            for knot in case["knots"].as_array().unwrap() {
+                lead.add(knot[0].as_f64().unwrap(),knot[1].as_f64().unwrap()).unwrap();
+            }
+            for sample in case["samples"].as_array().unwrap() {
+                let time=sample["time"].as_f64().unwrap();
+                let expected=sample["expected"].as_f64().unwrap();
+                assert!((lead.target_time_of(time)-expected).abs()<1e-9,"{time}: {} != {expected}",lead.target_time_of(time));
+                count+=1;
+            }
+        }
+        assert!(count>1000);
     }
 }
 

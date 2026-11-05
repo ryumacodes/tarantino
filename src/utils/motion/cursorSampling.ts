@@ -9,11 +9,8 @@ export function sampleCursorFrame(frames: readonly number[][], timeMs: number,
   const position = timeMs * CAMERA_SIMULATION_FPS / 1000;
   const fraction = Math.abs(position - Math.round(position)) < 1e-7 ? 0 : position - index;
   if (fraction === 0) return current;
-  if (segments) {
-    const start = index * 1000 / CAMERA_SIMULATION_FPS;
-    const end = (index + 1) * 1000 / CAMERA_SIMULATION_FPS;
-    const segment = segments.find(([a, b]) => a <= timeMs && timeMs < b);
-    if (!segment || start < segment[0] || end >= segment[1]) return current;
+  if (segments && !segments.some(([start, end]) => start <= timeMs && timeMs < end)) {
+    return current.map(() => 0);
   }
   const result = [...current];
   for (const channel of [0, 1, 2, 7, 8, 9]) {

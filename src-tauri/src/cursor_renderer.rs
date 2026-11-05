@@ -18,6 +18,7 @@ mod press_spring;
 pub(crate) use press_spring::advance_with_precision as step_frame_spring;
 mod press_animation;
 mod edited_press;
+mod edited_rotation;
 mod angular_spring;
 mod edited_path;
 pub(crate) mod edited_simulation;

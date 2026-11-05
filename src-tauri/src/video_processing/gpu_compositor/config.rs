@@ -11,9 +11,8 @@ pub fn build_gpu_config(
 
     let visual = settings.visual_settings.as_ref();
 
-    let padding_pct = visual.and_then(|v| v.padding).unwrap_or(0.0) / 100.0;
-    let padding_x = (out_w as f64 * padding_pct) as u32;
-    let padding_y = (out_h as f64 * padding_pct) as u32;
+    let padding_x = visual_effects::content_inset(out_w,out_h,visual.and_then(|v|v.padding).unwrap_or(0.0));
+    let padding_y = padding_x;
     let content_w = out_w - 2 * padding_x;
     let content_h = out_h - 2 * padding_y;
 

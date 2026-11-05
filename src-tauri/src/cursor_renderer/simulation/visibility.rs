@@ -13,7 +13,13 @@ impl CursorVisibility {
         Self { state: SpringState { value: 0.0, velocity: 0.0 }, blur: SpringState { value: 0.0, velocity: 0.0 }, started: false, opacity_tolerance: TargetTolerance::default(), blur_tolerance: TargetTolerance::default() }
     }
     pub(super) fn sample(&mut self, has_pointer: bool, idle: bool, typing: bool, dt: f64) -> f64 {
-        if !has_pointer { self.blur = SpringState { value: 0.0, velocity: 0.0 }; return 0.0; }
+        if !has_pointer {
+            self.state=SpringState {value:0.0,velocity:0.0};
+            self.blur=SpringState {value:0.0,velocity:0.0};
+            self.opacity_tolerance=TargetTolerance::default();
+            self.blur_tolerance=TargetTolerance::default();
+            return 0.0;
+        }
         let target = if idle || typing { 0.0 } else { 1.0 };
         let blur_target = if idle || typing { 10.0 } else { 0.0 };
         if !self.started {
@@ -38,18 +44,18 @@ impl CursorVisibility {
 }
 
 /// Two neighboring style samples are enough for monotonically increasing playback time.
-pub(super) struct VisibilityTimeline {
+pub(in crate::cursor_renderer) struct VisibilityTimeline {
     spring: CursorVisibility,
     next_frame: usize,
     lower: [f64; 2],
     upper: [f64; 2],
 }
 impl VisibilityTimeline {
-    pub(super) fn new() -> Self {
+    pub(in crate::cursor_renderer) fn new() -> Self {
         Self { spring: CursorVisibility::new(), next_frame: 0, lower: [0.0; 2], upper: [0.0; 2] }
     }
 
-    pub(super) fn sample(&mut self, time_ms: f64, targets: impl Fn(f64) -> (bool, bool, bool)) -> [f64; 2] {
+    pub(in crate::cursor_renderer) fn sample(&mut self, time_ms: f64, targets: impl Fn(f64) -> (bool, bool, bool)) -> [f64; 2] {
         let position = time_ms * 60.0 / 1000.0;
         let position = if (position-position.round()).abs()<1e-7 {position.round()} else {position};
         let end = position.ceil() as usize;

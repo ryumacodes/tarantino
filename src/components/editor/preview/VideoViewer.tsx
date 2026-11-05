@@ -20,7 +20,7 @@ import { BackgroundPlane } from './BackgroundPlane';
 import { VideoShadow } from './VideoShadow';
 import { isLinuxRuntime } from '../../../utils/platform';
 
-import { previewGeometry } from '../../../utils/previewGeometry';
+import { contentInset, previewGeometry } from '../../../utils/previewGeometry';
 import { useCameraTrajectory } from './hooks/useCameraTrajectory';
 import {previewCameraPair} from '../../../utils/motion/previewCameraPair';
 
@@ -121,8 +121,8 @@ export const VideoViewer = React.memo(function VideoViewer({
   });
   const { canvasWidth: basePlaneWidth, canvasHeight: basePlaneHeight, planeWidth, planeHeight } = geometry;
 
-  const paddedWidth=output.width-2*Math.floor(output.width*visualSettings.padding/100);
-  const paddedHeight=output.height-2*Math.floor(output.height*visualSettings.padding/100);
+  const paddedWidth=output.width-2*contentInset(output.width,output.height,visualSettings.padding);
+  const paddedHeight=output.height-2*contentInset(output.width,output.height,visualSettings.padding);
   const outputCornerRadius=visualSettings.cornerRadius>0
     ?Math.max(1,Math.min(paddedWidth,paddedHeight)*visualSettings.cornerRadius/200):0;
   const inputShortSide=Math.min(planeWidth,planeHeight)*output.width/basePlaneWidth;
@@ -198,8 +198,8 @@ export const VideoViewer = React.memo(function VideoViewer({
       ||(visualSettings.shadowEnabled&&!shadowTextureRef.current))return null;
     const {width,height,pixelsPerUnit}=renderSize.current;
     const inputWidth=planeWidth*pixelsPerUnit,inputHeight=planeHeight*pixelsPerUnit;
-    const contentWidth=output.width-2*Math.floor(output.width*visualSettings.padding/100);
-    const contentHeight=output.height-2*Math.floor(output.height*visualSettings.padding/100);
+    const contentWidth=output.width-2*contentInset(output.width,output.height,visualSettings.padding);
+    const contentHeight=output.height-2*contentInset(output.width,output.height,visualSettings.padding);
     const radius=visualSettings.cornerRadius>0?Math.max(1,Math.min(contentWidth,contentHeight)*visualSettings.cornerRadius/200):0;
     return {width,height,input:{source:material.map,mask:nativeMaskRef.current??whiteMask,
       shadow:shadowTextureRef.current??whiteMask,before:shutter.before,now:shutter.now,

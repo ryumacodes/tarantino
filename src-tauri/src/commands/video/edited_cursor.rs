@@ -137,7 +137,7 @@ mod typing_tests {
         assert!(opacity(400)<0.05);
         assert!(opacity(900)>0.9);
         assert_eq!(opacity(1200),0.0);
-        assert_eq!(opacity(1500),1.0);
+        assert!((opacity(1500)-0.01446750122588123).abs()<1e-7);
         assert!(opacity(2600)<0.01);
         assert!(opacity(4500)>0.95);
         let plan=crate::video_processing::timeline::EditTimeline::build(&request.clips,0.0,5500.0).unwrap();

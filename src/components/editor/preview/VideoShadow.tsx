@@ -1,3 +1,4 @@
+import { contentInset } from '../../../utils/previewGeometry';
 import React, { useEffect, useState } from 'react';
 import * as THREE from 'three';
 import type { VisualSettings } from '../../../stores/editor';
@@ -30,9 +31,9 @@ export const VideoShadow: React.FC<VideoShadowProps> = ({canvasWidth,canvasHeigh
       worker.terminate();
     };
     worker.onerror=error=>{console.error('Preview shadow generation failed:',error.message);worker.terminate();};
-    const inset=Math.max(0,Math.min(49,padding))/100;
-    const contentWidth=outputWidth-2*Math.floor(outputWidth*inset);
-    const contentHeight=outputHeight-2*Math.floor(outputHeight*inset);
+    const inset=contentInset(outputWidth,outputHeight,padding);
+    const contentWidth=outputWidth-2*inset;
+    const contentHeight=outputHeight-2*inset;
     const width=inputWidth,height=inputHeight;
     const x=Math.floor((outputWidth-width)/2),y=Math.floor((outputHeight-height)/2);
     worker.postMessage({width:outputWidth,height:outputHeight,

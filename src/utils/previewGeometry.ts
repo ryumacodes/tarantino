@@ -1,14 +1,20 @@
 interface Size { width: number; height: number }
 
+export function contentInset(width: number, height: number, padding: number): number {
+  const ratio = Math.max(0, Number.isFinite(padding) ? padding : 0) / 100;
+  const shorter = Math.min(width, height);
+  return Math.floor((shorter - shorter / (1 + 2 * ratio)) / 2);
+}
+
 /** Lay out the preview in output pixels first, then convert to scene units. */
 export function previewGeometry({ output, source, viewport, padding, desktop }: {
   output: Size; source: Size; viewport: Size; padding: number;
   desktop?: { screen: Size; window: Size };
 }) {
   const scale = Math.min(viewport.width / output.width, viewport.height / output.height);
-  const inset = Math.max(0, Math.min(49, Number.isFinite(padding) ? padding : 0)) / 100;
-  const contentWidth = output.width - 2 * Math.floor(output.width * inset);
-  const contentHeight = output.height - 2 * Math.floor(output.height * inset);
+  const inset = contentInset(output.width, output.height, padding);
+  const contentWidth = output.width - 2 * inset;
+  const contentHeight = output.height - 2 * inset;
   let width: number, height: number;
   if (desktop && desktop.screen.width > 0 && desktop.screen.height > 0
       && desktop.window.width > 0 && desktop.window.height > 0) {

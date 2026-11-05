@@ -9,6 +9,12 @@ use std::path::{Path, PathBuf};
 
 use super::types::{CursorSettings, ExportSettings};
 
+pub(crate) fn content_inset(width:u32,height:u32,padding:f64)->u32 {
+    let ratio=if padding.is_finite() {padding.max(0.0)/100.0} else {0.0};
+    let shorter=width.min(height) as f64;
+    ((shorter-shorter/(1.0+2.0*ratio))/2.0).floor() as u32
+}
+
 /// Get output dimensions based on settings
 pub fn get_output_dimensions(settings: &ExportSettings) -> (u32, u32) {
     let aspect_ratio = settings

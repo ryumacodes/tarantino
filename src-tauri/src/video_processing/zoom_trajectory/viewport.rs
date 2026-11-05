@@ -18,10 +18,9 @@ impl Default for CameraViewport {
 impl CameraViewport {
     pub(crate) fn from_settings(settings: &ExportSettings, source: (u32, u32)) -> Self {
         let (width, height) = visual_effects::get_output_dimensions(settings);
-        let padding = settings.visual_settings.as_ref().and_then(|v| v.padding)
-            .filter(|value| value.is_finite()).unwrap_or(0.0).clamp(0.0, 49.0) / 100.0;
-        let padding_x = (width as f64 * padding) as u32;
-        let padding_y = (height as f64 * padding) as u32;
+        let padding_x = visual_effects::content_inset(width,height,
+            settings.visual_settings.as_ref().and_then(|v|v.padding).unwrap_or(0.0));
+        let padding_y = padding_x;
         let content_width = width.saturating_sub(2 * padding_x).max(2);
         let content_height = height.saturating_sub(2 * padding_y).max(2);
         let (plane_width, plane_height, offset_x, offset_y) = input_layout(
@@ -70,7 +69,7 @@ mod tests {
             "visual_settings":{"padding":10}
         })).unwrap();
         let viewport = CameraViewport::from_settings(&settings,(1000,1000));
-        assert_eq!(viewport.source, ScreenRect { x:108.0,y:108.0,width:864.0,height:864.0 });
+        assert_eq!(viewport.source, ScreenRect { x:83.0*1.08,y:83.0*1.08,width:834.0*1.08,height:834.0*1.08 });
         assert_eq!(viewport.zoom_area, viewport.source);
         assert_eq!(viewport.activity_extent(2.0), (0.25,0.25));
         assert_eq!(CameraViewport::from_settings(&settings,(1000,1000)).activity_extent(1.0), (0.5,0.5));
@@ -83,11 +82,11 @@ mod tests {
             "visual_settings":{"padding":10}
         })).unwrap();
         let viewport = CameraViewport::from_settings(&settings,(1920,1080));
-        assert_eq!(viewport.zoom_area, ScreenRect { x:60.0,y:108.0,width:488.0,height:864.0 });
-        assert_eq!(viewport.source, ScreenRect { x:60.0,y:403.0,width:488.0,height:274.0 });
+        assert_eq!(viewport.zoom_area, ScreenRect { x:50.0,y:50.0,width:508.0,height:980.0 });
+        assert_eq!(viewport.source, ScreenRect { x:50.0,y:397.0,width:508.0,height:286.0 });
         let zoomed = viewport.source.zoom_to(viewport.zoom_area,(0.8,0.9),2.0,None);
-        assert_eq!(zoomed.y,266.0);
-        assert_eq!(zoomed.height,548.0);
-        assert_eq!(zoomed.x,-428.0);
+        assert_eq!(zoomed.y,254.0);
+        assert_eq!(zoomed.height,572.0);
+        assert_eq!(zoomed.x,-458.0);
     }
 }

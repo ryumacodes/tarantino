@@ -2,7 +2,7 @@ use super::*;
 use crate::video_processing::CursorSettings;
 use crate::video_processing::zoom_trajectory::{CAMERA_SIMULATION_FPS, ZoomFrameState};
 
-mod visibility;
+pub(super) mod visibility;
 #[cfg(test)]
 mod visibility_tests;
 
@@ -101,6 +101,19 @@ impl CursorFrameState {
             press_amount: lerp(self.press_amount, next.press_amount),
             ..self.clone()
         }
+    }
+
+    pub(crate) fn set_visibility(&mut self, opacity:f32, blur:f32, trail_opacity:f32) {
+        if self.opacity.clamp(0.0,1.0)!=opacity.clamp(0.0,1.0) {
+            if let Some(points)=self.trail_points.as_mut() {
+                let count=points.len();
+                for (index,point) in std::sync::Arc::make_mut(points).iter_mut().enumerate() {
+                    point.alpha=index as f32/count as f32*trail_opacity*opacity.clamp(0.0,1.0);
+                }
+            }
+        }
+        self.opacity=opacity;
+        self.fade_blur_radius=blur;
     }
 
     pub fn trail_points(&self) -> &[TrailPoint] {
