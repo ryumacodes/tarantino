@@ -57,7 +57,7 @@ fn window_recording_ignores_clicks_above_its_content() {
     assert_eq!(analysis.zoom_blocks.len(), 1);
     let block = &analysis.zoom_blocks[0];
     assert_eq!(block.centers.len(), 1);
-    assert_eq!(block.start_time, 110073);
+    assert_eq!(block.start_time, 110773);
     assert!((block.center_y - (117.95703125 - 33.0) / 923.0).abs() < 1e-9);
 }
 
@@ -82,24 +82,24 @@ fn test_zoom_block_merging() {
     let processor = ZoomProcessor::new(config);
 
     // Clicks at 1s and 2s should merge into one block (2s is within first block's active range)
-    // Click at 2.2s is filtered by min_click_spacing (< 500ms from 2s)
+    // Rapid clicks retain their own target and extend the same range.
     let session = create_test_session(
         vec![
             create_test_mouse_event(1000, 100.0, 200.0), // First click
             create_test_mouse_event(2000, 300.0, 400.0), // Merges into first block
-            create_test_mouse_event(2200, 310.0, 410.0), // Filtered (too close to 2000)
+            create_test_mouse_event(2200, 310.0, 410.0), // Extends the range
         ],
         15000,
     );
 
     let analysis = processor.analyze_session(&session, &[]).unwrap();
 
-    // Should create 1 merged block with 2 centers
+    // One merged block retains all three targets.
     assert_eq!(analysis.zoom_blocks.len(), 1);
     assert_eq!(analysis.total_clicks, 3);
 
     let block = &analysis.zoom_blocks[0];
-    assert_eq!(block.centers.len(), 2); // Two click centers merged
+    assert_eq!(block.centers.len(), 3);
     assert!(!block.is_manual);
 }
 
@@ -130,7 +130,7 @@ fn early_first_click_survives_preview_sidecar_round_trip() {
 
     assert_eq!(analysis.total_clicks, 1);
     assert_eq!(analysis.zoom_blocks.len(), 1);
-    assert_eq!(analysis.zoom_blocks[0].start_time, 0);
+    assert_eq!(analysis.zoom_blocks[0].start_time, 1);
     assert!((analysis.zoom_blocks[0].center_x - 0.75).abs() < 0.001);
     assert!((analysis.zoom_blocks[0].center_y - 0.25).abs() < 0.001);
 
@@ -571,8 +571,8 @@ fn create_test_session(mouse_events: Vec<EnhancedMouseEvent>, duration_ms: u64) 
 }
 
 #[test]
-fn long_selection_holds_zoom_until_release_and_ignores_stationary_holds() {
-    for (moved,released,end) in [(true,true,11000),(true,false,12000),(false,true,4000)] {
+fn long_selection_bridges_release_range_but_stationary_hold_does_not() {
+    for (moved,released,end) in [(true,true,11000),(true,false,12000),(false,true,3500)] {
         let press=create_test_mouse_event(1000,100.0,100.0);
         let mut movement=create_test_mouse_event(6000,if moved {600.0}else{100.0},100.0);
         movement.base.event_type=crate::input::MouseEventType::Move;
@@ -581,8 +581,10 @@ fn long_selection_holds_zoom_until_release_and_ignores_stationary_holds() {
         let mut events=vec![press,movement]; if released {events.push(release);}
         let session=create_test_session(events,12000);
         let analysis=ZoomProcessor::with_default_config().analyze_session(&session,&[]).unwrap();
-        assert_eq!(analysis.zoom_blocks.len(),1);
+        assert_eq!(analysis.total_clicks,1);
+        assert_eq!(analysis.zoom_blocks.len(),if moved {1}else{2});
         assert_eq!(analysis.zoom_blocks[0].end_time,end);
+        if !moved { assert_eq!((analysis.zoom_blocks[1].start_time,analysis.zoom_blocks[1].end_time),(7700,10500)); }
         assert!(analysis.zoom_blocks[0].loupe.is_none());
     }
 }
@@ -603,7 +605,50 @@ fn closely_spaced_selection_press_extends_the_existing_zoom() {
         release.base.event_type = MouseEventType::ButtonRelease { button: MouseButton::Left };
         let session = create_test_session(vec![first,first_release,second,movement,release],12000);
         let analysis = ZoomProcessor::with_default_config().analyze_session(&session,&[]).unwrap();
-        assert_eq!(analysis.zoom_blocks.len(),1);
-        assert_eq!(analysis.zoom_blocks[0].end_time,if inside {11000}else{4000});
+        assert_eq!(analysis.zoom_blocks.len(),if inside {1}else{2});
+        assert_eq!(analysis.zoom_blocks[0].end_time,if inside {11000}else{3550});
+        if !inside { assert_eq!(analysis.zoom_blocks[1].start_time,7700); }
+    }
+}
+
+#[test]
+fn click_range_timing_and_gap_boundaries() {
+    let cases: &[(&[u64], u64, &[(u64,u64)])] = &[
+        (&[],10000,&[]),
+        (&[0],1001,&[(1,201)]),
+        (&[0],1000,&[]),
+        (&[2000],10000,&[(1700,4500)]),
+        (&[0],10000,&[(1,2500)]),
+        (&[8999],10000,&[(8699,9200)]),
+        (&[9000],10000,&[]),
+        (&[1000,6300],15000,&[(700,8800)]),
+        (&[1000,6301],15000,&[(700,3500),(6001,8801)]),
+        (&[2000,2100,2200],10000,&[(1700,4700)]),
+    ];
+    for &(clicks,duration,expected) in cases {
+        let session = create_test_session(clicks.iter().map(|&time|
+            create_test_mouse_event(time,100.0,200.0)).collect(),duration);
+        let result = ZoomProcessor::with_default_config().analyze_session(&session,&[]).unwrap();
+        let actual: Vec<_> = result.zoom_blocks.iter().map(|b|(b.start_time,b.end_time)).collect();
+        assert_eq!(actual,expected,"clicks {clicks:?}, duration {duration}");
+    }
+}
+
+#[test]
+fn releases_extend_ranges_without_counting_as_additional_clicks() {
+    use crate::input::{MouseButton, MouseEventType};
+    for button in [MouseButton::Left,MouseButton::Right] {
+        let mut press = create_test_mouse_event(2000,100.0,200.0);
+        press.base.event_type = MouseEventType::ButtonPress { button: button.clone() };
+        let mut release = press.clone();
+        release.base.timestamp = 2100;
+        release.base.event_type = MouseEventType::ButtonRelease { button };
+        let session = create_test_session(vec![press,release],10000);
+        let result = ZoomProcessor::with_default_config().analyze_session(&session,&[]).unwrap();
+        assert_eq!(result.total_clicks,1);
+        assert_eq!(result.zoom_blocks.len(),1);
+        let block = &result.zoom_blocks[0];
+        assert_eq!((block.start_time,block.end_time),(1700,4600));
+        assert_eq!(block.centers.iter().map(|c|c.time).collect::<Vec<_>>(),[2000,2100]);
     }
 }

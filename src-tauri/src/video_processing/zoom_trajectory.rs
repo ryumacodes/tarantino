@@ -153,7 +153,7 @@ fn simulate_zoom_steps(
     let total_frames = ((duration_ms as f64 * fps) / 1000.0).ceil() as u64;
     let dt = 1.0 / fps;
 
-    // Spring state — starts at no-zoom, centered
+    // The first timeline sample initializes these states at its resolved target.
     let mut zoom_spring = SpringState {
         value: 1.0,
         velocity: 0.0,
@@ -272,6 +272,12 @@ fn simulate_zoom_steps(
         }
         target_center_x = target_center_x.clamp(0.0, 1.0);
         target_center_y = target_center_y.clamp(0.0, 1.0);
+
+        if frame_num == 0 {
+            zoom_spring = SpringState { value: target_scale, velocity: 0.0 };
+            center_spring_x = SpringState { value: target_center_x, velocity: 0.0 };
+            center_spring_y = SpringState { value: target_center_y, velocity: 0.0 };
+        }
 
         let instant_config = SpringConfig {
             tension: 1.0,

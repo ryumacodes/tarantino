@@ -73,4 +73,60 @@ mod tests {
         assert_eq!(analysis.zoom_blocks[0].kind,"typing");
         assert!(analyze("{}",10000,(1000,500)).is_err());
     }
+    #[test]
+    #[ignore = "requires external recorded-input range cases"]
+    fn external_zoom_range_cases_match_recorded_input() {
+        let path = std::env::var("TARANTINO_ZOOM_RANGE_CASES").unwrap();
+        let cases: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        for case in cases.as_array().unwrap() {
+            let input = &case["input"];
+            let duration = case["duration"].as_u64().unwrap();
+            let result = analyze(&input.to_string(),duration,(1000,500)).unwrap();
+            let actual: Vec<_> = result.zoom_blocks.iter()
+                .map(|block|[block.start_time,block.end_time]).collect();
+            assert_eq!(serde_json::to_value(actual).unwrap(),case["expected"],"case {}",case["name"]);
+        }
+    }
+
+    #[tokio::test]
+    async fn brief_recording_zoom_survives_preview_and_export_sampling() {
+        use crate::video_processing::{export,types::ExportSettings,zoom_trajectory};
+        let input = json!({"display_width":1000,"display_height":500,"mouse_events":[
+            {"base":{"timestamp":0,"x":700,"y":300,"event_type":{"ButtonPress":{"button":"Left"}}}},
+            {"base":{"timestamp":1,"x":700,"y":300,"event_type":{"ButtonRelease":{"button":"Left"}}}}
+        ]});
+        let analysis = analyze(&input.to_string(),1001,(1000,500)).unwrap();
+        let block = &analysis.zoom_blocks[0];
+        assert_eq!((block.start_time,block.end_time),(1,201));
+        let video = std::env::temp_dir().join(format!("brief-zoom-{}.mp4",uuid::Uuid::new_v4()));
+        let sidecar = video.with_extension("mouse.json");
+        std::fs::write(&sidecar,input.to_string()).unwrap();
+        let settings: ExportSettings = serde_json::from_value(json!({
+            "source_width":1000,"source_height":500,"capture_mode":"window",
+            "screen_motion_style":"focused","zoom_spring_tension":250,
+            "zoom_spring_friction":40,"zoom_spring_mass":2.25,
+            "zoom_blocks":[{"start_time_ms":block.start_time,"end_time_ms":block.end_time,
+                "zoom_level":block.zoom_factor,"center_x":block.center_x,"center_y":block.center_y,
+                "kind":block.kind,"centers":block.centers}]
+        })).unwrap();
+        let preview = super::super::motion::compute_zoom_trajectory(
+            video.to_string_lossy().into_owned(),1001,settings.clone()).await.unwrap();
+        assert_eq!(preview[0][0],1.0);
+        assert!(preview[24][0]>1.2,"short range must produce visible zoom");
+        assert!(preview.last().unwrap()[0]<preview[24][0],"camera must exit the short range");
+        let activity = export::load_camera_activity(&sidecar,&video,(1000,500),&settings,1001).unwrap();
+        let spring = export::get_zoom_spring_config(&settings);
+        for fps in [24.0,30.0,60.0,120.0] {
+            let frames = zoom_trajectory::simulate_zoom_trajectory_in_viewport(
+                settings.zoom_blocks.as_ref().unwrap(),&[],&spring,true,"focused",fps,1001,true,
+                zoom_trajectory::CameraViewport::from_settings(&settings,(1000,500)),
+                Some(zoom_trajectory::targets::CameraActivity{events:&[],prepared:Some(&activity),smooth:true}));
+            for (index,frame) in frames.iter().enumerate() {
+                let source = (index as f64*120.0/fps).round() as usize;
+                assert_eq!(preview[source],[frame.scale,frame.center_x,frame.center_y]);
+            }
+        }
+        std::fs::remove_file(sidecar).unwrap();
+    }
+
 }

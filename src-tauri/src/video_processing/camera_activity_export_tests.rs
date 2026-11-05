@@ -52,3 +52,51 @@ async fn encoded_camera_targets_respect_trim_speed_and_loop_bounds() {
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test]
+#[ignore="requires FFmpeg and native GPU; short zoom through encoded export"]
+async fn encoded_brief_zooms_initialize_or_animate_then_return() {
+    let root=std::env::temp_dir().join(format!("brief-camera-export-{}",uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let input=root.join("source.mkv");
+    ffmpeg(&["-v","error","-f","lavfi","-i",
+        "color=black:s=128x128:r=120:d=1,drawbox=x=48:y=48:w=32:h=32:color=white:t=fill",
+        "-c:v","ffv1",input.to_str().unwrap()]);
+    let info=VideoInfo{duration_ms:1000,width:128,height:128,fps:120.0,bitrate:0,
+        format:"mkv".into(),size_bytes:0,frame_count:Some(120)};
+    for start in [0,1] { for fps in [24,30,60,120] {
+        let output=root.join(format!("short-{start}-{fps}.mp4"));
+        let settings:ExportSettings=serde_json::from_value(serde_json::json!({
+            "output_path":output,"format":"mp4","codec":"h264","frame_rate":fps,
+            "resolution":{"width":128,"height":128},"source_width":128,"source_height":128,
+            "capture_mode":"window","screen_motion_style":"focused",
+            "zoom_spring_tension":250,"zoom_spring_friction":40,"zoom_spring_mass":2.25,
+            "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false},
+            "cursor_settings":{"enabled":false},
+            "zoom_blocks":[{"start_time_ms":start,"end_time_ms":201,"zoom_level":2,
+                "center_x":0.5,"center_y":0.5}]
+        })).unwrap();
+        export_video(&root,&input,settings,&info,None).await.unwrap();
+        let pixels=ffmpeg(&["-v","error","-i",output.to_str().unwrap(),
+            "-f","rawvideo","-pix_fmt","rgb24","-"]);
+        let frame_bytes=128*128*3;
+        assert_eq!(pixels.len(),fps as usize*frame_bytes,"frame count at {fps}fps; {}",root.display());
+        let widths:Vec<_>=pixels.chunks_exact(frame_bytes).map(|frame| {
+            (0..128).filter(|&x| {
+                let index=(64*128+x)*3;
+                frame[index..index+3].iter().all(|&channel|channel>200)
+            }).count()
+        }).collect();
+        let first=widths[0];let last=*widths.last().unwrap();
+        let peak=*widths.iter().max().unwrap();
+        if start == 0 {
+            assert!((62..=66).contains(&first),"initial zoom missing at {fps}fps: {widths:?}; {}",root.display());
+            assert!(peak.abs_diff(first)<=2,"initial zoom should hold its scale; {}",root.display());
+        } else {
+            assert!((30..=34).contains(&first),"initial width {first}; {}",root.display());
+            assert!(peak>=first+8,"short zoom missing at {fps}fps: {widths:?}; {}",root.display());
+        }
+        assert!((30..=34).contains(&last),"zoom failed to exit at {fps}fps: {widths:?}; {}",root.display());
+    }}
+    std::fs::remove_dir_all(root).unwrap();
+}

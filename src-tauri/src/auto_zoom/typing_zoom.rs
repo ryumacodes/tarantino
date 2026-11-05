@@ -469,8 +469,8 @@ pub fn validate_zoom_blocks(blocks: &mut Vec<ZoomBlock>, duration_ms: u64) {
         }
     }
 
-    // Remove blocks shorter than 500ms
-    blocks.retain(|b| b.end_time > b.start_time + 500);
+    // Short click ranges can occur near the end of a brief recording.
+    blocks.retain(|b| b.end_time > b.start_time.saturating_add(if b.kind == "click" { 0 } else { 500 }));
 }
 
 #[cfg(test)]

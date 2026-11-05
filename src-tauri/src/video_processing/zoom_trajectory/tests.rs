@@ -174,12 +174,9 @@ fn unified_screen_style_changes_camera_pan() {
         friction: 50.0,
         mass: 3.0,
     };
-    let events = [CursorEvent { is_release: false,
-        timestamp_ms: 0,
-        x: 0.8,
-        y: 0.8,
-        is_click: false,
-    }];
+    let events = [(0,0.3,0.4),(100,0.8,0.8)].map(|(timestamp_ms,x,y)| CursorEvent {
+        is_release: false, timestamp_ms, x, y, is_click: false,
+    });
     let legacy = simulate_zoom_trajectory(
         &[block.clone()],
         &events,
@@ -489,5 +486,22 @@ fn disabled_zoom_is_absent_from_lead_in_and_neighbor_transitions() {
             let mut enabled = disabled.clone(); enabled.is_disabled = false;
             assert!(run(&[enabled]).iter().any(|frame| frame.scale > 3.0));
         }
+    }
+}
+
+#[test]
+fn active_zoom_at_timeline_start_initializes_at_its_target() {
+    let config = SpringConfig { tension:250.0,friction:40.0,mass:2.25 };
+    for window in [false,true] {
+        let block: ZoomBlock = serde_json::from_value(serde_json::json!({
+            "start_time_ms":0,"end_time_ms":500,"zoom_level":2,
+            "center_x":0.4,"center_y":0.6,"is_manual":true
+        })).unwrap();
+        let frames = simulate_zoom_trajectory(&[block],&[],&config,true,"focused",120.0,1500,window);
+        assert_eq!(frames[0].scale,2.0);
+        assert_eq!((frames[0].center_x,frames[0].center_y),(0.4,0.6));
+        assert_eq!(frames[60].scale,2.0);
+        assert!(frames[61].scale<2.0);
+        assert!(frames.last().unwrap().scale<1.01);
     }
 }

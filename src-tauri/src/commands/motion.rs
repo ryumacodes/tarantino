@@ -201,7 +201,8 @@ mod tests {
         let landscape = compute_zoom_trajectory(input.to_string_lossy().into_owned(), 1000, settings).await.unwrap();
         // Both points fit vertically on the portrait stage, so their dwell-weighted
         // center remains fixed. Landscape must change groups when the pointer moves.
-        let weighted_y = (0.2 * 500.0 + 0.6 * 100.0) / 600.0;
+        // Exact-start activity is seeded one millisecond before the range.
+        let weighted_y = (0.2 * 501.0 + 0.6 * 100.0) / 601.0;
         for index in [20,40,80] { assert!((portrait[index][2] - weighted_y).abs() < 1e-9); }
         assert!((landscape[20][2] - 0.2).abs() < 1e-9);
         assert!((landscape[80][2] - 0.6).abs() < 1e-9);

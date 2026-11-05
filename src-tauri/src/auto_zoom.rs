@@ -13,8 +13,8 @@ use typing_zoom::{TypingZoomConfig, create_typing_zoom_blocks, detect_typing_ses
 pub struct ZoomConfig {
     pub enabled: bool,
     pub zoom_factor: f32,
-    pub zoom_duration: u64,     // Default: 5000ms (5s: 1s in, 3s hold, 1s out)
-    pub min_click_spacing: u64, // Minimum time between click zooms (500ms)
+    pub zoom_duration: u64,     // Includes the 300ms lead before the click.
+    pub min_click_spacing: u64, // Optional suppression of closely spaced clicks.
 }
 
 impl Default for ZoomConfig {
@@ -22,8 +22,8 @@ impl Default for ZoomConfig {
         Self {
             enabled: true,
             zoom_factor: 2.0,
-            zoom_duration: 5000, // 5 seconds total (1s zoom in, 3s hold, 1s zoom out)
-            min_click_spacing: 500,
+            zoom_duration: 2800,
+            min_click_spacing: 0,
         }
     }
 }
@@ -127,10 +127,10 @@ impl ZoomProcessor {
             });
         }
 
-        // Extract mouse click events (button presses only)
+        // Both button edges contribute to automatic range timing.
         let click_events = self.extract_click_events(session);
         println!(
-            "🖱️ [ZOOM] Extracted {} click events (ButtonPress only)",
+            "🖱️ [ZOOM] Extracted {} button events",
             click_events.len()
         );
 
@@ -191,13 +191,14 @@ impl ZoomProcessor {
 
         Ok(ZoomAnalysis {
             zoom_blocks,
-            total_clicks: click_events.len(),
+            total_clicks: click_events.iter().filter(|event| matches!(event.base.event_type,
+                crate::input::MouseEventType::ButtonPress { .. })).count(),
             session_duration,
             config: self.config.clone(),
         })
     }
 
-    /// Extract click events from enhanced mouse events (button presses only)
+    /// Extract button events within the captured content.
     fn extract_click_events(&self, session: &CaptureSession) -> Vec<EnhancedMouseEvent> {
         session
             .mouse_events
@@ -206,6 +207,7 @@ impl ZoomProcessor {
                 matches!(
                     event.base.event_type,
                     crate::input::MouseEventType::ButtonPress { .. }
+                        | crate::input::MouseEventType::ButtonRelease { .. }
                 )
             })
             .filter(|event| point_in_capture(event.base.x, event.base.y, &session.metadata))
@@ -224,12 +226,17 @@ impl ZoomProcessor {
         let mut zoom_blocks: Vec<ZoomBlock> = Vec::new();
         let mut last_zoom_time: Option<u64> = None;
 
-        // Timing constants
-        let zoom_in_duration = 1000u64; // 1 second to zoom in before click
-        let hold_duration = 3000u64; // 3 seconds hold at peak after click
+        let lead_duration = 300u64;
+        let hold_duration = self.config.zoom_duration.saturating_sub(lead_duration);
         let session_duration = session.end_time.unwrap_or(session.start_time) - session.start_time;
 
         for (i, event) in click_events.iter().enumerate() {
+            if event.base.timestamp >= session_duration.saturating_sub(1000) {
+                continue;
+            }
+            let start_time = event.base.timestamp.saturating_sub(lead_duration).max(1);
+            let end_time = event.base.timestamp.saturating_add(hold_duration)
+                .min(session_duration.saturating_sub(800));
             // Skip clicks that are too close in time to the previous zoom
             if last_zoom_time.is_some_and(|previous| {
                 event.base.timestamp.saturating_sub(previous) < self.config.min_click_spacing
@@ -243,7 +250,7 @@ impl ZoomProcessor {
             // Check if this click falls within (or near) the previous block's active range.
             // If so, merge it into that block instead of creating a new one.
             let merged = if let Some(prev_block) = zoom_blocks.last_mut() {
-                if event.base.timestamp <= prev_block.end_time + 500 {
+                if start_time <= prev_block.end_time.saturating_add(2500) {
                     // Merge: add a re-center point and extend the block
                     prev_block.centers.push(ZoomCenter {
                         x: norm_x,
@@ -251,8 +258,7 @@ impl ZoomProcessor {
                         time: event.base.timestamp,
                     });
                     // Extend end_time from this click
-                    let new_end = (event.base.timestamp + hold_duration).min(session_duration);
-                    prev_block.end_time = new_end;
+                    prev_block.end_time = end_time;
                     true
                 } else {
                     false
@@ -262,13 +268,6 @@ impl ZoomProcessor {
             };
 
             if !merged {
-                let start_time = event.base.timestamp.saturating_sub(zoom_in_duration);
-                let end_time = (event.base.timestamp + hold_duration).min(session_duration);
-
-                if end_time <= start_time + zoom_in_duration + 500 {
-                    continue;
-                }
-
                 zoom_blocks.push(ZoomBlock {
                     id: format!("zoom_{}", i),
                     click_x: norm_x,

@@ -2,7 +2,7 @@
 use super::{ZoomBlock, point_in_capture};
 use crate::{event_capture::CaptureSession, input::{MouseButton, MouseEventType}};
 
-pub(super) fn extend_drag_zooms(blocks: &mut [ZoomBlock], session: &CaptureSession) {
+pub(super) fn extend_drag_zooms(blocks: &mut Vec<ZoomBlock>, session: &CaptureSession) {
     let duration = session.end_time.unwrap_or(session.start_time).saturating_sub(session.start_time);
     let mut press = None;
     let mut moved = false;
@@ -28,6 +28,19 @@ pub(super) fn extend_drag_zooms(blocks: &mut [ZoomBlock], session: &CaptureSessi
     }
     // Stopping while the button is held must not zoom out during the drag.
     if let Some((start,_,_)) = press { if moved { extend(blocks,start,duration,duration); } }
+    // A long drag can bridge previously separate press and release ranges.
+    let mut merged: Vec<ZoomBlock> = Vec::with_capacity(blocks.len());
+    for block in blocks.drain(..) {
+        if let Some(previous) = merged.last_mut() {
+            if block.start_time <= previous.end_time {
+                previous.end_time = previous.end_time.max(block.end_time);
+                previous.centers.extend(block.centers);
+                continue;
+            }
+        }
+        merged.push(block);
+    }
+    *blocks = merged;
 }
 fn extend(blocks:&mut [ZoomBlock],start:u64,end:u64,duration:u64) {
     // Nearby presses may be suppressed by click spacing. Their drag still
