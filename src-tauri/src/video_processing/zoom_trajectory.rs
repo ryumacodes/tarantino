@@ -45,6 +45,18 @@ impl ZoomFrameState {
     }
 }
 
+pub(crate) fn sample_camera_frame(frames: &[ZoomFrameState], time_ms: f64) -> Option<ZoomFrameState> {
+    if frames.is_empty() { return None; }
+    let position = (time_ms * CAMERA_SIMULATION_FPS / 1000.0).max(0.0);
+    let position = if (position - position.round()).abs() < 1e-7 { position.round() } else { position };
+    let index = (position.floor() as usize).min(frames.len() - 1);
+    let current = &frames[index];
+    match frames.get(index + 1) {
+        Some(next) => Some(current.interpolate(next, position - index as f64)),
+        None => Some(current.clone()),
+    }
+}
+
 /// Legacy center-panning spring for active zoom blocks.
 const ZOOM_PAN_CONFIG: SpringConfig = SpringConfig {
     tension: 80.0,

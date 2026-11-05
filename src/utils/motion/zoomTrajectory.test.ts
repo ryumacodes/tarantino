@@ -11,9 +11,9 @@ it('returns identical frames when scrubbing backwards, replaying, or seeking dir
   expect(expected).toEqual(frames[90]);
 });
 
-it('does not interpolate across instant cuts and clamps to available timeline data', () => {
+it('interpolates fractional times and clamps to available timeline data', () => {
   const frames: CameraFrame[] = [[1, 0.5, 0.5], [3, 0.2, 0.2], [1, 0.5, 0.5]];
-  expect(sampleCameraFrame(frames, 8)).toEqual(frames[0]);
+  expect(sampleCameraFrame(frames, 8)[0]).toBeCloseTo(2.92);
   expect(sampleCameraFrame(frames, 1000 / 120)).toEqual(frames[1]);
   expect(sampleCameraFrame(frames, 2000 / 120)).toEqual(frames[2]);
   expect(sampleCameraFrame(frames, -100)).toEqual(frames[0]);
@@ -55,4 +55,13 @@ it('preserves independent magnifier style in the native request', async () => {
   const loupe = {radius:0.25,glass:true,bevel:0.1,chromatic_aberration:0.01,shadow_alpha:0.35};
   expect(exportZoomBlock({...block,loupe}).loupe).toEqual(loupe);
   expect(exportZoomBlock(block).loupe).toBeNull();
+});
+
+it('interpolates every rectangle component at trimmed and speed-adjusted source times', () => {
+  const frames: CameraFrame[] = [[1, .5, .5, 0, 0, 1, 1], [2, .75, .25, -.5, -.25, 2, 1.5]];
+  for (const time of [1, 3.125, 6.25]) {
+    const fraction = time * 120 / 1000;
+    const expected = frames[0].map((value, i) => value! + (frames[1][i]! - value!) * fraction);
+    expect(sampleCameraFrame(frames, time)).toEqual(expected);
+  }
 });

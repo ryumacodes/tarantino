@@ -15,9 +15,11 @@ import { Effect, BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
 import { invoke } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../../stores/editor';
-import { CAMERA_SIMULATION_FPS, cameraFrameIndex, sampleCameraFrame } from '../../../utils/motion/zoomTrajectory';
+import { CAMERA_SIMULATION_FPS, sampleCameraFrame } from '../../../utils/motion/zoomTrajectory';
 import { resolveCursorSpring } from '../../../utils/motion/cursorStyle';
 import { cursorFragmentShader } from './shaders/cursor.glsl';
+
+import { sampleCursorFrame } from '../../../utils/motion/cursorSampling';
 
 interface TrailPosition {
   x: number;
@@ -321,12 +323,11 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
       return;
     }
 
-    const frameIdx = cameraFrameIndex(currentTime, trajectory.length);
-    const frame = trajectory[Math.max(0, frameIdx)];
+    const frame = sampleCursorFrame(trajectory, currentTime, clock.outputTime ? clock.segments : undefined);
     effect.selectRecorded(sample.sourceTime,true);
     const cursorX = frame[0];
     const cursorY = frame[1];
-    const opacity = vs.hideCursor ? 0 : frame[2];
+    const opacity = vs.hideCursor ? 0 : Math.max(0, Math.min(1, frame[2]));
     const isClicking = frame[3] > 0.5;
     const rippleProgress = frame[4];
     const rippleNormX = frame[5];
@@ -393,7 +394,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     u.get('uCursorY')!.value = screenV;
     u.get('uCursorScale')!.value = adjustedCursorScale * (1 - (frame[9] ?? 0));
     u.get('uCursorOpacity')!.value = opacity;
-    u.get('uCursorFadeBlur')!.value = (frame[8]??0)*densityScale;
+    u.get('uCursorFadeBlur')!.value = Math.max(0, frame[8]??0)*densityScale;
     u.get('uCursorRotation')!.value = frame[7] ?? 0;
     u.get('uCursorStyle')!.value = styleVal;
     u.get('uIsClicking')!.value = isClicking ? 1.0 : 0.0;
@@ -435,7 +436,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     if(camera && camera.timelineTime===store.currentTime && camera.revision===store.playbackRevision
       && camera.beforeSourceTime!==null && priorTrajectory.current===trajectory) {
       const priorTime=clock.outputTime?store.currentTime-clock.originMs-1000/camera.fps:camera.beforeSourceTime;
-      const prior=trajectory[cameraFrameIndex(Math.max(0,priorTime),trajectory.length)];
+      const prior=sampleCursorFrame(trajectory,Math.max(0,priorTime),clock.outputTime?clock.segments:undefined);
       const shutter=cursorShutter(frame,prior,camera,{width:resX,height:resY,
         viewportWidth:transform.viewportWidth,viewportHeight:transform.viewportHeight,
         planeWidth:transform.planeWidth,planeHeight:transform.planeHeight,

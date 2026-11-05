@@ -68,7 +68,9 @@ use super::*;
             );
             assert_eq!(trimmed.len(), fps as usize);
             for (i, frame) in trimmed.iter().enumerate() {
-                let expected = &source[range.source_sample(i, fps, 120.0)];
+                let position = (range.start_ms as f64 + i as f64 * 1000.0 / fps as f64) * 120.0 / 1000.0;
+                let lower = position.floor() as usize;
+                let expected = source[lower].interpolate(&source[lower + 1], (position - lower as f64) as f32);
                 assert_eq!(
                     (frame.x, frame.y, frame.ripple_progress),
                     (expected.x, expected.y, expected.ripple_progress)
@@ -188,4 +190,50 @@ fn loop_return_position_and_tilt_follow_the_same_retained_path() {
     assert!(frames[160].rotation<0.0,"return to the left must tilt left");
     assert!(frames.iter().all(|frame|frame.is_clicking==0.0 && frame.ripple_progress==0.0));
     assert!((frames.last().unwrap().x-0.2).abs()<0.00001);
+}
+
+#[test]
+fn fractional_output_samples_blend_motion_but_keep_discrete_click_state() {
+    let events = [
+        CursorEvent { timestamp_ms: 0, x: 0.1, y: 0.2, is_click: false, is_release: false },
+        CursorEvent { timestamp_ms: 250, x: 0.9, y: 0.8, is_click: true, is_release: false },
+    ];
+    let spring = SpringConfig { tension: 530.0, friction: 40.0, mass: 1.0 };
+    let settings: CursorSettings = serde_json::from_value(serde_json::json!({})).unwrap();
+    let source = simulate_cursor_positions(&events, &spring, 120.0, 1000, &None, &settings);
+    let output = simulate_cursor_positions(&events, &spring, 144.0, 900, &None, &settings);
+    for (index, actual) in output.iter().enumerate() {
+        let position = index as f64 * 120.0 / 144.0;
+        let lower = position.floor() as usize;
+        let expected = source[lower].interpolate(&source[lower+1], (position-lower as f64) as f32);
+        assert!((actual.x-expected.x).abs()<1e-6);
+        assert!((actual.y-expected.y).abs()<1e-6);
+        assert_eq!(actual.is_clicking, source[lower].is_clicking);
+        assert_eq!(actual.ripple_progress, source[lower].ripple_progress);
+    }
+}
+
+#[test]
+#[ignore = "requires external angular timeline fixtures"]
+fn production_rotation_matches_sixty_hz_timeline() {
+    #[derive(serde::Deserialize)]
+    struct Case { keys: Vec<[f64;2]>, samples: Vec<f64> }
+    let path = std::env::var("TARANTINO_ROTATION_TIMELINE_FIXTURES").unwrap();
+    let cases: Vec<Case> = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert!(!cases.is_empty());
+    let events = [CursorEvent { timestamp_ms:0, x:0.5, y:0.5, is_click:false, is_release:false }];
+    let settings = serde_json::from_value(serde_json::json!({"rotate_while_moving":true,"rotation":7})).unwrap();
+    let spring = SpringConfig { tension:170.0, friction:30.0, mass:1.0 };
+    for case in cases {
+        let keys = case.keys.iter().map(|&[time_ms,degrees]| super::super::rotation::RotationKey {time_ms,degrees}).collect::<Vec<_>>();
+        for fps in [24.0,30.0,60.0,120.0,144.0] {
+            let frames = simulate_cursor_frames_with_rotation(&events,&spring,fps,3000,&None,&settings,Some(&keys),Clone::clone);
+            for (index, frame) in frames.iter().enumerate() {
+                let position = index as f64*60.0/fps;
+                let lower = position.floor() as usize;
+                let expected = 7.0+case.samples[lower]+(case.samples[lower+1]-case.samples[lower])*(position-lower as f64);
+                assert!((frame.rotation as f64-expected).abs()<1e-5,"{fps}fps frame {index}: {} != {expected}",frame.rotation);
+            }
+        }
+    }
 }

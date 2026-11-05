@@ -27,13 +27,17 @@ fn cursor_body_styles_rotation_and_opacity_remain_distinct() {
         let normal=compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap();
         assert!(alpha_sum(&normal)>1000,"style{style} must draw a visible body");
         assert!(!shapes.contains(&normal),"style{style} collapsed into a previous style");
+        cursor.opacity=1.2;cursor.fade_blur_radius=-0.1;
+        assert_eq!(normal,compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap(),
+            "style{style} must bound spring overshoot at rendering");
+        cursor.opacity=1.0;cursor.fade_blur_radius=0.0;
         cursor.rotation=35.0;
         let rotated=compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap();
         if style!=1 {assert_ne!(normal,rotated,"style{style} lost rotation");}
         cursor.rotation=0.0;cursor.opacity=0.4;
         let faded=compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap();
         assert!(alpha_sum(&faded)>0 && alpha_sum(&faded)<alpha_sum(&normal));
-        cursor.opacity=0.0;
+        cursor.opacity=-0.1;
         assert_eq!(baseline,compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap(),"style{style} leaves a body/shadow when hidden");
         shapes.push(normal);
         // Enable temporal sampling only after the static style checks.

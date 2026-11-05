@@ -71,7 +71,7 @@ pub(crate) fn simulate_with_planned_path(
         let local_zoom=source_zoom.as_ref().filter(|frames|!frames.is_empty()).map(|frames| {
             (0..(duration as f64*CAMERA_SIMULATION_FPS/1000.0).ceil() as usize).map(|index| {
                 let source=motion.source_start_ms+index as f64*1000.0/CAMERA_SIMULATION_FPS*motion.rate;
-                frames[((source*CAMERA_SIMULATION_FPS/1000.0+1e-7).floor() as usize).min(frames.len()-1)].clone()
+                crate::video_processing::zoom_trajectory::sample_camera_frame(frames, source).unwrap()
             }).collect()
         });
         let mut local_spring=*spring;
@@ -88,9 +88,25 @@ pub(crate) fn simulate_with_planned_path(
         let last=(end*fps/1000.0-1e-7).ceil().max(0.0) as usize;
         for index in first..last.min(output.len()) {
             let local_time=index as f64*1000.0/fps-start;
-            let sample=(local_time*CAMERA_SIMULATION_FPS/1000.0+1e-7).floor().max(0.0) as usize;
+            let position = (local_time * CAMERA_SIMULATION_FPS / 1000.0).max(0.0);
+            let position = if (position-position.round()).abs()<1e-7 {position.round()} else {position};
+            let sample = position.floor() as usize;
             if let Some(frame)=frames.get(sample) {
-                output[index]=frame.clone();
+                output[index]=frames.get(sample+1).map_or_else(||frame.clone(),
+                    |next|frame.interpolate(next,(position-sample as f64) as f32));
+                if let Some(planned) = planned {
+                    let mut position = planned.at(index as f64*1000.0/fps);
+                    let source_time = motion.source_start_ms+local_time*motion.rate;
+                    if let Some(zoom) = source_zoom.as_ref().and_then(|frames|
+                        crate::video_processing::zoom_trajectory::sample_camera_frame(frames,source_time)) {
+                        if zoom.scale>1.0 {
+                            position[0]=(position[0]-zoom.center_x)*zoom.scale+0.5;
+                            position[1]=(position[1]-zoom.center_y)*zoom.scale+0.5;
+                        }
+                    }
+                    output[index].x=position[0] as f32;
+                    output[index].y=position[1] as f32;
+                }
                 output[index].press_amount=press_animation.as_ref().map_or(0.0,|a|a.at(index as f64*1000.0/fps) as f32);
             }
         }
@@ -112,6 +128,42 @@ mod tests {
         simulate(events,&physical,&plan,"recording.mp4",&SpringConfig{tension:170.0,friction:30.0,mass:0.0},
             &serde_json::from_value(settings).unwrap(),&None,120.0)
     }
+    #[test]
+    fn fractional_clip_start_keeps_planned_position_in_output_time() {
+        let sidecar = std::env::temp_dir().join(format!("cursor-fractional-{}.json",uuid::Uuid::new_v4()));
+        let events = (0..=120).map(|i| CursorEvent { timestamp_ms:i*10,
+            x:0.1+(i.min(120-i) as f64)*0.005,y:0.3,is_click:false,is_release:false }).collect::<Vec<_>>();
+        let data = events.iter().map(|e|serde_json::json!({"timestamp":e.timestamp_ms,
+            "x":e.x*1000.0,"y":e.y*1000.0,"event_type":"Move"})).collect::<Vec<_>>();
+        std::fs::write(&sidecar,serde_json::to_vec(&data).unwrap()).unwrap();
+        let timeline = EditTimeline::build(&[clip("offset",3.25,0.0,500.0,1.5)],0.0,503.25).unwrap();
+        let settings = serde_json::from_value(serde_json::json!({"follow_hover":false})).unwrap();
+        let spring = SpringConfig { tension:530.0,friction:40.0,mass:1.0 };
+        let planned = super::super::planner::runtime::prepare(&sidecar,(1000,1000),None,Some(&timeline),
+            &sidecar,1200.0,&settings,spring,None).unwrap().unwrap();
+        for zoomed in [false,true] {
+        let zoom = zoomed.then(|| (0..145).map(|index| ZoomFrameState { rect:None,
+            scale:1.0+index as f64*0.003,center_x:0.6,center_y:0.4 }).collect::<Vec<_>>());
+        for fps in [24.0,60.0,120.0,144.0] {
+            let output = simulate_with_planned_path(&events,&[],&timeline,sidecar.to_str().unwrap(),
+                &spring,&settings,&zoom,fps,None,Some(&planned),60.0);
+            for (index,frame) in output.iter().enumerate() {
+                let time = index as f64*1000.0/fps;
+                if time<3.25 { assert_eq!(frame.opacity,0.0); continue; }
+                let mut expected = planned.at(time);
+                if zoomed {
+                    let source_time = (time-3.25)*1.5;
+                    let scale = 1.0+source_time*120.0/1000.0*0.003;
+                    expected=[(expected[0]-0.6)*scale+0.5,(expected[1]-0.4)*scale+0.5];
+                }
+                assert!((frame.x as f64-expected[0]).abs()<1e-7,"{fps}fps {time}ms: {} != {}",frame.x,expected[0]);
+                assert!((frame.y as f64-expected[1]).abs()<1e-7);
+            }
+        }
+        }
+        std::fs::remove_file(sidecar).unwrap();
+    }
+
     #[test]
     fn repeated_source_runs_at_output_speed_with_hidden_gap_and_reset_trails() {
         let events=[CursorEvent{ is_release: false,timestamp_ms:0,x:0.0,y:0.5,is_click:false},CursorEvent{ is_release: false,timestamp_ms:1000,x:1.0,y:0.5,is_click:false}];

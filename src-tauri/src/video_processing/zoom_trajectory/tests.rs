@@ -558,3 +558,22 @@ fn focused_camera_preserves_velocity_across_interrupted_ranges() {
         assert!((frames[index].scale-expected).abs()<1e-12,"frame {index}");
     }
 }
+
+#[test]
+fn fractional_camera_sampling_preserves_rectangle_at_trimmed_source_times() {
+    let frames = [
+        ZoomFrameState::from_sample([1.0, 0.5, 0.5, 0.0, 0.0, 1.0, 1.0]),
+        ZoomFrameState::from_sample([2.0, 0.75, 0.25, -0.5, -0.25, 2.0, 1.5]),
+    ];
+    for time in [1.0, 3.125, 6.25] {
+        let actual = super::sample_camera_frame(&frames, time).unwrap().sample();
+        for (i, value) in actual.into_iter().enumerate() {
+            let expected = frames[0].sample()[i]
+                + (frames[1].sample()[i] - frames[0].sample()[i]) * time * 120.0 / 1000.0;
+            assert!((value - expected).abs() < 1e-12);
+        }
+    }
+    assert_eq!(super::sample_camera_frame(&frames, -1.0).unwrap().sample(), frames[0].sample());
+    assert_eq!(super::sample_camera_frame(&frames, 1000.0).unwrap().sample(), frames[1].sample());
+    assert!(super::sample_camera_frame(&[], 1.0).is_none());
+}

@@ -77,7 +77,7 @@ pub struct CursorFrameState {
     pub y: f32,
     pub press_amount: f32, // relative size reduction; zero at rest
     pub fade_blur_radius: f32, // stage pixels, independent of cursor size
-    pub opacity: f32,         // idle fade (0-1)
+    pub opacity: f32,         // unclamped spring value; clamp after temporal sampling
     pub rotation: f32,        // degrees
     pub is_clicking: f32,     // 0 or 1
     pub ripple_progress: f32, // 0 = no ripple, 0.0-1.0 = active
@@ -91,6 +91,18 @@ pub struct CursorFrameState {
 }
 
 impl CursorFrameState {
+    pub(crate) fn interpolate(&self, next: &Self, fraction: f32) -> Self {
+        let lerp = |a: f32, b: f32| a + (b - a) * fraction;
+        Self {
+            x: lerp(self.x, next.x), y: lerp(self.y, next.y),
+            opacity: lerp(self.opacity, next.opacity),
+            rotation: lerp(self.rotation, next.rotation),
+            fade_blur_radius: lerp(self.fade_blur_radius, next.fade_blur_radius),
+            press_amount: lerp(self.press_amount, next.press_amount),
+            ..self.clone()
+        }
+    }
+
     pub fn trail_points(&self) -> &[TrailPoint] {
         self.trail_points.as_deref().unwrap_or(&[])
     }
@@ -302,9 +314,9 @@ pub(crate) fn simulate_cursor_frames_from<T>(
     let ripple_duration_frames = (0.6 * CAMERA_SIMULATION_FPS) as u64;
     let circle_hl_duration_frames = (0.3 * CAMERA_SIMULATION_FPS) as u64;
 
-    let mut visibility = visibility::CursorVisibility::new();
+    let mut visibility = visibility::VisibilityTimeline::new();
 
-    let mut angular_state = super::angular_spring::AngularSpring::new(
+    let mut angular_state = super::angular_spring::AngularTimeline::new(
         rotation_keys.map_or(0.0, |keys| super::rotation::sample(keys, 0.0)));
     // Rotation state
     let mut horizontal_velocity: f64 = 0.0;
@@ -314,7 +326,14 @@ pub(crate) fn simulate_cursor_frames_from<T>(
     let mut trail_history: Vec<(f64, f64)> = Vec::with_capacity(trail_length);
     let mut trail_cache: Option<(u64, f32, std::sync::Arc<[TrailPoint]>)> = None;
 
-    for frame_num in 0..total_frames {
+    let visibility_targets = |time: f64| {
+        let count = events.partition_point(|event| event.timestamp_ms as f64 <= time.min(freeze_time_ms as f64));
+        let latest = count.checked_sub(1).map(|index| &events[index]);
+        (latest.is_some(), hide_when_idle && latest.is_some_and(|event| time-event.timestamp_ms as f64>idle_timeout_ms),
+            typing.is_some_and(|active| active(time)))
+    };
+    let mut previous_sample: Option<CursorFrameState> = None;
+    for frame_num in 0..=total_frames {
         let time_ms = ((frame_num as f64 * 1000.0) / CAMERA_SIMULATION_FPS) as u64;
         let time_ms_f = frame_num as f64 * 1000.0 / CAMERA_SIMULATION_FPS;
 
@@ -347,10 +366,8 @@ pub(crate) fn simulate_cursor_frames_from<T>(
         let mut cursor_x = position[0];
         let mut cursor_y = position[1];
 
-        let idle = hide_when_idle && latest_event.is_some_and(|event|
-            time_ms_f - event.timestamp_ms as f64 > idle_timeout_ms);
-        let rendered_opacity = visibility.sample(latest_event.is_some(), idle,
-            typing.is_some_and(|active| active(time_ms_f)), dt);
+        let [mut rendered_opacity, mut fade_blur_radius] = visibility.sample(time_ms_f, &visibility_targets);
+        if latest_event.is_none() { rendered_opacity=0.0; fade_blur_radius=0.0; }
 
         // Rotation
         let dx = cursor_x - last_x_position;
@@ -361,14 +378,11 @@ pub(crate) fn simulate_cursor_frames_from<T>(
         if rotate_while_moving {
             let max_rot = 30.0 * (rotation_intensity / 100.0);
             if let Some(keys) = rotation_keys {
-                let mut target = super::rotation::sample(keys, effective_time_ms as f64);
-                // A frozen pointer must settle back to neutral, not retain its
-                // last moving tilt throughout the closing hold.
-                if time_ms > freeze_time_ms {
-                    let resting_ms = (time_ms - freeze_time_ms) as f64;
-                    target *= if resting_ms >= 720.0 {0.0} else {(-resting_ms / 120.0).exp()};
-                }
-                rotation += angular_state.advance(target,dt);
+                rotation += angular_state.sample(time_ms_f, |time| {
+                    let target = super::rotation::sample(keys, time.min(freeze_time_ms as f64));
+                    let resting_ms = (time-freeze_time_ms as f64).max(0.0);
+                    target * if resting_ms>=720.0 {0.0} else {(-resting_ms/120.0).exp()}
+                });
             } else {
                 rotation += (horizontal_velocity * 2.0).clamp(-max_rot, max_rot);
             }
@@ -473,13 +487,12 @@ pub(crate) fn simulate_cursor_frames_from<T>(
                 (0.0, 0.0, 0.0)
             };
 
-        // Keep simulation history at its fixed cadence, but do not build render
-        // payloads for frames that the caller will not retain.
+        // Build only the neighboring samples needed for the next output frame.
         let next_sample = (start_ms as f64 * CAMERA_SIMULATION_FPS / 1000.0
             + positions.len() as f64 * CAMERA_SIMULATION_FPS / fps
             + 1e-7)
             .floor() as u64;
-        if positions.len() >= output_count || next_sample != frame_num {
+        if positions.len() >= output_count || frame_num < next_sample {
             continue;
         }
         let trail_count = trail_history.len();
@@ -488,7 +501,7 @@ pub(crate) fn simulate_cursor_frames_from<T>(
         } else {
             // History advances at 60 Hz. Consecutive 120 Hz samples can share
             // immutable trail payloads unless idle fading changes their alpha.
-            let key = (frame_num / 2, rendered_opacity as f32);
+            let key = (frame_num / 2, rendered_opacity.clamp(0.0, 1.0) as f32);
             if let Some((tick, alpha, points)) = &trail_cache {
                 if (*tick, *alpha) == key {
                     Some(points.clone())
@@ -507,7 +520,7 @@ pub(crate) fn simulate_cursor_frames_from<T>(
                         TrailPoint {
                             x: tx as f32,
                             y: ty as f32,
-                            alpha: progress * trail_opacity as f32 * rendered_opacity as f32,
+                            alpha: progress * trail_opacity as f32 * rendered_opacity.clamp(0.0, 1.0) as f32,
                             size: (2.0 + progress * 4.0) * cursor_scale as f32,
                         }
                     })
@@ -517,12 +530,12 @@ pub(crate) fn simulate_cursor_frames_from<T>(
             })
         };
 
-        let mut state = CursorFrameState {
+        let state = CursorFrameState {
             press_amount: 0.0,
             x: cursor_x as f32,
             y: cursor_y as f32,
             opacity: rendered_opacity as f32,
-            fade_blur_radius: visibility.blur_radius(),
+            fade_blur_radius: fade_blur_radius as f32,
             rotation: rotation as f32,
             is_clicking: if is_clicking { 1.0 } else { 0.0 },
             ripple_progress,
@@ -534,19 +547,25 @@ pub(crate) fn simulate_cursor_frames_from<T>(
             trail_count: trail_count as f32,
             trail_points,
         };
-        // Retain only requested output samples; integrating at 120 Hz need not
-        // allocate a second full-resolution cursor trajectory.
-        while positions.len() < output_count
-            && ((start_ms as f64 * CAMERA_SIMULATION_FPS / 1000.0
-                + positions.len() as f64 * CAMERA_SIMULATION_FPS / fps
-                + 1e-7)
-                .floor() as u64)
-                == frame_num
-        {
-            state.press_amount=press_animation.as_ref().map_or(0.0,|animation|
-                animation.at(start_ms as f64+positions.len() as f64*1000.0/fps) as f32);
-            positions.push(project(&state));
+        while positions.len() < output_count {
+            let sample_time = start_ms as f64 + positions.len() as f64 * 1000.0 / fps;
+            let position = sample_time * CAMERA_SIMULATION_FPS / 1000.0;
+            let position = if (position - position.round()).abs() < 1e-7 { position.round() } else { position };
+            if position > frame_num as f64 { break; }
+            let mut sampled = if position == frame_num as f64 {
+                state.clone()
+            } else {
+                previous_sample.as_ref().unwrap().interpolate(&state, (position - position.floor()) as f32)
+            };
+            let [opacity, blur] = visibility.sample(sample_time, &visibility_targets);
+            let has_pointer = visibility_targets(sample_time).0;
+            sampled.opacity = if has_pointer { opacity as f32 } else { 0.0 };
+            sampled.fade_blur_radius = if has_pointer { blur as f32 } else { 0.0 };
+            sampled.press_amount = press_animation.as_ref().map_or(0.0, |animation| animation.at(sample_time) as f32);
+            positions.push(project(&sampled));
         }
+        previous_sample = Some(state);
+
     }
 
     positions

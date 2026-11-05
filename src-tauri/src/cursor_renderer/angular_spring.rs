@@ -45,6 +45,31 @@ impl AngularSpring {
     }
 }
 
+pub(super) struct AngularTimeline {
+    spring: AngularSpring,
+    next_frame: usize,
+    lower: f64,
+    upper: f64,
+}
+impl AngularTimeline {
+    pub(super) fn new(initial: f64) -> Self {
+        Self { spring: AngularSpring::new(initial), next_frame: 0, lower: initial, upper: initial }
+    }
+
+    pub(super) fn sample(&mut self, time_ms: f64, target: impl Fn(f64) -> f64) -> f64 {
+        let position = time_ms * 60.0 / 1000.0;
+        let position = if (position-position.round()).abs()<1e-7 {position.round()} else {position};
+        while self.next_frame <= position.ceil() as usize {
+            self.lower = self.upper;
+            self.upper = self.spring.advance(target(self.next_frame as f64*1000.0/60.0),
+                if self.next_frame==0 {0.0} else {1.0/60.0});
+            self.next_frame += 1;
+        }
+        let fraction = position-position.floor();
+        if fraction==0.0 {self.upper} else {self.lower+(self.upper-self.lower)*fraction}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

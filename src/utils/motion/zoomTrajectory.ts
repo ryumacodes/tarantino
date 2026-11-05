@@ -11,7 +11,20 @@ export function cameraFrameIndex(timeMs: number, frameCount: number): number {
 }
 
 export function sampleCameraFrame(frames: readonly CameraFrame[], timeMs: number): CameraFrame {
-  return frames[cameraFrameIndex(timeMs, frames.length)] ?? IDENTITY;
+  const index = cameraFrameIndex(timeMs, frames.length);
+  const current = frames[index];
+  if (!current) return IDENTITY;
+  const next = frames[index + 1];
+  if (!next || !Number.isFinite(timeMs) || timeMs <= 0) return current;
+  const position = timeMs * CAMERA_SIMULATION_FPS / 1000;
+  const fraction = Math.abs(position - Math.round(position)) < 1e-7 ? 0 : position - index;
+  if (fraction === 0) return current;
+  const lerp = (a: number, b: number) => a + (b - a) * fraction;
+  const result: CameraFrame = [lerp(current[0], next[0]), lerp(current[1], next[1]), lerp(current[2], next[2])];
+  if (current.length === 7 && next.length === 7) {
+    for (let i = 3; i < 7; i++) result[i] = lerp(current[i]!, next[i]!);
+  }
+  return result;
 }
 
 /** Shared IPC shape for preview and export. */

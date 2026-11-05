@@ -17,8 +17,16 @@ impl Prepared {
         self.source_press.pressed(time, smooth)
     }
     pub fn at(&self, time: f64) -> [f64; 2] {
-        let p = self.motion.at(time);
-        [p[0] / self.width, p[1] / self.height]
+        let position = time * 60.0 / 1000.0;
+        let position = if (position-position.round()).abs()<1e-7 {position.round()} else {position};
+        let frame = position.floor();
+        let lower = self.motion.at(frame * 1000.0 / 60.0);
+        let fraction = position-frame;
+        let point = if fraction==0.0 { lower } else {
+            let upper = self.motion.at((frame+1.0)*1000.0/60.0);
+            std::array::from_fn(|i| lower[i]+(upper[i]-lower[i])*fraction)
+        };
+        [point[0] / self.width, point[1] / self.height]
     }
 }
 
@@ -125,6 +133,37 @@ pub fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires external cursor position timeline fixtures"]
+    fn prepared_positions_match_external_style_timeline() {
+        let path = std::env::var("TARANTINO_CURSOR_POSITION_TIMELINE").unwrap();
+        let cases: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let cases = cases.as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let sidecar = std::env::temp_dir().join(format!("cursor-position-{}.json",uuid::Uuid::new_v4()));
+            let events = case["points"].as_array().unwrap().iter().map(|p|serde_json::json!({
+                "timestamp":p["timeMs"],"x":p["x"],"y":p["y"],"event_type":"Move",
+            })).collect::<Vec<_>>();
+            std::fs::write(&sidecar,serde_json::to_vec(&serde_json::json!({
+                "display_width":1000,"display_height":500,"mouse_events":events,
+            })).unwrap()).unwrap();
+            let spring = SpringConfig { tension:case["spring"]["stiffness"].as_f64().unwrap(),
+                friction:case["spring"]["damping"].as_f64().unwrap(),mass:case["spring"]["mass"].as_f64().unwrap() };
+            let settings = serde_json::from_value(serde_json::json!({"follow_hover":false})).unwrap();
+            let planned = prepare(&sidecar,(1000,500),None,None,&sidecar,1200.0,&settings,spring,None).unwrap().unwrap();
+            for sample in case["samples"].as_array().unwrap() {
+                let time = sample["time"].as_f64().unwrap();
+                let actual = planned.at(time);
+                for (axis,key,extent) in [(0,"x",1000.0),(1,"y",500.0)] {
+                    let expected = sample["expected"][key].as_f64().unwrap();
+                    assert!((actual[axis]*extent-expected).abs()<1e-5,"{time}ms {key}: {} != {expected}",actual[axis]*extent);
+                }
+            }
+            std::fs::remove_file(sidecar).unwrap();
+        }
+    }
+
     #[test]
     fn planned_positions_reach_clicks_in_logical_pixels_and_feed_render_state() {
         let sidecar =

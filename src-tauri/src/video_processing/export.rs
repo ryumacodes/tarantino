@@ -530,17 +530,13 @@ pub async fn export_video(
             range.source_sample(frame_idx, target_fps, CAMERA_SIMULATION_FPS)
         };
         // Motion remains in source time even when the decoded video is trimmed.
-        let zoom_state = zoom_trajectory
-            .as_ref()
-            .filter(|_| !gap)
-            .and_then(|t| {
-                if t.is_empty() {
-                    None
-                } else {
-                    Some(&t[source_frame_idx.min(t.len() - 1)])
-                }
-            })
-            .unwrap_or(&default_zoom);
+        let source_time_ms = mapped.map_or(
+            range.start_ms as f64 + frame_idx as f64 * 1000.0 / target_fps as f64,
+            |(_, ms)| ms,
+        );
+        let sampled_zoom = zoom_trajectory.as_ref().filter(|_| !gap)
+            .and_then(|frames| super::zoom_trajectory::sample_camera_frame(frames, source_time_ms));
+        let zoom_state = sampled_zoom.as_ref().unwrap_or(&default_zoom);
 
         // Get cursor state for this frame
         let cursor_state = cursor_trajectory.as_ref().filter(|_| !gap && !mapped.is_some_and(|(segment, _)| segment.hide_cursor)).and_then(|t| {

@@ -150,7 +150,13 @@ async fn contiguous_trim_loop_renders_the_edited_opening_at_the_end() {
     std::fs::create_dir_all(&root).unwrap();
     let input=root.join("black.mkv");
     ffmpeg(&["-v","error","-f","lavfi","-i","color=c=black:s=128x128:r=60:d=1","-c:v","ffv1",input.to_str().unwrap()]);
-    std::fs::write(input.with_extension("mouse.json"),r#"[{"timestamp":0,"x":20,"y":40},{"timestamp":500,"x":100,"y":40},{"timestamp":999,"x":20,"y":40}]"#).unwrap();
+    let events = (0..=50).map(|i| {
+        let time = i * 20;
+        let x = if time <= 500 { 20.0 + time as f64 * 0.16 }
+            else { 100.0 - (time - 500) as f64 * 0.16 };
+        serde_json::json!({"timestamp":time,"x":x,"y":40,"event_type":"Move"})
+    }).collect::<Vec<_>>();
+    std::fs::write(input.with_extension("mouse.json"), serde_json::to_vec(&events).unwrap()).unwrap();
     let output=root.join("loop.mp4");
     let settings:ExportSettings=serde_json::from_value(serde_json::json!({
         "output_path":output,"resolution":{"width":128,"height":128},"frame_rate":60,"format":"mp4","codec":"h264",
@@ -184,7 +190,13 @@ async fn clip_smoothing_override_matches_raw_cursor_pixels_only_in_selected_clip
     std::fs::create_dir_all(&root).unwrap();
     let input=root.join("black.mkv");
     ffmpeg(&["-v","error","-f","lavfi","-i","color=c=black:s=128x128:r=60:d=1","-c:v","ffv1",input.to_str().unwrap()]);
-    std::fs::write(input.with_extension("mouse.json"),r#"[{"timestamp":0,"x":20,"y":40},{"timestamp":500,"x":100,"y":40},{"timestamp":999,"x":100,"y":40}]"#).unwrap();
+    let events = (0..=50).map(|i| {
+        let time = i * 20;
+        let x = if time <= 250 { 20.0 + time as f64 * 0.32 }
+            else { (100.0 - (time - 250) as f64 * 0.32).max(20.0) };
+        serde_json::json!({"timestamp":time,"x":x,"y":40,"event_type":"Move"})
+    }).collect::<Vec<_>>();
+    std::fs::write(input.with_extension("mouse.json"), serde_json::to_vec(&events).unwrap()).unwrap();
     let info=VideoInfo{duration_ms:1000,width:128,height:128,fps:60.0,bitrate:0,format:"mkv".into(),size_bytes:0,frame_count:Some(60)};
     for repeated in [false,true] {
         let count=if repeated {3}else{1};
@@ -208,7 +220,7 @@ async fn clip_smoothing_override_matches_raw_cursor_pixels_only_in_selected_clip
             let frames=decoded.chunks_exact(128*128*3).collect::<Vec<_>>();
             assert_eq!(frames.len(),count*60);
             let sample=(0..count).map(|i| {
-                let pixels=frames[i*60+15].chunks_exact(3).enumerate()
+                let pixels=frames[i*60+7].chunks_exact(3).enumerate()
                     .filter(|(_,rgb)|rgb.iter().any(|v|*v>160))
                     .map(|(index,_)|(index%128) as f64).collect::<Vec<_>>();
                 assert!(pixels.len()>20,"cursor must be visible; artifacts {}",root.display());
