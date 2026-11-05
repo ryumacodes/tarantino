@@ -95,7 +95,7 @@ export const createZoomActions = (set: SetFn, get: GetFn) => {
               ...block,
               end_time: Math.min(block.end_time, videoDuration),
             }))
-            .filter(block => block.end_time > block.start_time + 500);
+            .filter(block => block.end_time > block.start_time);
           analysis.session_duration = videoDuration;
         }
         state.zoomAnalysis = analysis;

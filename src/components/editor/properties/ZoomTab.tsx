@@ -1,10 +1,12 @@
 import { useShallow } from 'zustand/react/shallow';
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { Zap, Target, Trash2, RotateCcw } from 'lucide-react';
 import { useEditorStore } from '../../../stores/editor';
 import type { TabProps } from './types';
 import { ZoomPresentationControls } from './ZoomPresentationControls';
 import { RebuildZooms } from './RebuildZooms';
+import { manualZoomCenterUpdate, zoomCenterBounds, zoomPickerCenter } from '../../../utils/motion/zoomCenterBounds';
+import { cropSourcePoint, resolveSourceCrop } from '../../../utils/sourceCrop';
 
 const SPEED_OPTIONS = ['slow', 'mellow', 'quick', 'rapid'] as const;
 
@@ -20,6 +22,9 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
     deleteZoomBlock,
     selectedBlockId,
     visualSettings,
+    captureMode,
+    videoWidth,
+    videoHeight,
   } = useEditorStore(useShallow(state => ({
     selectedKeyframe: state.selectedKeyframe,
     updateZoomKeyframe: state.updateZoomKeyframe,
@@ -31,6 +36,9 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
     deleteZoomBlock: state.deleteZoomBlock,
     selectedBlockId: state.selectedBlockId,
     visualSettings: state.visualSettings,
+    captureMode: state.captureMode,
+    videoWidth: state.videoWidth,
+    videoHeight: state.videoHeight,
   })));
 
   // Get the currently selected zoom block
@@ -38,21 +46,18 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
     ? zoomAnalysis.zoom_blocks.find(b => b.id === selectedBlockId)
     : null;
 
-  // Calculate constrained center bounds based on zoom factor
-  const getConstrainedBounds = (zoomFactor: number) => {
-    // At 2x zoom, the visible area is 50% of original
-    // Center must be at least (visible_area/2) from edges
-    if (selectedBlock?.loupe) return { min: 0, max: 100 };
-    const visibleRatio = 1 / zoomFactor;
-    const minCenter = visibleRatio / 2;
-    const maxCenter = 1 - (visibleRatio / 2);
-    return { min: minCenter * 100, max: maxCenter * 100 };
-  };
+  const crop = useMemo(() => visualSettings.sourceCrop && videoWidth && videoHeight
+    ? resolveSourceCrop(visualSettings.sourceCrop, videoWidth, videoHeight) : null,
+  [visualSettings.sourceCrop, videoWidth, videoHeight]);
+  const pickerCenter = selectedBlock ? zoomPickerCenter(selectedBlock, crop) : { x: 0.5, y: 0.5 };
+  const clickPosition = selectedBlock && crop
+    ? cropSourcePoint(crop, selectedBlock.click_x, selectedBlock.click_y)
+    : { x: selectedBlock?.click_x ?? 0.5, y: selectedBlock?.click_y ?? 0.5 };
+  const pickerAspect = crop ? crop.width / crop.height : videoWidth && videoHeight ? videoWidth / videoHeight : 16 / 9;
 
-  // Constrain center value to valid range based on zoom factor
-  const constrainCenter = (value: number, zoomFactor: number) => {
-    const bounds = getConstrainedBounds(zoomFactor);
-    return Math.max(bounds.min, Math.min(bounds.max, value));
+  const getConstrainedBounds = (zoomFactor: number) => {
+    const bounds = zoomCenterBounds(zoomFactor, captureMode, !!selectedBlock?.loupe);
+    return { min: bounds.min * 100, max: bounds.max * 100 };
   };
 
   // State for dragging zoom viewport
@@ -161,12 +166,9 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                     value={selectedBlock.zoom_factor}
                     onChange={(e) => {
                       const newZoomFactor = parseFloat(e.target.value);
-                      // Auto-constrain center when zoom factor changes
                       updateZoomBlock(selectedBlock.id, {
                         zoom_factor: newZoomFactor,
-                        is_manual: selectedBlock.is_manual,
-                        center_x: constrainCenter(selectedBlock.center_x * 100, newZoomFactor) / 100,
-                        center_y: constrainCenter(selectedBlock.center_y * 100, newZoomFactor) / 100,
+                        ...manualZoomCenterUpdate(selectedBlock, newZoomFactor, captureMode, !!selectedBlock.loupe),
                       });
                     }}
                     className="editor-slider"
@@ -261,7 +263,7 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                   style={{
                     position: 'relative',
                     width: '100%',
-                    aspectRatio: '16/9',
+                    aspectRatio: pickerAspect,
                     background: 'var(--editor-bg-tertiary)',
                     borderRadius: '6px',
                     border: '1px solid var(--editor-border)',
@@ -282,8 +284,8 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                   <div
                     style={{
                       position: 'absolute',
-                      left: `${selectedBlock.click_x * 100}%`,
-                      top: `${selectedBlock.click_y * 100}%`,
+                      left: `${clickPosition.x * 100}%`,
+                      top: `${clickPosition.y * 100}%`,
                       width: '8px',
                       height: '8px',
                       background: 'var(--dracula-red)',
@@ -298,8 +300,8 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                   <div
                     style={{
                       position: 'absolute',
-                      left: `${selectedBlock.center_x * 100}%`,
-                      top: `${selectedBlock.center_y * 100}%`,
+                      left: `${pickerCenter.x * 100}%`,
+                      top: `${pickerCenter.y * 100}%`,
                       width: selectedBlock.loupe ? '24px' : `${zoomWindowSize}%`,
                       height: selectedBlock.loupe ? '24px' : `${zoomWindowSize}%`,
                       border: '2px solid var(--accent-primary)',
@@ -314,8 +316,8 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
                   <div
                     style={{
                       position: 'absolute',
-                      left: `${selectedBlock.center_x * 100}%`,
-                      top: `${selectedBlock.center_y * 100}%`,
+                      left: `${pickerCenter.x * 100}%`,
+                      top: `${pickerCenter.y * 100}%`,
                       width: '12px',
                       height: '12px',
                       transform: 'translate(-50%, -50%)',

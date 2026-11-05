@@ -44,16 +44,19 @@ fn prepare_range<T>(events: &[T], start: f64, end: f64,
 ) -> Vec<Target> {
     let first = events.partition_point(|event| point(event).0 < start);
     let last = events.partition_point(|event| point(event).0 <= end);
-    let mut points = Vec::new();
-    if first < last {
-        if let Some(event) = events.get(first).filter(|event| point(event).0 == start) {
-            let (_,x,y) = point(event);
-            points.push((start-1.0,x,y));
-        }
-        points.extend(events[first..last].iter().map(point));
+    if first >= last {
+        return fallback().map(|p| group_indexed(1, |_| p, extent)).unwrap_or_default();
     }
-    if points.is_empty() { points.extend(fallback()); }
-    group(&points, extent)
+    let events = &events[first..last];
+    let seed = (point(&events[0]).0 == start).then(|| {
+        let (_,x,y) = point(&events[0]);
+        (start-1.0,x,y)
+    });
+    let offset = usize::from(seed.is_some());
+    group_indexed(events.len()+offset, |index| {
+        if index == 0 { if let Some(seed) = seed { return seed; } }
+        point(&events[index-offset])
+    }, extent)
 }
 
 fn fallback(activity: CameraActivity<'_>, time: u64) -> Option<&CursorEvent> {
@@ -67,15 +70,20 @@ fn fallback(activity: CameraActivity<'_>, time: u64) -> Option<&CursorEvent> {
     else { events.get(first.saturating_sub(1)) }
 }
 
+#[cfg(test)]
 fn group(points: &[(f64, f64, f64)], extent: (f64, f64)) -> Vec<Target> {
+    group_indexed(points.len(), |index| points[index], extent)
+}
+
+fn group_indexed(len: usize, point: impl Fn(usize) -> (f64,f64,f64), extent: (f64, f64)) -> Vec<Target> {
     let mut targets = Vec::new();
     let mut start = 0;
-    while start < points.len() {
-        let (_, x, y) = points[start];
+    while start < len {
+        let (_, x, y) = point(start);
         let (mut left, mut right, mut top, mut bottom) = (x, x, y, y);
         let mut end = start + 1;
-        while end < points.len() {
-            let (_, x, y) = points[end];
+        while end < len {
+            let (_, x, y) = point(end);
             let bounds = (left.min(x), right.max(x), top.min(y), bottom.max(y));
             if bounds.1 - bounds.0 > extent.0 || bounds.3 - bounds.2 > extent.1 {
                 break;
@@ -86,19 +94,16 @@ fn group(points: &[(f64, f64, f64)], extent: (f64, f64)) -> Vec<Target> {
         let mut weight = 0.0;
         let (mut x, mut y) = (0.0, 0.0);
         for index in start..end {
-            let point = points[index];
-            let until = points
-                .get(index + 1)
-                .map(|p| p.0)
-                .unwrap_or_else(|| point.0 + 100.0);
-            let duration = until - point.0;
+            let current = point(index);
+            let until = if index+1 < len { point(index+1).0 } else { current.0+100.0 };
+            let duration = until - current.0;
             weight += duration;
-            x += point.1 * duration;
-            y += point.2 * duration;
+            x += current.1 * duration;
+            y += current.2 * duration;
         }
-        let last = points[end - 1];
+        let last = point(end - 1);
         targets.push(Target {
-            time: points[start].0,
+            time: point(start).0,
             x: if weight > 0.0 { x / weight } else { last.1 },
             y: if weight > 0.0 { y / weight } else { last.2 },
         });
@@ -118,6 +123,34 @@ pub(crate) fn at(targets: &[Target], time: f64) -> Option<(f64, f64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "long recording target preparation workload"]
+    fn target_preparation_profile() {
+        let events=(0..120_000).map(|i|(i as f64*8.0,
+            (i as f64/500.0).sin()*0.4+0.5,(i as f64/700.0).cos()*0.4+0.5)).collect::<Vec<_>>();
+        let ranges=(0..40).map(|i|(i as f64*1000.0,800_000.0+i as f64*1000.0)).collect::<Vec<_>>();
+        let started=std::time::Instant::now();
+        let baseline=ranges.iter().map(|&(start,end)| {
+            let first=events.partition_point(|p|p.0<start);
+            let last=events.partition_point(|p|p.0<=end);
+            let mut points=Vec::new();
+            if events[first].0==start { points.push((start-1.0,events[first].1,events[first].2)); }
+            points.extend_from_slice(&events[first..last]);
+            group(&points,(0.25,0.25))
+        }).collect::<Vec<_>>();
+        let copied_time=started.elapsed();
+        let started=std::time::Instant::now();
+        for (&(start,end),expected) in ranges.iter().zip(&baseline) {
+            let actual=prepare_range(&events,start,end,|p|*p,||None,(0.25,0.25));
+            assert_eq!(actual.len(),expected.len());
+            for (actual,expected) in actual.iter().zip(expected) {
+                assert_eq!((actual.time,actual.x,actual.y),(expected.time,expected.x,expected.y));
+            }
+        }
+        println!("target preparation: copied={copied_time:?}, borrowed={:?}; removed temporary sample storage: {} bytes per range",
+            started.elapsed(),100_002*std::mem::size_of::<(f64,f64,f64)>());
+    }
+
     #[test]
     #[ignore = "requires external camera fallback fixtures"]
     fn empty_camera_ranges_match_external_fallback_fixtures() {

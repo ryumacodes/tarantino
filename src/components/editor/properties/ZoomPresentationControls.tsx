@@ -1,8 +1,10 @@
 import { useEditorStore } from '../../../stores/editor';
 import type { ZoomBlock } from '../../../stores/editor/types';
+import { manualZoomCenterUpdate } from '../../../utils/motion/zoomCenterBounds';
 
 export function ZoomPresentationControls({ block, disabled }: { block: ZoomBlock; disabled: boolean }) {
   const updateZoomBlock = useEditorStore(state => state.updateZoomBlock);
+  const captureMode = useEditorStore(state => state.captureMode);
 
   return <>
     <div className="control-group">
@@ -20,10 +22,8 @@ export function ZoomPresentationControls({ block, disabled }: { block: ZoomBlock
                 radius: 0.35, glass: false, bevel: 0.2, chromatic_aberration: 0.5, shadow_alpha: 0.35,
               } });
             } else {
-              const inset = 0.5 / block.zoom_factor;
-              const clamp = (value: number) => Math.max(inset, Math.min(1 - inset, value));
-              updateZoomBlock(block.id, { loupe: undefined, is_manual: block.is_manual,
-                center_x: clamp(block.center_x), center_y: clamp(block.center_y) });
+              updateZoomBlock(block.id, { loupe: undefined,
+                ...manualZoomCenterUpdate(block, block.zoom_factor, captureMode) });
             }
           }}>{style === 'screen' ? 'Screen zoom' : 'Magnifier'}</button>)}
       </div>

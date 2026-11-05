@@ -26,6 +26,60 @@ mod tests {
     }
 
     #[test]
+    #[ignore="native GPU preset hand transitions and fixed-pointer fallback"]
+    fn preset_hand_transitions_preserve_selected_appearance() {
+        use crate::input::cursor_images::SystemCursor;
+        let mut images=CursorImages::default();
+        for (index,kind) in [SystemCursor::Arrow,SystemCursor::Hand,SystemCursor::Text].into_iter().enumerate() {
+            let mut image=asset(8,12,[255,0,0,255],[0.0,0.0]);
+            image.system_cursor=Some(kind);
+            images.record(index as u64*100,image);
+        }
+        let path=std::env::temp_dir().join(format!("preset-shapes-{}.json",uuid::Uuid::new_v4()));
+        std::fs::write(&path,serde_json::to_vec(&serde_json::json!({"cursor_images":images})).unwrap()).unwrap();
+        let mut hands=Vec::new();
+        for style in ["filled","outline","circle","dotted"] {
+            let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+                "resolution":{"width":128,"height":128},
+                "cursor_settings":{"enabled":true,"size":2,"style":style,"color":"#ffffff",
+                    "click_effect":"none","shadow_intensity":0,"optimize_cursor_types":false},
+                "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false}
+            })).unwrap();
+            let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+            config.background_color=[0.0;4];config.motion_blur_enabled=false;
+            let source=vec![0u8;128*128*4];
+            let placeholder=RgbaImage::from_pixel(1,1,image::Rgba([255;4]));
+            let mut compositor=GpuCompositor::new(config,Some(&placeholder),2.0,[1.0;3],settings.cursor_settings.as_ref()).unwrap();
+            let mut cursor_settings=settings.cursor_settings.unwrap();
+            compositor.configure_recorded_cursor(&path,&cursor_settings).unwrap();
+            let camera=ZoomFrameState{scale:1.0,center_x:0.5,center_y:0.5};
+            let mut state=crate::cursor_renderer::CursorFrameState::default();
+            state.x=0.5;state.y=0.5;state.opacity=1.0;
+            let mut frames=Vec::new();
+            for time in [0.0,99.9,100.0,199.9,200.0,100.0,0.0] {
+                compositor.set_recorded_cursor_time(Some(time));
+                frames.push(compositor.composite_frame(&source,&camera,Some(&state)).unwrap());
+            }
+            assert_eq!(frames[0],frames[1]);
+            assert_eq!(frames[0],frames[4]);
+            assert_eq!(frames[0],frames[6]);
+            assert_eq!(frames[2],frames[3]);
+            assert_eq!(frames[2],frames[5]);
+            assert!(frames[2].chunks_exact(4).any(|p|p[3]>100));
+            if matches!(style,"filled"|"outline") {
+                assert!(frames[0]!=frames[2],"{style} must change to a hand");
+                hands.push(frames[2].clone());
+            } else { assert_eq!(frames[0],frames[2]); }
+            cursor_settings.always_use_pointer=Some(true);
+            compositor.configure_recorded_cursor(&path,&cursor_settings).unwrap();
+            compositor.set_recorded_cursor_time(Some(100.0));
+            assert_eq!(frames[0],compositor.composite_frame(&source,&camera,Some(&state)).unwrap());
+        }
+        assert!(hands[0]!=hands[1],"filled and outline hands must remain distinct");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     #[ignore="native GPU recorded cursor image transitions and hotspot"]
     fn recorded_cursor_shapes_press_and_fallback_render() {
         let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({

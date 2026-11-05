@@ -4,10 +4,29 @@ import { invoke } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../stores/editor';
 import { createProjectDocument } from './document';
 import { restoredProjectState } from './restore';
+import type { ZoomAnalysis, ZoomBlock } from '../../stores/editor/types';
 const initial=useEditorStore.getState();
 beforeEach(()=>{
   vi.mocked(invoke).mockReset();
   useEditorStore.setState({...initial,videoFilePath:'/take.mp4',recordingRevision:4});
+});
+it('loads short saved zoom ranges and retains a positive tail after source bounds',async()=>{
+  useEditorStore.setState({duration:1000,zoomAnalysis:null});
+  const block=(id:string,start_time:number,end_time:number):ZoomBlock=>({
+    id,start_time,end_time,zoom_factor:2,center_x:0.4,center_y:0.6,
+    click_x:0.4,click_y:0.6,is_manual:true,instant_animation:true,
+  });
+  const analysis:ZoomAnalysis={session_duration:2000,total_clicks:0,
+    config:{enabled:true,zoom_factor:2,zoom_duration:5000,min_click_spacing:500},
+    zoom_blocks:[block('short',100,200),block('half-second',300,800),
+      block('tail',900,2000),block('empty',800,800),block('outside',1100,1200)]};
+  vi.mocked(invoke).mockResolvedValue(analysis);
+  await useEditorStore.getState().loadZoomData('/take.mp4');
+  const loaded=useEditorStore.getState().zoomAnalysis!;
+  expect(loaded.zoom_blocks).toEqual([analysis.zoom_blocks[0],analysis.zoom_blocks[1],
+    {...analysis.zoom_blocks[2],end_time:1000}]);
+  expect(loaded.session_duration).toBe(1000);
+  expect(useEditorStore.getState().zoomLoading).toBe(false);
 });
 it('restores saved edits and capture geometry while clearing runtime state',()=>{
   const state=useEditorStore.getState();

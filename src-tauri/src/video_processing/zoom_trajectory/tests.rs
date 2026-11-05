@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn window_manual_zoom_retains_edge_anchors_while_display_clamps_viewport() {
+    let config=SpringConfig {tension:250.0,friction:40.0,mass:2.25};
+    for (x,y) in [(0.0_f64,1.0_f64),(1.0,0.0)] {
+        let block:ZoomBlock=serde_json::from_value(serde_json::json!({
+            "start_time_ms":0,"end_time_ms":1000,"zoom_level":2,
+            "center_x":x,"center_y":y,"is_manual":true,"instant_animation":true
+        })).unwrap();
+        for fps in [24.0,30.0,60.0,120.0] {
+            for window in [true,false] {
+                let frames=simulate_zoom_trajectory(&[block.clone()],&[],&config,false,"focused",fps,1200,window);
+                let expected=if window {(x,y)} else {(x.clamp(0.25,0.75),y.clamp(0.25,0.75))};
+                for frame in &frames[1..(fps*0.9) as usize] {
+                    assert_eq!(frame.scale,2.0);
+                    assert_eq!((frame.center_x,frame.center_y),expected);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn automatic_zoom_enters_at_in_range_activity_not_the_previous_pointer() {
     let block: ZoomBlock=serde_json::from_value(serde_json::json!({
         "start_time_ms":100,"end_time_ms":500,"zoom_level":2,

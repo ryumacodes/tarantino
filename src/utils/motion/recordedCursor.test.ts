@@ -24,4 +24,11 @@ describe('recorded cursor textures',()=>{
     expect(recordedCursorIndex({...data,changes:[{timestamp:100,image_id:99}]},100)).toBe(0);
     expect(recordedCursorIndex({...data,changes:[{timestamp:100,image_id:1},{timestamp:100,image_id:2}]},100)).toBe(1);
   });
+  it('returns to procedural shapes when a preset only supplies a hand',()=>{
+    const data:RecordedCursorData={images:[null,image,null],fallback_image_id:0,changes:[
+      {timestamp:0,image_id:0},{timestamp:100,image_id:1},{timestamp:200,image_id:2}]};
+    expect([0,99.9,100,199.9,200,100,0].map(t=>recordedCursorIndex(data,t)))
+      .toEqual([null,null,1,1,null,1,null]);
+    expect(recordedCursorIndex({images:[],changes:[]},100)).toBeNull();
+  });
 });

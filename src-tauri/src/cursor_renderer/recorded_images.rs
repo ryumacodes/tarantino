@@ -105,6 +105,38 @@ mod tests {
     use crate::input::cursor_images::CursorImage;
 
     #[test]
+    fn alternate_presets_use_semantic_hands_and_fall_back_for_other_shapes() {
+        let mut data=CursorImages::default();
+        for (index,kind) in [SystemCursor::Arrow,SystemCursor::Hand,SystemCursor::Text].into_iter().enumerate() {
+            data.record(index as u64*100,CursorImage {system_cursor:Some(kind),
+                width:8.0,height:12.0,hotspot_x:0.0,hotspot_y:0.0,png_base64:String::new()});
+        }
+        let path=std::env::temp_dir().join(format!("preset-cursor-{}.json",uuid::Uuid::new_v4()));
+        let save=|data:&CursorImages|std::fs::write(&path,
+            serde_json::to_vec(&serde_json::json!({"cursor_images":data})).unwrap()).unwrap();
+        save(&data);
+        for style in ["filled","outline"] {
+            let track=Track::load_for_style(&path,false,false,style).unwrap();
+            assert_eq!([0.0,99.9,100.0,199.9,200.0,100.0,0.0].map(|t|track.index_at(t)),
+                [None,None,Some(1),Some(1),None,Some(1),None]);
+            assert_eq!(track.images.iter().flatten().count(),1);
+            let fixed=Track::load_for_style(&path,false,true,style).unwrap();
+            assert!(fixed.images.is_empty());
+        }
+        for style in ["circle","dotted"] {
+            assert!(Track::load_for_style(&path,false,false,style).unwrap().images.is_empty());
+        }
+        for asset in &mut data.images {asset.system_cursor=None;}
+        save(&data);
+        for style in ["filled","outline"] {
+            let legacy=Track::load_for_style(&path,false,false,style).unwrap();
+            assert_eq!(legacy.index_at(100.0),None);
+            assert_eq!(legacy.images.iter().flatten().count(),0);
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn fixed_pointer_keeps_captured_bitmap_and_hotspot_across_shape_changes() {
         let mut png = Cursor::new(Vec::new());
         RgbaImage::from_pixel(8, 12, image::Rgba([80, 120, 200, 255]))
