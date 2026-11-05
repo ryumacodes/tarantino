@@ -154,15 +154,17 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
   videoTransformRef,
 }) => {
   const effect = useMemo(() => new CursorEffectImpl(), []);
+  const alwaysUsePointer = useEditorStore(state => state.visualSettings.alwaysUsePointer);
+  const cursorStyle = useEditorStore(state => state.visualSettings.cursorStyle);
   const optimizeCursorTypes = useEditorStore(state=>state.visualSettings.optimizeCursorTypes ?? true);
   useEffect(() => {
     let cancelled=false;
     effect.setRecorded(null);
-    if(sidecarPath)invoke<RecordedCursorData>('load_cursor_images',{mouseJsonPath:sidecarPath,optimizeCursorTypes})
+    if(sidecarPath)invoke<RecordedCursorData>('load_cursor_images',{mouseJsonPath:sidecarPath,optimizeCursorTypes,alwaysUsePointer,style:cursorStyle})
       .then(data=>{if(!cancelled)effect.setRecorded(data);})
       .catch(error=>{if(!cancelled)console.warn('Could not load recorded cursor images',error);});
     return ()=>{cancelled=true;effect.setRecorded(null);};
-  },[effect,sidecarPath,optimizeCursorTypes]);
+  },[effect,sidecarPath,optimizeCursorTypes,alwaysUsePointer,cursorStyle]);
   useEffect(() => {
     if (effectRef) effectRef.current = effect;
     return () => { if (effectRef?.current === effect) effectRef.current = null; };
@@ -180,7 +182,6 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
   const rotateWhileMoving=useEditorStore(state=>state.visualSettings.rotateCursorWhileMoving);
   const rotationIntensity=useEditorStore(state=>state.visualSettings.rotationIntensity);
   const sourceCrop = useEditorStore(state => state.visualSettings.sourceCrop);
-  const alwaysUsePointer = useEditorStore(state => state.visualSettings.alwaysUsePointer);
   const cursorScale = useEditorStore((state) => state.visualSettings.cursorScale);
   const hideCursorWhenIdle = useEditorStore((state) => state.visualSettings.hideCursorWhenIdle);
   const idleTimeout = useEditorStore((state) => state.visualSettings.idleTimeout);
@@ -302,7 +303,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
 
     const frameIdx = cameraFrameIndex(currentTime, trajectory.length);
     const frame = trajectory[Math.max(0, frameIdx)];
-    effect.selectRecorded(sample.sourceTime,!vs.alwaysUsePointer && vs.cursorStyle==='pointer');
+    effect.selectRecorded(sample.sourceTime,true);
     const cursorX = frame[0];
     const cursorY = frame[1];
     const opacity = vs.hideCursor ? 0 : frame[2];

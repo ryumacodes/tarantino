@@ -42,6 +42,7 @@ mod tests {
         images.record(0,asset(8,12,[255,0,0,255],[0.0,0.0]));
         images.record(500,asset(12,8,[0,255,0,255],[0.0,0.0]));
         images.record(1000,asset(48,8,[0,255,0,255],[0.0,0.0]));
+        images.images[0].system_cursor = Some(crate::input::cursor_images::SystemCursor::Arrow);
         let path=std::env::temp_dir().join(format!("recorded-shapes-{}.json",uuid::Uuid::new_v4()));
         std::fs::write(&path,serde_json::to_vec(&serde_json::json!({"cursor_images":images})).unwrap()).unwrap();
         compositor.configure_recorded_cursor(&path,settings.cursor_settings.as_ref().unwrap()).unwrap();
@@ -110,16 +111,23 @@ mod tests {
             frames.push(serde_json::json!({"time":1000,"scale":1,"blur":0,"rotation":90,"expected":rotated}));
             std::fs::write(path,serde_json::to_vec(&serde_json::json!({"data":{"images":images,"changes":track.changes},"frames":frames})).unwrap()).unwrap();
         }
+        let path=std::env::temp_dir().join(format!("fixed-recorded-shapes-{}.json",uuid::Uuid::new_v4()));
+        std::fs::write(&path,serde_json::to_vec(&serde_json::json!({"cursor_images":images})).unwrap()).unwrap();
+        let mut fixed_settings=settings.cursor_settings.unwrap();
+        fixed_settings.always_use_pointer=Some(true);
+        compositor.configure_recorded_cursor(&path,&fixed_settings).unwrap();
+        std::fs::remove_file(path).unwrap();
+        compositor.set_recorded_cursor_time(Some(500.0));
+        state.rotation=0.0;
+        let fixed=compositor.composite_frame(&source,&camera,Some(&state)).unwrap();
+        assert!(count(&fixed,0)>100 && count(&fixed,1)==0,"fixed mode must retain the captured arrow");
     }
 }
 
 impl GpuCompositor {
     pub fn configure_recorded_cursor(&mut self, path: &Path, settings: &CursorSettings) -> Result<()> {
-        // Other appearance presets retain their procedural renderer until their
-        // per-shape treatment is available. Fixed-pointer recordings also use it.
-        if settings.always_use_pointer.unwrap_or(false)
-            || settings.style.as_deref().unwrap_or("pointer") != "pointer" { return Ok(()); }
-        let track = Track::load_with_filter(path,settings.optimize_cursor_types.unwrap_or(true))?;
+        let track = Track::load_for_style(path,settings.optimize_cursor_types.unwrap_or(true),
+            settings.always_use_pointer.unwrap_or(false),settings.style.as_deref().unwrap_or("pointer"))?;
         let textures = vec![None;track.images.len()];
         self.recorded_cursor = Some(RecordedCursor {track,textures,active:None,bound:None});
         Ok(())

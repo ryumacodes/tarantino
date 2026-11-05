@@ -140,12 +140,18 @@ impl RecordingInput {
 
     fn add_image_sync(&mut self, value: &Value, optimize: bool) {
         let track = crate::cursor_renderer::shape_track::prepare(value,optimize);
+        #[derive(PartialEq)]
+        enum Identity<'a> { System(&'a str), Image(usize) }
+        let images = value.pointer("/cursor_images/images").and_then(Value::as_array);
         let mut previous = None;
         for change in track.changes {
-            if previous.is_some_and(|old| old != change.image_id) {
+            let identity = images.and_then(|images| images.get(change.image_id))
+                .and_then(|image| image.get("system_cursor")).and_then(Value::as_str)
+                .map_or(Identity::Image(change.image_id), Identity::System);
+            if previous.as_ref().is_some_and(|old| old != &identity) {
                 self.sync.push(SyncPoint { time_ms: change.timestamp as f64, tolerance: 6.0 });
             }
-            previous = Some(change.image_id);
+            previous = Some(identity);
         }
         self.sync.sort_by(|a, b| a.time_ms.total_cmp(&b.time_ms));
     }
@@ -202,6 +208,27 @@ mod tests {
         std::fs::remove_file(path).unwrap();
         assert_eq!(fixed.sync,vec![SyncPoint{time_ms:100.0,tolerance:2.0}]);
         assert_eq!(shapes.sync,input.sync);
+    }
+
+    #[test]
+    fn repeated_system_bitmaps_do_not_add_shape_constraints() {
+        let value = json!({"mouse_events":[
+            {"timestamp":0,"x":0,"y":0,"event_type":"Move"},
+            {"timestamp":600,"x":90,"y":40,"event_type":"Move"}
+        ],"cursor_images":{"images":[
+            {"system_cursor":"arrow"},{"system_cursor":"arrow"},
+            {"system_cursor":"text"},{"system_cursor":"text"},{},{}
+        ],"changes":[
+            {"timestamp":0,"image_id":0},{"timestamp":100,"image_id":1},
+            {"timestamp":200,"image_id":2},{"timestamp":300,"image_id":3},
+            {"timestamp":400,"image_id":4},{"timestamp":500,"image_id":5}
+        ]}});
+        let mut input = RecordingInput::parse(&value,(100,100),0.0,None).unwrap();
+        input.add_image_sync(&value,false);
+        assert_eq!(input.sync, [200.0,400.0,500.0].map(|time_ms|SyncPoint {time_ms,tolerance:6.0}));
+        assert!(input.press_events.iter().all(|event| !matches!(event.kind, Kind::Down | Kind::Up)));
+        let raw = crate::cursor_renderer::shape_track::prepare(&value,false);
+        assert_eq!(raw.changes.len(),6,"raw bitmap playback must retain all observations");
     }
 
     #[test]

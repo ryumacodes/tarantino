@@ -6,6 +6,7 @@
 mod simulation;
 pub(crate) mod image_geometry;
 pub(crate) mod recorded_images;
+mod preset_hand;
 pub(crate) mod shape_events;
 pub(crate) mod shape_track;
 pub(crate) use simulation::simulate_cursor_frames_from;

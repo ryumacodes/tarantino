@@ -25,7 +25,7 @@ async fn recorded_cursor_shapes_follow_trim_speed_repeat_and_fixed_pointer() {
         images.record(time,CursorImage{system_cursor:Some(if time==0 {SystemCursor::Arrow} else if time==750 {SystemCursor::Text} else {SystemCursor::Hand}),width:8.0,height:12.0,hotspot_x:0.0,hotspot_y:0.0,
             png_base64:base64::engine::general_purpose::STANDARD.encode(png.into_inner())});
     }
-    std::fs::write(input.with_extension("mouse.json"),serde_json::to_vec(&serde_json::json!({
+    let sidecar=serde_json::json!({
         "display_width":128,"display_height":128,"cursor_images":images,
         "mouse_events":[{"timestamp":0,"x":40,"y":40,"event_type":"Move"},
             {"timestamp":900,"x":40,"y":40,"event_type":{"ButtonPress":{"button":"Left"}}},
@@ -34,18 +34,25 @@ async fn recorded_cursor_shapes_follow_trim_speed_repeat_and_fixed_pointer() {
             {"timestamp":1600,"x":40,"y":40,"event_type":{"ButtonPress":{"button":"Left"}}},
             {"timestamp":1700,"x":40,"y":40,"event_type":{"ButtonRelease":{"button":"Left"}}},
             {"timestamp":1999,"x":40,"y":40,"event_type":"Move"}]
-    })).unwrap()).unwrap();
+    });
     let info=VideoInfo{duration_ms:2000,width:128,height:128,fps:60.0,bitrate:0,
         format:"mkv".into(),size_bytes:0,frame_count:Some(120)};
     let mut total=0;
-    for fps in [24,60] { for mode in ["normal","trim","edited","fixed","loop","stop","filtered","filtered-trim","filtered-edited"] {
+    for fps in [24,60] { for mode in ["normal","trim","edited","fixed","fixed-legacy","loop","stop","filtered","filtered-trim","filtered-edited"] {
+        let mut recording=sidecar.clone();
+        if mode=="fixed-legacy" {
+            for asset in recording["cursor_images"]["images"].as_array_mut().unwrap() {
+                asset.as_object_mut().unwrap().remove("system_cursor");
+            }
+        }
+        std::fs::write(input.with_extension("mouse.json"),serde_json::to_vec(&recording).unwrap()).unwrap();
         let output=root.join(format!("{fps}-{mode}.mp4"));
         let mut value=serde_json::json!({
             "output_path":output,"resolution":{"width":128,"height":128},
             "capture_mode":"window","source_width":128,"source_height":128,
             "frame_rate":fps,"format":"mp4","codec":"h264","zoom_blocks":[],
             "cursor_settings":{"enabled":true,"size":2,"style":"pointer","color":"#ffffff","highlight_color":"#ffffff",
-                "click_effect":"none","shadow_intensity":0,"spring_mass":0,"optimize_cursor_types":mode.starts_with("filtered"),"always_use_pointer":mode=="fixed"},
+                "click_effect":"none","shadow_intensity":0,"spring_mass":0,"optimize_cursor_types":mode.starts_with("filtered"),"always_use_pointer":mode.starts_with("fixed")},
             "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false}
         });
         // Shape lookup keeps following source time even when position closes early.
@@ -82,9 +89,9 @@ async fn recorded_cursor_shapes_follow_trim_speed_repeat_and_fixed_pointer() {
                 for c in 0..3 {if rgb[c]>120 && rgb[(c+1)%3]<50 && rgb[(c+2)%3]<50 {counts[c]+=1;}}
                 if rgb.iter().all(|v|*v>150) {white+=1;}
             }
-            if mode=="fixed" {assert_eq!(counts,[0;3]);assert!(white>50);}
+            if mode=="fixed-legacy" {assert_eq!(counts,[0;3]);assert!(white>50);}
             else {
-                let expected=if mode.starts_with("filtered") {
+                let expected=if mode=="fixed" {0} else if mode.starts_with("filtered") {
                     if source>1510.0 {2} else if source==1510.0 || source<750.0 {0} else {1}
                 } else if source>=1250.0 {2}else if source>=750.0 {1}else{0};
                 assert!(counts[expected]>100,"{fps}fps {mode} frame{index} source{source}: {counts:?}");
@@ -93,6 +100,6 @@ async fn recorded_cursor_shapes_follow_trim_speed_repeat_and_fixed_pointer() {
         }
         total+=frames.len();
     }}
-    println!("Verified 18 recorded-cursor exports / {total} decoded frames");
+    println!("Verified 20 recorded-cursor exports / {total} decoded frames");
     std::fs::remove_dir_all(root).unwrap();
 }
