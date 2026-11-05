@@ -6,7 +6,7 @@ pub async fn compute_zoom_trajectory(
     input_path: String,
     duration_ms: u64,
     mut settings: ExportSettings,
-) -> Result<Vec<[f64; 3]>, String> {
+) -> Result<Vec<[f64; 7]>, String> {
     if duration_ms == 0
         || settings
             .zoom_blocks
@@ -59,7 +59,7 @@ pub async fn compute_zoom_trajectory(
         );
         Ok(frames
             .into_iter()
-            .map(|frame| [frame.scale, frame.center_x, frame.center_y])
+            .map(|frame| frame.sample())
             .collect())
     })
     .await
@@ -178,7 +178,7 @@ mod tests {
                 let preview_index = (i as f64 * 120.0 / fps).round() as usize;
                 assert_eq!(
                     preview[preview_index],
-                    [frame.scale, frame.center_x, frame.center_y]
+                    frame.sample()
                 );
             }
         }

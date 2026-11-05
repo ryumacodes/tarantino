@@ -145,7 +145,7 @@ mod tests {
     fn display_camera_is_sampled_at_mapped_source_time() {
         let events=[CursorEvent{ is_release: false,timestamp_ms:0,x:0.5,y:0.5,is_click:false}];
         let plan=EditTimeline::build(&[clip("fast",0.0,500.0,500.0,2.0)],0.0,500.0).unwrap();
-        let camera=(0..240).map(|index|ZoomFrameState{scale:if index<120 {2.0}else{1.0},center_x:0.25,center_y:0.5}).collect();
+        let camera=(0..240).map(|index|ZoomFrameState{rect:None,scale:if index<120 {2.0}else{1.0},center_x:0.25,center_y:0.5}).collect();
         let frames=simulate(&events,&[],&plan,"recording.mp4",&SpringConfig{tension:170.0,friction:30.0,mass:0.0},
             &serde_json::from_value(serde_json::json!({})).unwrap(),&Some(camera),120.0);
         assert_eq!(frames[0].x,1.0);

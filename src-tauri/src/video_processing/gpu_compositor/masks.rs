@@ -32,7 +32,7 @@ mod tests {
         config.motion_blur_enabled=false;
         let (w,h)=(config.input_width,config.input_height);
         let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
-        let camera=ZoomFrameState{scale:1.0,center_x:0.5,center_y:0.5};
+        let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
         let source:Vec<u8>=(0..w*h).flat_map(|i|[if i%2==0 {0}else{255},0,0,255]).collect();
         let baseline=compositor.composite_frame(&source,&camera,None).unwrap();
         for opacity in [1.0,0.0,1.0] {

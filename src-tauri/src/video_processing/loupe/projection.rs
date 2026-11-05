@@ -34,13 +34,18 @@ pub fn project(
         (lens.center_x - crop.x) / crop.width,
         (lens.center_y - crop.y) / crop.height,
     ];
-    let scale = if window_mode || camera.scale > 1.001 {
+    let rect = camera.rect.filter(|_| window_mode);
+    let scale = if let Some(rect) = rect {
+        rect[2]
+    } else if window_mode || camera.scale > 1.001 {
         camera.scale
     } else {
         1.0
     };
     for (axis, focus) in [camera.center_x, camera.center_y].into_iter().enumerate() {
-        center[axis] = if window_mode {
+        center[axis] = if let Some(rect) = rect {
+            rect[axis] + center[axis] * rect[axis+2]
+        } else if window_mode {
             let t = (scale - 1.0).clamp(0.0, 1.0);
             let anchor = focus + (focus.clamp(0.22, 0.78) - focus) * t * t * (3.0 - 2.0 * t);
             anchor + (center[axis] - focus) * scale
@@ -79,6 +84,14 @@ pub fn project(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_rectangle_places_lens_using_both_dimensions() {
+        let camera=ZoomFrameState {scale:3.0,center_x:0.9,center_y:0.9,
+            rect:Some([0.125,0.25,0.5,0.25])};
+        let projected=project(lens(),(128,128),None,[0.0,0.0,128.0,128.0],&camera,true).unwrap();
+        assert_eq!(projected.center,[64.0,48.0]);
+        assert_eq!(projected.radius,8.0);
+    }
     fn lens() -> LoupeTarget {
         LoupeTarget {
             center_x: 0.75,
@@ -100,7 +113,7 @@ mod tests {
             height: 1.0,
         });
         let rect = [20.0, 40.0, 200.0, 200.0];
-        let identity = ZoomFrameState {
+        let identity = ZoomFrameState { rect: None,
             scale: 1.0,
             center_x: 0.5,
             center_y: 0.5,
@@ -113,7 +126,7 @@ mod tests {
         assert!((base.light_direction[0]+0.4472136).abs()<0.0001);
         assert!((base.light_direction[1]+0.8944272).abs()<0.0001);
         assert!((base.light_tilt-0.69877124).abs()<0.0001);
-        let zoom = ZoomFrameState {
+        let zoom = ZoomFrameState { rect: None,
             scale: 2.0,
             center_x: 0.75,
             center_y: 0.25,
@@ -136,7 +149,7 @@ mod tests {
     }
     #[test]
     fn window_edge_anchor_matches_compositor_and_keeps_outside_centers_outside() {
-        let zoom = ZoomFrameState {
+        let zoom = ZoomFrameState { rect: None,
             scale: 2.0,
             center_x: 0.0,
             center_y: 1.0,

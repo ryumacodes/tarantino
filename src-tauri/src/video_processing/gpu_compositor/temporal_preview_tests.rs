@@ -15,8 +15,8 @@ fn write_temporal_window_preview_fixtures() {
         let (iw,ih)=(config.input_width,config.input_height);
         let source:Vec<u8>=(0..ih).flat_map(|y|(0..iw).flat_map(move |x|[((x*13+y*7)%256) as u8,if (x+y)%2==0 {255} else {0},80,opacity])).collect();
         let shadow_pixels:Vec<u8>=(0..height).flat_map(|y|(0..width).flat_map(move |x|[0,0,0,((x+y)%160) as u8])).collect();
-        let before=ZoomFrameState {scale:if zoom {1.1} else {1.5},center_x:0.3,center_y:0.5};
-        let now=ZoomFrameState {scale:1.5,center_x:0.7,center_y:0.5};
+        let before=ZoomFrameState { rect: None,scale:if zoom {1.1} else {1.5},center_x:0.3,center_y:0.5};
+        let now=ZoomFrameState { rect: None,scale:1.5,center_x:0.7,center_y:0.5};
         let (start,end)=motion::shutter_rect(&now,Some(&before),&config);
         let base=[(config.content_offset_x+config.input_offset_x) as f32+iw as f32*0.5,
             (config.content_offset_y+config.input_offset_y) as f32+ih as f32*0.5];
@@ -93,7 +93,7 @@ fn write_camera_shutter_preview_fixtures() {
         let camera=|timeline_time:f64| {
             let source_ms=1000.0+(timeline_time-250.0)*rate;
             let index=(source_ms*120.0/1000.0+1e-7).floor();
-            ZoomFrameState {scale:1.0+index*index/10000.0,center_x:0.5+index/10000.0,center_y:0.5}
+            ZoomFrameState { rect: None,scale:1.0+index*index/10000.0,center_x:0.5+index/10000.0,center_y:0.5}
         };
         let now=camera(time);let before=camera(time-1000.0/fps as f64);
         let (start,current)=motion::shutter_rect(&now,Some(&before),&config);

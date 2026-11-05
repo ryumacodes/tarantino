@@ -1,11 +1,24 @@
 import { displayZoomView } from './displayZoomView';
 import type { SourceCrop } from '../sourceCrop';
+import type { CameraFrame } from './zoomTrajectory';
 
 export interface PreviewCameraPose {
   scale: number;
+  scaleY?: number;
   offsetX: number;
   offsetY: number;
   view: SourceCrop;
+}
+
+export function previewCameraFramePose(frame: CameraFrame, windowMode: boolean,
+  planeWidth: number, planeHeight: number): PreviewCameraPose {
+  const [scale,centerX,centerY,x,y,width,height] = frame;
+  if (windowMode && x!==undefined && y!==undefined && width!==undefined && height!==undefined
+    && width>0 && height>0) {
+    return {scale:width,scaleY:height,offsetX:(x+width/2-.5)*planeWidth,
+      offsetY:(.5-y-height/2)*planeHeight,view:{x:0,y:0,width:1,height:1}};
+  }
+  return previewCameraPose(scale,centerX,centerY,windowMode,planeWidth,planeHeight);
 }
 
 /** The same mapping drives drawing, cursor placement and motion measurement. */

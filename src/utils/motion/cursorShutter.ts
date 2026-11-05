@@ -16,7 +16,7 @@ export interface CursorProjection {
 export function projectCursorPose(frame:readonly number[],camera:PreviewCameraPose,layout:CursorProjection):WindowRect {
   return [
     layout.width/2+((frame[0]-.5)*layout.planeWidth*camera.scale+camera.offsetX)*layout.width/layout.viewportWidth,
-    layout.height/2-((.5-frame[1])*layout.planeHeight*camera.scale+camera.offsetY)*layout.height/layout.viewportHeight,
+    layout.height/2-((.5-frame[1])*layout.planeHeight*(camera.scaleY??camera.scale)+camera.offsetY)*layout.height/layout.viewportHeight,
     layout.size*(1-(frame[9]??0))*(layout.windowMode?camera.scale:1),frame[7]??0,
   ];
 }

@@ -3,6 +3,40 @@ use super::*;
 use std::time::Instant;
 
 #[test]
+#[ignore = "opt-in camera transition trace; set TARANTINO_CAMERA_TRACE_OUTPUT"]
+fn camera_transition_trace() {
+    let output = std::env::var("TARANTINO_CAMERA_TRACE_OUTPUT").unwrap();
+    let mut results = Vec::new();
+    for (style, config) in [
+        ("focused", SpringConfig { tension:250.0,friction:40.0,mass:2.25 }),
+        ("smooth", SpringConfig { tension:170.0,friction:50.0,mass:3.0 }),
+    ] {
+        for (history, ranges) in [
+            ("hold", vec![(300,1799,2.0)]),
+            ("interrupted", vec![(300,449,2.0),(450,699,1.3),(700,999,2.5)]),
+        ] {
+            let blocks: Vec<ZoomBlock> = ranges.into_iter().map(|(start,end,scale)|
+                serde_json::from_value(serde_json::json!({
+                    "start_time_ms":start,"end_time_ms":end,"zoom_level":scale,
+                    "center_x":0.5,"center_y":0.5,"is_manual":true,
+                    "animation_lead_in_ms":0
+                })).unwrap()).collect();
+            let production = simulate_zoom_trajectory(&blocks,&[],&config,true,style,60.0,4001,true);
+            let direct = simulate_zoom_steps(&blocks,&[],&config,true,style,60.0,4001,true,
+                CameraViewport::default(),None);
+            assert_eq!(production.len(),241);
+            assert_eq!(direct.len(),production.len());
+            results.push(serde_json::json!({"style":style,"history":history,
+                "samples":production.iter().zip(&direct).enumerate().map(|(i,(actual,sixty))|
+                    serde_json::json!({"time":i as f64*1000.0/60.0,
+                        "production":actual.scale,"direct60":sixty.scale})).collect::<Vec<_>>()
+            }));
+        }
+    }
+    std::fs::write(output,serde_json::to_vec_pretty(&results).unwrap()).unwrap();
+}
+
+#[test]
 #[ignore = "opt-in camera timeline profiling"]
 fn camera_timeline_profile() {
     let duration_ms = 600_000;

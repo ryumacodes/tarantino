@@ -9,7 +9,7 @@ export function windowShutter(now:PreviewCameraPose,before:PreviewCameraPose,
     layout.width/2+pose.offsetX*layout.pixelsPerUnit,
     layout.height/2-pose.offsetY*layout.pixelsPerUnit,
     layout.planeWidth*layout.pixelsPerUnit*pose.scale,
-    layout.planeHeight*layout.pixelsPerUnit*pose.scale,
+    layout.planeHeight*layout.pixelsPerUnit*(pose.scaleY??pose.scale),
   ];
   const current=rect(now),old=rect(before),start:WindowRect=[...current];
   if(motion.continuous)for(let i=0;i<4;i++) {

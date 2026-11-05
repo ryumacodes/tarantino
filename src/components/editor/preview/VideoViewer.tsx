@@ -3,7 +3,7 @@ import type {PreviewCameraMotion} from '../../../utils/motion/cursorShutter';
 import {continuousPreviewMotion,type PreviewMotionSample} from '../../../utils/motion/previewContinuity';
 import {windowShutter} from '../../../utils/motion/windowShutter';
 import {TemporalWindowPreview,type TemporalWindowFrame} from './TemporalWindowPreview';
-import { previewCameraPose, previewCameraVelocity } from '../../../utils/motion/previewCamera';
+import { previewCameraFramePose, previewCameraVelocity } from '../../../utils/motion/previewCamera';
 import type { SourceCrop } from '../../../utils/sourceCrop';
 import { resolveSourceCrop } from '../../../utils/sourceCrop';
 import { previewSample } from '../../../utils/timeline/previewTimeline';
@@ -26,6 +26,7 @@ import {previewCameraPair} from '../../../utils/motion/previewCameraPair';
 
 interface VideoTransform {
   scale: number;
+  scaleY?: number;
   offsetX: number;
   offsetY: number;
   viewportWidth: number;
@@ -142,11 +143,10 @@ export const VideoViewer = React.memo(function VideoViewer({
       rate:sample.rate,trajectory:cameraFrames,clips:state.clips,tracks:state.tracks};
     const continuous=pair.canBlur&&continuousPreviewMotion(previousMotion.current,motionSample);
     previousMotion.current=motionSample;
-    const [animatedScale, animatedCenterX, animatedCenterY] = pair.now;
     const previous = pair.before;
-    const pose = previewCameraPose(animatedScale,animatedCenterX,animatedCenterY,
+    const pose = previewCameraFramePose(pair.now,
       captureMode==='window',planeWidth,planeHeight);
-    const before = previewCameraPose(previous[0],previous[1],previous[2],
+    const before = previewCameraFramePose(previous,
       captureMode==='window',planeWidth,planeHeight);
     cameraMotionRef.current=motionError||!videoFilePath?null:{now:pose,before,frames:cameraFrames,
       beforeSourceTime:pair.beforeSourceTime,beforeCursorHidden:pair.beforeCursorHidden,
@@ -167,7 +167,7 @@ export const VideoViewer = React.memo(function VideoViewer({
 
     if (captureMode === 'window') {
       if (groupRef.current) {
-        groupRef.current.scale.set(animatedScale, animatedScale, 1);
+        groupRef.current.scale.set(pose.scale, pose.scaleY??pose.scale, 1);
         groupRef.current.position.set(offsetX, offsetY, 0);
       }
       meshRef.current.scale.set(planeWidth, planeHeight, 1);
@@ -182,6 +182,7 @@ export const VideoViewer = React.memo(function VideoViewer({
     }
 
     videoTransformRef.current.scale = pose.scale;
+    videoTransformRef.current.scaleY = pose.scaleY??pose.scale;
     videoTransformRef.current.offsetX = offsetX;
     videoTransformRef.current.offsetY = offsetY;
     videoTransformRef.current.viewportWidth = viewport.width;

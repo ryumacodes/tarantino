@@ -1,6 +1,29 @@
 use super::*;
 
 #[test]
+#[ignore="native GPU; explicit camera rectangle must preserve independent dimensions"]
+fn explicit_camera_rectangle_reaches_export_pixels() {
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":128,"height":128},"capture_mode":"window",
+        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false,"background_color":"#000000"}
+    })).unwrap();
+    let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+    config.motion_blur_enabled=false;
+    let source=[255u8;4].repeat((config.input_width*config.input_height) as usize);
+    let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
+    let camera=ZoomFrameState {scale:3.0,center_x:0.9,center_y:0.9,
+        rect:Some([0.125,0.25,0.5,0.25])};
+    let pixels=compositor.composite_frame(&source,&camera,None).unwrap();
+    let white=|x:usize,y:usize| pixels[(y*128+x)*4..(y*128+x)*4+3].iter().all(|&v|v>240);
+    let row:Vec<_>=(0..128).filter(|&x|white(x,48)).collect();
+    let column:Vec<_>=(0..128).filter(|&y|white(48,y)).collect();
+    assert!((63..=65).contains(&row.len()),"horizontal extent {row:?}");
+    assert!((31..=33).contains(&column.len()),"vertical extent {column:?}");
+    assert!((15..=17).contains(row.first().unwrap()));
+    assert!((31..=33).contains(column.first().unwrap()));
+}
+
+#[test]
 #[ignore="native GPU; motion blur must affect exported pixels and reset at cuts"]
 fn window_zoom_blur_reaches_export_and_resets_at_cuts() {
     let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
@@ -17,8 +40,8 @@ fn window_zoom_blur_reaches_export_and_resets_at_cuts() {
         let c=if (x+y)%2==0 {0} else {255};[c,255-c,80,255]
     })).collect();
     let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
-    let before=ZoomFrameState {scale:1.9,center_x:0.5,center_y:0.5};
-    let now=ZoomFrameState {scale:2.0,center_x:0.5,center_y:0.5};
+    let before=ZoomFrameState { rect: None,scale:1.9,center_x:0.5,center_y:0.5};
+    let now=ZoomFrameState { rect: None,scale:2.0,center_x:0.5,center_y:0.5};
     let baseline=compositor.composite_frame(&source,&now,None).unwrap();
     compositor.reset_motion_history();
     compositor.composite_frame(&source,&before,None).unwrap();
@@ -43,8 +66,8 @@ fn moving_window_edges_have_temporal_coverage_and_keep_straight_color() {
     let source=[255u8,255,255,255].repeat((config.input_width*config.input_height) as usize);
     let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
     for (from,to) in [(0.3,0.7),(0.7,0.3)] {
-        let before=ZoomFrameState {scale:1.4,center_x:from,center_y:0.5};
-        let now=ZoomFrameState {scale:1.4,center_x:to,center_y:0.5};
+        let before=ZoomFrameState { rect: None,scale:1.4,center_x:from,center_y:0.5};
+        let now=ZoomFrameState { rect: None,scale:1.4,center_x:to,center_y:0.5};
         compositor.reset_motion_history();
         let stationary=compositor.composite_frame(&source,&now,None).unwrap();
         compositor.reset_motion_history();
@@ -78,9 +101,9 @@ fn temporal_shadow_follows_segment_geometry_without_double_composition() {
     let source=vec![0u8;(config.input_width*config.input_height*4) as usize];
     let opaque=[255u8,255,255,255].repeat((config.input_width*config.input_height) as usize);
     let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
-    let before=ZoomFrameState {scale:1.4,center_x:0.3,center_y:0.5};
-    let middle=ZoomFrameState {scale:1.4,center_x:0.5,center_y:0.5};
-    let now=ZoomFrameState {scale:1.4,center_x:0.7,center_y:0.5};
+    let before=ZoomFrameState { rect: None,scale:1.4,center_x:0.3,center_y:0.5};
+    let middle=ZoomFrameState { rect: None,scale:1.4,center_x:0.5,center_y:0.5};
+    let now=ZoomFrameState { rect: None,scale:1.4,center_x:0.7,center_y:0.5};
     let reference=compositor.composite_frame(&source,&middle,None).unwrap();
     compositor.reset_motion_history();
     let latest=compositor.composite_frame(&source,&now,None).unwrap();

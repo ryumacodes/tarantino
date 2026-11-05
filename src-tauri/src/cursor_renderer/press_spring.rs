@@ -1,12 +1,22 @@
-//! Scalar press animation. Its millisecond stepping and settling tolerance are
-//! independent from logical-pixel path planning.
+//! Frame-based scalar integration shared by press and camera scale animation.
+//! Logical-pixel path planning uses a separate elapsed-time solver.
 use super::{SpringConfig, SpringState};
 
 pub fn advance(
+    state: SpringState,
+    target: f64,
+    config: &SpringConfig,
+    elapsed_ms: f64,
+) -> SpringState {
+    advance_with_precision(state, target, config, elapsed_ms, 0.002)
+}
+
+pub(crate) fn advance_with_precision(
     mut state: SpringState,
     target: f64,
     config: &SpringConfig,
     elapsed_ms: f64,
+    precision: f64,
 ) -> SpringState {
     if !elapsed_ms.is_finite() || elapsed_ms <= 0.0 {
         return state;
@@ -55,7 +65,7 @@ pub fn advance(
             / config.mass
             * dt;
         state.value += state.velocity * dt;
-        if (state.value - target).abs() < 0.002 && state.velocity.abs() < 0.002 {
+        if (state.value - target).abs() < precision && state.velocity.abs() < precision {
             return SpringState {
                 value: target,
                 velocity: 0.0,

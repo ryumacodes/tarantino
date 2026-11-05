@@ -123,7 +123,7 @@ mod tests {
                 Some(zoom_trajectory::targets::CameraActivity{events:&[],prepared:Some(&activity),smooth:true}));
             for (index,frame) in frames.iter().enumerate() {
                 let source = (index as f64*120.0/fps).round() as usize;
-                assert_eq!(preview[source],[frame.scale,frame.center_x,frame.center_y]);
+                assert_eq!(preview[source],frame.sample());
             }
         }
         std::fs::remove_file(sidecar).unwrap();

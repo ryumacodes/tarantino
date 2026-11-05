@@ -15,6 +15,7 @@ pub(crate) mod typing_activity;
 pub(crate) use simulation::{simulate_cursor_frames_with_activity, simulate_cursor_range_with_activity};
 mod spring;
 mod press_spring;
+pub(crate) use press_spring::advance_with_precision as step_frame_spring;
 mod press_animation;
 mod edited_press;
 mod angular_spring;

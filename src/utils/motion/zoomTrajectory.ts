@@ -1,7 +1,8 @@
 import type { ZoomBlock, ZoomAnalysis, VisualSettings } from '../../stores/editor/types';
 
 export const CAMERA_SIMULATION_FPS = 120;
-export type CameraFrame = [scale: number, centerX: number, centerY: number];
+export type CameraFrame = [scale: number, centerX: number, centerY: number,
+  rectX?: number, rectY?: number, rectWidth?: number, rectHeight?: number];
 const IDENTITY: CameraFrame = [1, 0.5, 0.5];
 
 export function cameraFrameIndex(timeMs: number, frameCount: number): number {

@@ -23,6 +23,7 @@ import './preview.css';
 
 interface VideoTransform {
   scale: number;
+  scaleY?: number;
   offsetX: number;
   offsetY: number;
   viewportWidth: number;

@@ -479,7 +479,7 @@ pub async fn export_video(
     let start_time = std::time::Instant::now();
 
     // Default zoom state (no zoom)
-    let default_zoom = ZoomFrameState {
+    let default_zoom = ZoomFrameState { rect: None,
         scale: 1.0,
         center_x: 0.5,
         center_y: 0.5,

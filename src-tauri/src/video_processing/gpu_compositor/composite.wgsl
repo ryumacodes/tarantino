@@ -157,14 +157,6 @@ fn background_at(px: vec2<f32>) -> vec4<f32> {
     return gradient_color((uv.x + uv.y) * 0.5);
 }
 
-fn window_zoom_anchor(center: vec2<f32>, scale: f32) -> vec2<f32> {
-    let margin = 0.22;
-    let edge_anchor = clamp(center, vec2<f32>(margin), vec2<f32>(1.0 - margin));
-    let t = clamp(scale - 1.0, 0.0, 1.0);
-    let strength = t * t * (3.0 - 2.0 * t);
-    return center + (edge_anchor - center) * strength;
-}
-
 // Sample with motion blur (directional + radial blur)
 fn sample_with_motion_blur(uv: vec2<f32>) -> vec4<f32> {
     if (u.motion_blur_enabled < 0.5) {
@@ -315,17 +307,12 @@ fn arrow_edge_dist(p: vec2<f32>, s: f32) -> f32 {
 }
 
 fn window_inverse_zoom(out_px: vec2<f32>) -> vec2<f32> {
-    let scale = u.zoom_scale;
-    let source_center = vec2<f32>(
-        u.content_offset_x + u.input_offset_x + u.zoom_center_x * u.input_width,
-        u.content_offset_y + u.input_offset_y + u.zoom_center_y * u.input_height
-    );
-    let anchor = window_zoom_anchor(vec2<f32>(u.zoom_center_x, u.zoom_center_y), scale);
-    let output_anchor = vec2<f32>(
-        u.content_offset_x + u.input_offset_x + anchor.x * u.input_width,
-        u.content_offset_y + u.input_offset_y + anchor.y * u.input_height
-    );
-    return source_center + (out_px - output_anchor) / scale;
+    let source_origin = vec2<f32>(u.content_offset_x + u.input_offset_x,
+        u.content_offset_y + u.input_offset_y);
+    let rect = window_shutter_now();
+    let rectangle_origin = rect.xy - rect.zw * 0.5;
+    return source_origin + (out_px - rectangle_origin) / rect.zw
+        * vec2<f32>(u.input_width,u.input_height);
 }
 
 @compute @workgroup_size(16, 16)

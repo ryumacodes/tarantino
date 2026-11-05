@@ -22,7 +22,7 @@ pub async fn compute_camera_opacity(
         let mouse=export::resolve_mouse_events_path(std::path::Path::new(&input_path));
         let activity=export::load_camera_activity(&mouse,std::path::Path::new(&input_path),
             source,&settings,duration_ms)?;
-        let camera:Vec<_>=motion.into_iter().map(|v|ZoomFrameState{scale:v[0],center_x:v[1],center_y:v[2]}).collect();
+        let camera:Vec<_>=motion.into_iter().map(ZoomFrameState::from_sample).collect();
         let timeline=prepare_camera_opacity(settings.zoom_blocks.as_deref().unwrap_or(&[]),&[],source,
             duration_ms,export::get_zoom_spring_config(&settings),&settings,&config,&camera,Some(&activity))?;
         Ok::<_,anyhow::Error>((0..(duration_ms as f64*120.0/1000.0).ceil() as usize).map(|index|timeline.sample(index as f64*1000.0/120.0)).collect())

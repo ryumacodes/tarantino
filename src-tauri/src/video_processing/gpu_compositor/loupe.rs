@@ -78,7 +78,7 @@ mod tests {
             Clone::clone,
         );
         let source: Vec<u8> = (0..128 * 128).flat_map(|_| [0, 0, 0, 255]).collect();
-        let camera = ZoomFrameState {
+        let camera = ZoomFrameState { rect: None,
             scale: 1.0,
             center_x: 0.5,
             center_y: 0.5,

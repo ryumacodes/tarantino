@@ -144,6 +144,7 @@ interface CursorEffectProps {
   visible: boolean;
   videoTransformRef: React.MutableRefObject<{
     scale: number;
+    scaleY?: number;
     offsetX: number;
     offsetY: number;
     viewportWidth: number;
@@ -338,7 +339,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
       const lx = normX - 0.5;
       const ly = 0.5 - normY;
       const wx = lx * transform.planeWidth * transform.scale + transform.offsetX;
-      const wy = ly * transform.planeHeight * transform.scale + transform.offsetY;
+      const wy = ly * transform.planeHeight * (transform.scaleY??transform.scale) + transform.offsetY;
       return {
         u: 0.5 + wx / transform.viewportWidth,
         v: 0.5 + wy / transform.viewportHeight,
@@ -364,7 +365,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
           pose={...transform,...previewCameraPose(camera[0],camera[1],camera[2],false,transform.planeWidth,transform.planeHeight)};
         }
         return {x:0.5+((point.frame[0]-.5)*pose.planeWidth*pose.scale+pose.offsetX)/pose.viewportWidth,
-          y:0.5+((.5-point.frame[1])*pose.planeHeight*pose.scale+pose.offsetY)/pose.viewportHeight};
+          y:0.5+((.5-point.frame[1])*pose.planeHeight*(pose.scaleY??pose.scale)+pose.offsetY)/pose.viewportHeight};
       });
     } else {
       trailHistory.current = [];

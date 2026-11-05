@@ -52,7 +52,7 @@ mod tests {
             let mut compositor=GpuCompositor::new(config,Some(&placeholder),2.0,[1.0;3],settings.cursor_settings.as_ref()).unwrap();
             let mut cursor_settings=settings.cursor_settings.unwrap();
             compositor.configure_recorded_cursor(&path,&cursor_settings).unwrap();
-            let camera=ZoomFrameState{scale:1.0,center_x:0.5,center_y:0.5};
+            let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
             let mut state=crate::cursor_renderer::CursorFrameState::default();
             state.x=0.5;state.y=0.5;state.opacity=1.0;
             let mut frames=Vec::new();
@@ -101,7 +101,7 @@ mod tests {
         std::fs::write(&path,serde_json::to_vec(&serde_json::json!({"cursor_images":images})).unwrap()).unwrap();
         compositor.configure_recorded_cursor(&path,settings.cursor_settings.as_ref().unwrap()).unwrap();
         std::fs::remove_file(path).unwrap();
-        let camera=ZoomFrameState{scale:1.0,center_x:0.5,center_y:0.5};
+        let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
         let mut state=crate::cursor_renderer::CursorFrameState::default();
         state.x=0.5;state.y=0.5;state.opacity=1.0;
         let count=|frame:&[u8],channel:usize|frame.chunks_exact(4)

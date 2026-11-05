@@ -20,7 +20,7 @@ fn glass_layers_preserve_window_mask_backdrop_and_cached_frame_updates() {
         assert_eq!(compositor.loupe_layers.foreground.width(),1,"ordinary exports must not allocate full layers");
         for scale in [1.0,1.6] {for red in [100u8,220] {
             let source=[red,30,10,128].repeat((iw*ih) as usize);
-            let camera=ZoomFrameState {scale,center_x:0.5,center_y:0.5};
+            let camera=ZoomFrameState { rect: None,scale,center_x:0.5,center_y:0.5};
             compositor.set_loupe_target(None,(128,128),None,&camera).unwrap();
             let baseline=compositor.composite_frame(&source,&camera,None).unwrap();
             let target=LoupeTarget {center_x:0.1,center_y:0.5,radius:0.3,zoom:2.0,presence:1.0,
@@ -89,7 +89,7 @@ fn camera_opacity_blends_without_replacing_cached_texture() {
     let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
     compositor.set_webcam_texture(8,8);
     compositor.upload_webcam_frame(&[200,80,40,255].repeat(64),8,8);
-    let camera=ZoomFrameState{scale:1.0,center_x:0.5,center_y:0.5};
+    let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
     for alpha in [1.0,0.5,0.1,0.0,0.75,1.0] {
         compositor.set_webcam_opacity(alpha);
         let pixels=compositor.composite_frame(&source,&camera,None).unwrap();
@@ -116,7 +116,7 @@ fn magnifier_excludes_camera_from_content_without_hiding_stage_camera() {
     let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
     compositor.set_webcam_texture(8,8);
     compositor.upload_webcam_frame(&[200,0,0,255].repeat(64),8,8);
-    let camera=ZoomFrameState{scale:1.0,center_x:0.5,center_y:0.5};
+    let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
     let target=LoupeTarget{center_x:0.5,center_y:0.5,radius:0.15,zoom:2.0,presence:1.0,
         bevel:0.0,chromatic_aberration:0.0,shadow_alpha:0.0};
     compositor.set_loupe_target(Some(target),(64,64),None,&camera).unwrap();
@@ -156,7 +156,7 @@ fn write_camera_layer_preview_fixtures() {
         let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
         compositor.set_webcam_texture(sw,sh);compositor.upload_webcam_frame(&texture,sw,sh);
         compositor.set_webcam_opacity(opacity);
-        let expected=compositor.composite_frame(&source,&ZoomFrameState{scale:1.0,center_x:0.5,center_y:0.5},None).unwrap();
+        let expected=compositor.composite_frame(&source,&ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5},None).unwrap();
         fixtures.push(serde_json::json!({"width":64,"height":48,"sourceWidth":sw,"sourceHeight":sh,
             "texture":texture,"shape":shape,"opacity":opacity,
             "rect":if shape=="fullscreen"{[0,0,64,48]}else{[16,8,32,32]},"expected":expected}));
@@ -181,7 +181,7 @@ fn camera_mirror_swaps_content_without_moving_mask() {
     let texture:Vec<u8>=(0..64).flat_map(|i|if i%8<4 {[255,0,0,255]} else {[0,0,255,255]}).collect();
     compositor.set_webcam_texture(8,8);
     compositor.upload_webcam_frame(&texture,8,8);
-    let camera=ZoomFrameState{scale:1.0,center_x:0.5,center_y:0.5};
+    let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
     for mirrored in [false,true,false] {
         compositor.config.webcam_mirrored=mirrored;
         let pixels=compositor.composite_frame(&source,&camera,None).unwrap();
@@ -207,7 +207,7 @@ fn camera_rectangles_resize_translate_and_restore_without_stale_pixels() {
     let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
     compositor.set_webcam_texture(8,8);
     compositor.upload_webcam_frame(&[200,80,40,255].repeat(64),8,8);
-    let zoom=ZoomFrameState{scale:1.0,center_x:0.5,center_y:0.5};
+    let zoom=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
     for rect in [[10.0,12.0,32.0,16.0],[4.0,3.0,16.0,40.0],[-8.0,4.0,24.0,20.0],
         [0.0,0.0,64.0,48.0],[12.0,12.0,0.0,0.0],[10.0,12.0,32.0,16.0]] {
         compositor.set_webcam_rect(Some(rect)).unwrap();

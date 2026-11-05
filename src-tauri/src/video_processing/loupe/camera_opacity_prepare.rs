@@ -66,7 +66,7 @@ mod tests {
         })).unwrap();
         let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
         config.webcam=Some(WebcamConfig{pos_x:0.5,pos_y:0.5,size:0.2,shape:"circle".into()});
-        let frames=vec![ZoomFrameState{scale:1.0,center_x:0.5,center_y:0.5};360];
+        let frames=vec![ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};360];
         let run=|config:&GpuCompositorConfig|prepare_camera_opacity(&[block.clone()],&[],(256,128),3000,
             SpringConfig{mass:3.0,tension:470.0,friction:70.0},&settings,config,&frames,None).unwrap();
         let covered=run(&config);

@@ -18,7 +18,7 @@ fn cursor_body_styles_rotation_and_opacity_remain_distinct() {
         &SpringConfig {tension:170.0,friction:30.0,mass:0.0},30.0,100,&None,
         settings.cursor_settings.as_ref().unwrap(),Clone::clone);
     let mut cursor=states[0].clone();cursor.opacity=1.0;cursor.rotation=0.0;
-    let camera=ZoomFrameState {scale:1.0,center_x:0.5,center_y:0.5};
+    let camera=ZoomFrameState { rect: None,scale:1.0,center_x:0.5,center_y:0.5};
     let baseline=compositor.composite_frame(&source,&camera,None).unwrap();
     let mut shapes=Vec::new();
     let alpha_sum=|pixels:&[u8]|pixels.chunks_exact(4).map(|p|p[3] as u64).sum::<u64>();
@@ -93,7 +93,7 @@ fn write_cursor_rotation_preview_fixtures() {
         &SpringConfig {tension:170.0,friction:30.0,mass:0.0},30.0,100,&None,
         settings.cursor_settings.as_ref().unwrap(),Clone::clone);
     let mut cursor=states[0].clone();cursor.opacity=1.0;
-    let camera=ZoomFrameState {scale:1.0,center_x:0.5,center_y:0.5};
+    let camera=ZoomFrameState { rect: None,scale:1.0,center_x:0.5,center_y:0.5};
     let mut fixtures=Vec::new();
     for style in 0..5 {for rotation in [-45.0,0.0,45.0,90.0] {
         compositor.cursor_style=style as f32;cursor.rotation=rotation;
@@ -123,8 +123,8 @@ fn write_temporal_cursor_preview_fixtures() {
     let mut fixtures=Vec::new();
     for radius in [0.0,3.0,10.0] {for window in [false,true] {for clip in [false,true] {for style in 0..5 {
         compositor.config.window_mode=window;compositor.config.clip_cursor_to_video=clip;compositor.cursor_style=style as f32;
-        let old_camera=ZoomFrameState{scale:if window {1.2}else{1.0},center_x:0.3,center_y:0.5};
-        let camera=ZoomFrameState{scale:if window {1.5}else{1.0},center_x:0.7,center_y:0.5};
+        let old_camera=ZoomFrameState{rect:None,scale:if window {1.2}else{1.0},center_x:0.3,center_y:0.5};
+        let camera=ZoomFrameState{rect:None,scale:if window {1.5}else{1.0},center_x:0.7,center_y:0.5};
         let mut old=states[0].clone();old.fade_blur_radius=radius;old.x=0.1;old.y=0.6;old.opacity=0.6;old.rotation=-30.0;
         let mut cursor=old.clone();cursor.x=0.9;cursor.y=0.4;cursor.rotation=45.0;
         compositor.reset_motion_history();compositor.cursor_shutter(&old_camera,Some(&old));
@@ -159,7 +159,7 @@ fn write_cursor_trail_preview_fixtures() {
         config.background_color=[0.0;4];config.motion_blur_enabled=false;config.window_mode=window;
         let source=vec![0u8;(config.input_width*config.input_height*4) as usize];
         let mut compositor=GpuCompositor::new(config,Some(&shape),1.0,[1.0;3],settings.cursor_settings.as_ref()).unwrap();
-        let camera=ZoomFrameState{scale,center_x:0.5,center_y:0.5};
+        let camera=ZoomFrameState{rect:None,scale,center_x:0.5,center_y:0.5};
         let cursor=&frames[90];
         let expected=compositor.composite_frame(&source,&camera,Some(cursor)).unwrap();
         let trail=cursor.trail_points().iter().map(|point|[point.x,point.y,point.alpha,point.size]).collect::<Vec<_>>();
@@ -187,7 +187,7 @@ fn write_cursor_fade_preview_fixtures() {
         &SpringConfig {tension:170.0,friction:30.0,mass:0.0},30.0,100,&None,
         settings.cursor_settings.as_ref().unwrap(),Clone::clone);
     let mut cursor=states[0].clone();cursor.opacity=1.0;
-    let camera=ZoomFrameState {scale:1.0,center_x:0.5,center_y:0.5};
+    let camera=ZoomFrameState { rect: None,scale:1.0,center_x:0.5,center_y:0.5};
     let mut fixtures=Vec::new();
     for scale in [0.25,0.5,1.0] {for radius in [0.0,1.0,3.0,10.0] {for style in 0..5 {for rotation in [-45.0,0.0,45.0] {
         compositor.cursor_size=scale;cursor.fade_blur_radius=radius;cursor.opacity=0.65;
@@ -217,7 +217,7 @@ fn cursor_fade_coverage_stays_local_across_scales() {
         &SpringConfig {tension:170.0,friction:30.0,mass:0.0},30.0,100,&None,
         settings.cursor_settings.as_ref().unwrap(),Clone::clone);
     let mut cursor=states[0].clone();cursor.opacity=1.0;
-    let camera=ZoomFrameState {scale:1.0,center_x:0.5,center_y:0.5};
+    let camera=ZoomFrameState { rect: None,scale:1.0,center_x:0.5,center_y:0.5};
     let mut rows=Vec::new();
     for scale in [0.25,0.5,1.0,3.0,5.0] {
         compositor.cursor_size=scale;
@@ -261,7 +261,7 @@ fn measure_cursor_fade_compositor_latency() {
         &SpringConfig {tension:170.0,friction:30.0,mass:0.0},30.0,100,&None,
         settings.cursor_settings.as_ref().unwrap(),Clone::clone);
     let mut cursor=states[0].clone();cursor.opacity=0.65;
-    let camera=ZoomFrameState {scale:1.0,center_x:0.5,center_y:0.5};
+    let camera=ZoomFrameState { rect: None,scale:1.0,center_x:0.5,center_y:0.5};
     let guard="if(length(pixel-position)>=60.0*size+3.0*u.cursor_fade_blur) {return;}";
     assert!(COMPOSITE_SHADER.contains(guard));
     let baseline_shader=compositor.device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -320,7 +320,7 @@ fn fixed_pointer_preserves_each_cursor_appearance() {
             let states=simulate_cursor_frames(&[CursorEvent{timestamp_ms:0,x:0.5,y:0.5,is_click:false,is_release:false}],
                 &SpringConfig{tension:170.0,friction:30.0,mass:0.0},30.0,100,&None,
                 settings.cursor_settings.as_ref().unwrap(),Clone::clone);
-            let camera=ZoomFrameState{scale:1.0,center_x:0.5,center_y:0.5};
+            let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
             pair.push(compositor.composite_frame(&source,&camera,Some(&states[0])).unwrap());
         }
         assert!(pair[0]==pair[1],"fixed-pointer flag changed {style} appearance");

@@ -12,7 +12,7 @@ impl GpuCompositor {
         let now=if config.window_mode {
             let rect=motion::window_rect(camera,config);
             [rect[0]+(cursor.x-0.5)*rect[2],rect[1]+(cursor.y-0.5)*rect[3],
-                size*camera.scale as f32,cursor.rotation]
+                size*camera.rect.map_or(camera.scale,|rect|rect[2]) as f32,cursor.rotation]
         } else {
             [(config.content_offset_x+config.input_offset_x) as f32+cursor.x*config.input_width as f32,
                 (config.content_offset_y+config.input_offset_y) as f32+cursor.y*config.input_height as f32,

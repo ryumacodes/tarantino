@@ -4,6 +4,9 @@ use super::ZoomFrameState;
 fn pose(camera: &ZoomFrameState, window: bool) -> (f64, f64, f64) {
     let scale = camera.scale;
     if window {
+        if let Some([x,y,width,height]) = camera.rect {
+            return (width,x+width/2.0-0.5,0.5-y-height/2.0);
+        }
         let t = (scale - 1.0).clamp(0.0, 1.0);
         let strength = t*t*(3.0-2.0*t);
         let offset = |center: f64| {
@@ -36,7 +39,7 @@ pub(super) fn velocity(now: &ZoomFrameState, previous: Option<&ZoomFrameState>,
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn camera(scale:f64,x:f64,y:f64)->ZoomFrameState {ZoomFrameState {scale,center_x:x,center_y:y}}
+    fn camera(scale:f64,x:f64,y:f64)->ZoomFrameState {ZoomFrameState { rect: None,scale,center_x:x,center_y:y}}
     #[test]
     fn export_velocity_is_frame_rate_independent_and_resets() {
         let now=camera(2.0,0.5,0.5);
@@ -60,6 +63,16 @@ mod tests {
 }
 
 pub(super) fn window_rect(camera:&ZoomFrameState, config:&super::GpuCompositorConfig)->[f32;4] {
+    if let Some([x,y,width,height]) = camera.rect {
+        return [
+            (config.content_offset_x+config.input_offset_x) as f32
+                + ((x+width/2.0)*config.input_width as f64) as f32,
+            (config.content_offset_y+config.input_offset_y) as f32
+                + ((y+height/2.0)*config.input_height as f64) as f32,
+            (width*config.input_width as f64) as f32,
+            (height*config.input_height as f64) as f32,
+        ];
+    }
     let (scale,x,y)=pose(camera,true);
     let w=config.input_width as f64;let h=config.input_height as f64;
     [(config.content_offset_x+config.input_offset_x) as f32+((0.5+x)*w) as f32,

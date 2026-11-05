@@ -13,6 +13,7 @@ export interface LoupeFrame {
 
 export interface VideoTransform {
   scale: number;
+  scaleY?: number;
   offsetX: number;
   offsetY: number;
   viewportWidth: number;
@@ -31,7 +32,7 @@ export function projectLoupeToPreview(frame: LoupeFrame, source: {width:number;h
   const distance = Math.hypot(lightX,lightY);
   return {
     x: 0.5+((point.x-0.5)*transform.planeWidth*transform.scale+transform.offsetX)/transform.viewportWidth,
-    y: 0.5+((0.5-point.y)*transform.planeHeight*transform.scale+transform.offsetY)/transform.viewportHeight,
+    y: 0.5+((0.5-point.y)*transform.planeHeight*(transform.scaleY??transform.scale)+transform.offsetY)/transform.viewportHeight,
     lightDirection: distance < 0.001 ? [0,1] : [lightX/distance,-lightY/distance],
     shineExponent: Math.max(1.5,Math.min(24,distance/(0.1*source.width))),
     lightTilt: Math.min(2,distance/(0.8*source.width)),

@@ -1,6 +1,24 @@
 use super::*;
 
 #[test]
+fn camera_sample_preserves_independent_rectangle_dimensions() {
+    let frame = ZoomFrameState { scale:2.0,center_x:0.75,center_y:0.25,
+        rect:Some([-0.8,-0.1,2.0,1.99]) };
+    let sample = frame.sample();
+    assert_eq!(sample,[2.0,0.75,0.25,-0.8,-0.1,2.0,1.99]);
+    let restored = ZoomFrameState::from_sample(sample);
+    assert_eq!(restored.rect,frame.rect);
+    assert_eq!(restored.scale,frame.scale);
+    let next = ZoomFrameState {rect:Some([-0.2,0.1,1.5,1.6]),..frame.clone()};
+    let middle=frame.interpolate(&next,0.5);
+    let rect=middle.rect.unwrap();
+    for (actual,expected) in rect.into_iter().zip([-0.5,0.0,1.75,1.795]) {
+        assert!((actual-expected).abs()<1e-12);
+    }
+    assert!(ZoomFrameState::from_sample([1.0,0.5,0.5,0.0,0.0,0.0,0.0]).rect.is_none());
+}
+
+#[test]
 fn window_manual_zoom_retains_edge_anchors_while_display_clamps_viewport() {
     let config=SpringConfig {tension:250.0,friction:40.0,mass:2.25};
     for (x,y) in [(0.0_f64,1.0_f64),(1.0,0.0)] {
@@ -121,7 +139,7 @@ fn manual_zoom_ignores_pointer_and_typing_centers() {
 }
 
 #[test]
-fn instant_zoom_snaps_on_entry_and_exit_at_each_output_rate() {
+fn instant_zoom_snaps_on_steps_and_interpolates_between_them() {
     let block: ZoomBlock = serde_json::from_value(serde_json::json!({
         "start_time_ms": 500, "end_time_ms": 1500, "zoom_level": 2.0,
         "center_x": 0.3, "center_y": 0.4, "is_manual": true,
@@ -146,13 +164,17 @@ fn instant_zoom_snaps_on_entry_and_exit_at_each_output_rate() {
         );
         for (index, frame) in frames.iter().enumerate() {
             let time = index as f64 * 1000.0 / fps;
-            let active = (500.0..=1500.0).contains(&time);
-            assert_eq!(
-                frame.scale,
-                if active { 2.0 } else { 1.0 },
-                "fps={fps} t={time}"
-            );
-            assert!((frame.center_x - if active { 0.3 } else { 0.5 }).abs() < 1e-9);
+            let position = time * 60.0 / 1000.0;
+            let lower_index = (position + 1e-7).floor();
+            let fraction = (position - lower_index).max(0.0);
+            let active = |index: f64| (30.0..=90.0).contains(&index);
+            let lower = if active(lower_index) { 2.0 } else { 1.0 };
+            let upper = if active(lower_index + 1.0) { 2.0 } else { 1.0 };
+            let expected = lower + (upper - lower) * fraction;
+            assert!((frame.scale - expected).abs() < 1e-9,"fps={fps} t={time}");
+            let lower_x = if active(lower_index) { 0.3 } else { 0.5 };
+            let upper_x = if active(lower_index + 1.0) { 0.3 } else { 0.5 };
+            assert!((frame.center_x - (lower_x + (upper_x - lower_x) * fraction)).abs() < 1e-9);
         }
     }
     let mut animated = block;
@@ -191,7 +213,7 @@ fn unified_screen_style_changes_camera_pan() {
         simulate_zoom_trajectory(&[block], &events, &zoom, true, "mellow", 60.0, 2000, true);
     assert!(styled[15].center_x < legacy[15].center_x);
     assert_eq!(styled[15].scale, legacy[15].scale);
-    assert!((styled.last().unwrap().center_x - 0.8).abs() < 0.01);
+    assert!((styled.last().unwrap().center_x - 0.75).abs() < 0.01);
 }
 
 #[test]
@@ -331,7 +353,7 @@ fn lead_in_anticipates_only_in_gaps_and_never_skips_an_instant_range() {
         let original = run(&[legacy]);
         for (i, frame) in anticipated.iter().enumerate() {
             let time = i as f64 * 1000.0 / fps;
-            if time < 500.0 {
+            if time <= 500.0 - 1000.0 / 60.0 {
                 assert_eq!(frame.scale, 1.0);
             }
             if (750.0..950.0).contains(&time) {
@@ -345,7 +367,7 @@ fn lead_in_anticipates_only_in_gaps_and_never_skips_an_instant_range() {
         assert!(
             instant_frames
                 .iter()
-                .take((fps * 1.0) as usize)
+                .take((fps * (1.0 - 1.0 / 60.0)).floor() as usize)
                 .all(|f| f.scale == 1.0)
         );
         // A later long lead-in must not jump over the nearer instant range.
@@ -357,7 +379,7 @@ fn lead_in_anticipates_only_in_gaps_and_never_skips_an_instant_range() {
         assert!(
             blocked
                 .iter()
-                .take((fps * 1.0) as usize)
+                .take((fps * (1.0 - 1.0 / 60.0)).floor() as usize)
                 .all(|f| f.scale == 1.0)
         );
         // An existing range wins even when the next range's lead-in overlaps it.
@@ -457,7 +479,7 @@ fn automatic_zoom_holds_small_pointer_motion_and_pans_to_a_new_region() {
             max - min < 0.0001,
             "small pointer motion moved camera at {fps} fps"
         );
-        assert!(frames.last().unwrap().center_x > 0.89);
+        assert!((frames.last().unwrap().center_x - 0.75).abs() < 0.01);
     }
 }
 
@@ -503,5 +525,36 @@ fn active_zoom_at_timeline_start_initializes_at_its_target() {
         assert_eq!(frames[60].scale,2.0);
         assert!(frames[61].scale<2.0);
         assert!(frames.last().unwrap().scale<1.01);
+    }
+}
+
+#[test]
+fn camera_transport_interpolates_sixty_hz_steps() {
+    let config = SpringConfig { tension:250.0,friction:40.0,mass:2.25 };
+    let block: ZoomBlock = serde_json::from_value(serde_json::json!({
+        "start_time_ms":300,"end_time_ms":999,"zoom_level":2,
+        "center_x":0.5,"center_y":0.5,"is_manual":true
+    })).unwrap();
+    let base = simulate_zoom_trajectory(&[block.clone()],&[],&config,true,"focused",60.0,1501,true);
+    let transport = simulate_zoom_trajectory(&[block],&[],&config,true,"focused",120.0,1501,true);
+    for (index,pair) in base.windows(2).enumerate() {
+        assert_eq!(transport[index*2].scale,pair[0].scale);
+        assert!((transport[index*2+1].scale-(pair[0].scale+pair[1].scale)/2.0).abs()<1e-12);
+    }
+}
+
+#[test]
+fn focused_camera_preserves_velocity_across_interrupted_ranges() {
+    let blocks: Vec<ZoomBlock> = [(300,449,2.0),(450,699,1.3),(700,999,2.5)]
+        .into_iter().map(|(start,end,scale)| serde_json::from_value(serde_json::json!({
+            "start_time_ms":start,"end_time_ms":end,"zoom_level":scale,
+            "center_x":0.5,"center_y":0.5,"is_manual":true
+        })).unwrap()).collect();
+    let config = SpringConfig { tension:250.0,friction:40.0,mass:2.25 };
+    let frames = simulate_zoom_trajectory(&blocks,&[],&config,true,"focused",60.0,1600,true);
+    for (index,expected) in [(18,1.0143399696140167),(24,1.372265595699578),
+        (42,1.416475664131578),(60,2.36545507238939),(64,2.1040133365722613),
+        (90,1.0180106544935137)] {
+        assert!((frames[index].scale-expected).abs()<1e-12,"frame {index}");
     }
 }

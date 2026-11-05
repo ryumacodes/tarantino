@@ -3,11 +3,12 @@
 //! Produces source-time zoom level and center coordinates for preview and
 //! export from one fixed simulation, independent of display or output cadence.
 
-use crate::cursor_renderer::{CursorEvent, SpringConfig, SpringState, TargetTolerance, spring_step, spring_step_with_precision};
+use crate::cursor_renderer::{CursorEvent, SpringConfig, SpringState, TargetTolerance, spring_step, step_frame_spring};
 use crate::video_processing::types::ZoomBlock;
 mod schedule;
 mod center_lookup;
 mod viewport;
+mod rectangle;
 pub(crate) use viewport::CameraViewport;
 pub(crate) mod targets;
 use schedule::ZoomSchedule;
@@ -15,9 +16,33 @@ use schedule::ZoomSchedule;
 /// Per-frame zoom state produced by the spring simulation
 #[derive(Clone, Debug)]
 pub struct ZoomFrameState {
+    /// Top-left and size relative to the unzoomed source plane.
+    pub rect: Option<[f64; 4]>,
     pub scale: f64,
     pub center_x: f64,
     pub center_y: f64,
+}
+
+impl ZoomFrameState {
+    fn interpolate(&self, next: &Self, fraction: f64) -> Self {
+        let lerp = |a:f64,b:f64| a+(b-a)*fraction;
+        let rect = match (self.rect,next.rect) {
+            (Some(a),Some(b)) => Some(std::array::from_fn(|i|lerp(a[i],b[i]))),
+            _ => None,
+        };
+        Self { rect, scale:lerp(self.scale,next.scale),
+            center_x:lerp(self.center_x,next.center_x),center_y:lerp(self.center_y,next.center_y) }
+    }
+
+    pub(crate) fn from_sample(value: [f64; 7]) -> Self {
+        Self { scale: value[0], center_x: value[1], center_y: value[2],
+            rect: (value[5] > 0.0 && value[6] > 0.0).then_some([value[3],value[4],value[5],value[6]]) }
+    }
+
+    pub(crate) fn sample(&self) -> [f64; 7] {
+        let [x,y,width,height] = self.rect.unwrap_or([0.0;4]);
+        [self.scale,self.center_x,self.center_y,x,y,width,height]
+    }
 }
 
 /// Legacy center-panning spring for active zoom blocks.
@@ -71,7 +96,9 @@ fn resolve_block_spring(preset: &Option<String>, fallback: &SpringConfig) -> Spr
 /// `cursor_events` are RAW mouse events (not spring-smoothed) used for cursor-following.
 /// `zoom_spring_config` comes from SPRING_PRESETS[zoomSpeedPreset] via the frontend (global fallback).
 /// Named screen styles use one spring for scale and panning. Legacy presets retain phase-specific panning.
+// Preview/export transport stays at 120Hz; camera dynamics advance at 60Hz.
 pub const CAMERA_SIMULATION_FPS: f64 = 120.0;
+const CAMERA_STEP_FPS: f64 = 60.0;
 
 /// Evaluate a fixed timeline before sampling output frames. Render cadence must
 /// not change the camera path or its adaptive damping decisions.
@@ -110,20 +137,25 @@ pub(crate) fn simulate_zoom_trajectory_in_viewport(
         zoom_spring_config,
         unified_screen_motion,
         zoom_speed_preset,
-        CAMERA_SIMULATION_FPS,
-        duration_ms,
+        CAMERA_STEP_FPS,
+        duration_ms.saturating_add((1000.0 / CAMERA_STEP_FPS).ceil() as u64),
         window_mode,
         viewport,
         activity,
     );
-    if fps == CAMERA_SIMULATION_FPS {
-        return frames;
-    }
     let count = (duration_ms as f64 * fps / 1000.0).ceil() as usize;
     (0..count)
         .map(|index| {
-            let source = ((index as f64 * CAMERA_SIMULATION_FPS / fps) + 1e-7).floor() as usize;
-            frames[source.min(frames.len() - 1)].clone()
+            let position = index as f64 * CAMERA_STEP_FPS / fps;
+            let position = if (position - position.round()).abs() < 1e-7 {
+                position.round()
+            } else { position };
+            let source = position.floor() as usize;
+            let lower = &frames[source];
+            let fraction = position - source as f64;
+            if fraction == 0.0 { return lower.clone(); }
+            let upper = &frames[source + 1];
+            lower.interpolate(upper,fraction)
         })
         .collect()
 }
@@ -168,6 +200,7 @@ fn simulate_zoom_steps(
     };
 
     let mut settling = TargetTolerance::default();
+    let mut rectangle_motion: Option<rectangle::RectMotion> = None;
     let mut trajectory = Vec::with_capacity(total_frames as usize);
     let mut prev_block_idx: Option<usize> = None;
     let mut last_block_out_config: Option<SpringConfig> = None;
@@ -263,6 +296,23 @@ fn simulate_zoom_steps(
             prev_block_idx = None;
         }
 
+        if unified_screen_motion && window_mode {
+            let source = viewport.source;
+            let target = source.zoom_to(viewport.zoom_area,(target_center_x,target_center_y),target_scale,None);
+            let motion = rectangle_motion.get_or_insert_with(|| rectangle::RectMotion::new(target));
+            let config = if instant_motion { SpringConfig { mass:0.0,..active_zoom_config } }
+                else { active_zoom_config };
+            let rect = motion.advance(target,&config,if frame_num==0 {0.0}else{dt*1000.0});
+            trajectory.push(ZoomFrameState {
+                rect:Some([(rect.x-source.x)/source.width,(rect.y-source.y)/source.height,
+                    rect.width/source.width,rect.height/source.height]),
+                scale:rect.width/source.width,
+                center_x:(viewport.zoom_area.x+viewport.zoom_area.width/2.0-rect.x)/rect.width,
+                center_y:(viewport.zoom_area.y+viewport.zoom_area.height/2.0-rect.y)/rect.height,
+            });
+            continue;
+        }
+
         // Edge clamping on target — uses current (pre-step) spring scale
         let current_scale = zoom_spring.value;
         if !window_mode && current_scale > 1.0 {
@@ -313,12 +363,11 @@ fn simulate_zoom_steps(
             pan_config,
             dt,
         );
-        zoom_spring = spring_step_with_precision(
-            zoom_spring.value,
+        zoom_spring = step_frame_spring(
+            zoom_spring,
             target_scale,
-            zoom_spring.velocity,
             &active_zoom_config,
-            dt,
+            dt * 1000.0,
             settling.update(zoom_spring.value, target_scale),
         );
 
@@ -336,7 +385,7 @@ fn simulate_zoom_steps(
             animated_cy = animated_cy.clamp(0.0, 1.0);
         }
 
-        trajectory.push(ZoomFrameState {
+        trajectory.push(ZoomFrameState { rect: None,
             scale: animated_scale,
             center_x: animated_cx,
             center_y: animated_cy,
