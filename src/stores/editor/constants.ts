@@ -153,6 +153,7 @@ export const DEFAULT_VISUAL_SETTINGS: VisualSettings = {
   cursorStyle: 'pointer',
   alwaysUsePointer: false,
   optimizeCursorTypes: true,
+  followHover: true,
   hideCursor: false,
   loopCursorPosition: false,
   // Click effects

@@ -40,6 +40,22 @@ impl RecordingInput {
         shake_threshold: f64,
         crop: Option<SourceCrop>,
     ) -> Result<Self> {
+        Self::parse_with_samples(value, source_size, shake_threshold, crop, |_| {})
+    }
+
+    pub fn parse_for_hover(value: &Value, source_size: (u32, u32)) -> Result<(Self, Vec<crate::cursor_renderer::hover::Sample>)> {
+        let mut samples = Vec::new();
+        let input = Self::parse_with_samples(value, source_size, 0.0, None, |sample| samples.push(sample))?;
+        Ok((input, samples))
+    }
+
+    fn parse_with_samples(
+        value: &Value,
+        source_size: (u32, u32),
+        shake_threshold: f64,
+        crop: Option<SourceCrop>,
+        mut sample: impl FnMut(crate::cursor_renderer::hover::Sample),
+    ) -> Result<Self> {
         let events = value
             .get("mouse_events")
             .unwrap_or(value)
@@ -105,6 +121,9 @@ impl RecordingInput {
             if press {
                 pressed.insert(button(kind, "ButtonPress"));
             }
+            sample(crate::cursor_renderer::hover::Sample {
+                time_ms, x, y, free: moving && pressed.is_empty(),
+            });
             if press || release || moving {
                 press_events.push(Event {
                     time: time_ms,
@@ -310,4 +329,20 @@ mod tests {
         assert_eq!(input.points.len(), 3);
         assert!(RecordingInput::parse(&value, (0, 100), 0.0, None).is_err());
     }
+    #[test]
+    fn hover_samples_use_capture_coordinates_and_all_held_buttons() {
+        let kinds = [serde_json::json!("Move"), serde_json::json!({"ButtonPress":{"button":"Left"}}),
+            serde_json::json!("Move"), serde_json::json!({"ButtonPress":{"button":"Right"}}),
+            serde_json::json!({"ButtonRelease":{"button":"Left"}}), serde_json::json!("Move"),
+            serde_json::json!({"ButtonRelease":{"button":"Right"}}), serde_json::json!("Move")];
+        let events = kinds.iter().enumerate().map(|(i,kind)|serde_json::json!({"timestamp":i*10,
+            "x":140,"y":70,"event_type":kind})).collect::<Vec<_>>();
+        let value = serde_json::json!({"display_width":1000,"display_height":800,
+            "recording_area":{"x":100,"y":50,"width":80,"height":60},"mouse_events":events});
+        let (input,samples) = RecordingInput::parse_for_hover(&value,(160,120)).unwrap();
+        assert_eq!((input.width,input.height),(80.0,60.0));
+        assert!(samples.iter().all(|sample|(sample.x,sample.y)==(40.0,20.0)));
+        assert_eq!(samples.iter().map(|sample|sample.free).collect::<Vec<_>>(),vec![true,false,false,false,false,false,false,true]);
+    }
+
 }

@@ -38,6 +38,12 @@ pub fn prepare(
     let mut input =
         RecordingInput::load(sidecar, size, settings.shake_threshold.unwrap_or(0.0), crop,
             !settings.always_use_pointer.unwrap_or(false), settings.optimize_cursor_types.unwrap_or(true))?;
+    #[cfg(target_os = "macos")]
+    if spring.mass > 0.0 && settings.follow_hover.unwrap_or(false) {
+        let times = crate::cursor_renderer::hover::analysis::analyze(recording, sidecar, size)?;
+        input.sync.extend(times.iter().map(|&time_ms| super::activity::SyncPoint { time_ms, tolerance: 4.0 }));
+        input.sync.sort_by(|a, b| a.time_ms.total_cmp(&b.time_ms));
+    }
     let mut source_press = super::press::PressTrack::new(std::mem::take(&mut input.press_events));
     let looped = settings.loop_to_start.unwrap_or(false);
     let playback_duration = timeline.map_or(duration, |t| t.duration_ms);

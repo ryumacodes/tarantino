@@ -232,7 +232,7 @@ mod tests {
         for fixed in [false,true] {
             let response=super::compute_cursor_trajectory(path.to_string_lossy().into_owned(),1000,120,1000,500,
                 1.0,false,2000,false,0,false,None,None,Some(470.0),Some(70.0),Some(3.0),
-                None,None,None,None,Some(fixed),Some(false)).await.unwrap();
+                None,None,None,None,Some(fixed),Some(false), None).await.unwrap();
             let frames:Vec<Vec<f32>>=serde_json::from_str(&response).unwrap();
             errors.push((frames[30][0] as f64*1000.0-100.0).abs());
         }
@@ -247,7 +247,7 @@ mod tests {
         std::fs::write(&path,r#"[{"timestamp":0,"x":96,"y":32}]"#).unwrap();
         let crop = crate::video_processing::source_crop::SourceCrop{x:0.5,y:0.0,width:0.5,height:1.0};
         let result = super::compute_cursor_trajectory(path.to_string_lossy().into_owned(),100,60,128,64,
-            1.0,false,2000,false,0,false,None,Some(crop),None,None,None,None,None,None,None,None,Some(false)).await.unwrap();
+            1.0,false,2000,false,0,false,None,Some(crop),None,None,None,None,None,None,None,None,Some(false), None).await.unwrap();
         let frames:Vec<Vec<f32>>=serde_json::from_str(&result).unwrap();
         assert!(frames.iter().all(|frame| frame[0]==0.5 && frame[1]==0.5 && frame[2]==1.0));
         std::fs::remove_file(path).unwrap();
@@ -281,7 +281,7 @@ mod tests {
                 Some(tension),
                 Some(friction),
                 Some(mass),
-                None,None,None,None,None,Some(false))
+                None,None,None,None,None,Some(false), None)
             .await
             .unwrap();
             let frames: Vec<Vec<f32>> = serde_json::from_str(&result).unwrap();
@@ -447,6 +447,13 @@ pub async fn read_sidecar_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HoverRequest {
+    recording_path: String,
+    enabled: bool,
+}
+
 /// Pre-compute cursor trajectory using the same simulation as export.
 /// Returns per-frame cursor states (x, y in video-normalized 0-1 coords).
 #[tauri::command]
@@ -473,6 +480,7 @@ pub async fn compute_cursor_trajectory(
     edit: Option<edited_cursor::EditedCursorRequest>,
     always_use_pointer: Option<bool>,
     optimize_cursor_types: Option<bool>,
+    hover: Option<HoverRequest>,
 ) -> Result<String, String> {
     use crate::cursor_renderer::simulate_cursor_frames_from;
     use crate::video_processing::export::load_filtered_cursor_events;
@@ -536,6 +544,7 @@ pub async fn compute_cursor_trajectory(
             smoothing: Some(0.15),
             always_use_pointer,
             optimize_cursor_types,
+            follow_hover: hover.as_ref().map(|request| request.enabled),
             color: Some("#ffffff".to_string()),
             highlight_color: Some("#ff6b6b".to_string()),
             ripple_color: Some("#64b4ff".to_string()),
@@ -556,7 +565,8 @@ pub async fn compute_cursor_trajectory(
             crate::cursor_renderer::loop_path::rotation_points(&rotation_points,duration_ms,500)
         } else {rotation_points};
         let rotation_keys = crate::cursor_renderer::rotation::horizontal_tilt(&rotation_points,rotation_intensity.unwrap_or(30.0)/100.0);
-        let planned=crate::cursor_renderer::planner::runtime::prepare(path,(video_width,video_height),source_crop,None,path,
+        let recording = hover.as_ref().map_or(path, |request| Path::new(&request.recording_path));
+        let planned=crate::cursor_renderer::planner::runtime::prepare(path,(video_width,video_height),source_crop,None,recording,
             duration_ms as f64,&settings,spring).map_err(|e|e.to_string())?;
         let position=|time|planned.as_ref().unwrap().at(time);
         let pressed=|time|planned.as_ref().unwrap().pressed_at_source(time,spring.mass!=0.0);
@@ -604,7 +614,7 @@ mod cursor_rotation_tests {
         let events=crate::video_processing::export::load_filtered_cursor_events(&path,100,100,0.0);
         for dynamic in [false,true] {
             let result=super::compute_cursor_trajectory(path.to_string_lossy().into_owned(),1000,120,100,100,
-                1.0,false,2000,false,0,false,None,None,None,None,None,Some(45.0),Some(dynamic),Some(100.0),None,None,Some(false)).await.unwrap();
+                1.0,false,2000,false,0,false,None,None,None,None,None,Some(45.0),Some(dynamic),Some(100.0),None,None,Some(false), None).await.unwrap();
             let frames:Vec<Vec<f32>>=serde_json::from_str(&result).unwrap();
             let settings=serde_json::from_value(serde_json::json!({"rotation":45,"rotate_while_moving":dynamic,"rotation_intensity":100})).unwrap();
             let points=crate::video_processing::export::load_rotation_points(&path,0.0);
@@ -616,7 +626,7 @@ mod cursor_rotation_tests {
             if dynamic {
                 assert!(frames.iter().any(|p|(p[7]-45.0).abs()>1.0));
                 let resized=super::compute_cursor_trajectory(path.to_string_lossy().into_owned(),1000,120,400,300,
-                    1.0,false,2000,false,0,false,None,None,None,None,None,Some(45.0),Some(true),Some(100.0),None,None,Some(false)).await.unwrap();
+                    1.0,false,2000,false,0,false,None,None,None,None,None,Some(45.0),Some(true),Some(100.0),None,None,Some(false), None).await.unwrap();
                 let resized:Vec<Vec<f32>>=serde_json::from_str(&resized).unwrap();
                 assert_eq!(frames.iter().map(|p|p[7]).collect::<Vec<_>>(),resized.iter().map(|p|p[7]).collect::<Vec<_>>());
             }

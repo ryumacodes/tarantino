@@ -1,3 +1,4 @@
+import { isMacRuntime } from '../utils/platform';
 import {maskExportPayload} from "../utils/masks/export";
 import {captionExportPayload} from '../utils/captions/exportRaster';
 import {shortcutExportPayload} from "../utils/shortcuts/exportRaster";
@@ -132,6 +133,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
           highlight_clicks: true,
           smoothing: visualSettings.cursorSmoothing ?? 0.15,
           style: visualSettings.cursorStyle ?? 'pointer',
+          follow_hover: isMacRuntime && (visualSettings.followHover ?? true),
           optimize_cursor_types: visualSettings.optimizeCursorTypes ?? true,
           always_use_pointer: visualSettings.alwaysUsePointer ?? false,
           color: visualSettings.cursorColor ?? '#ffffff',

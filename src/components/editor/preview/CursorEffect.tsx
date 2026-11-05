@@ -1,3 +1,4 @@
+import { isMacRuntime } from '../../../utils/platform';
 import {RecordedCursor} from './RecordedCursor';
 import type {RecordedCursorData} from '../../../utils/motion/recordedCursor';
 import {CursorTile} from './CursorTile';
@@ -156,6 +157,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
   const effect = useMemo(() => new CursorEffectImpl(), []);
   const alwaysUsePointer = useEditorStore(state => state.visualSettings.alwaysUsePointer);
   const cursorStyle = useEditorStore(state => state.visualSettings.cursorStyle);
+  const followHover = useEditorStore(state => state.visualSettings.followHover ?? true);
   const optimizeCursorTypes = useEditorStore(state=>state.visualSettings.optimizeCursorTypes ?? true);
   useEffect(() => {
     let cancelled=false;
@@ -216,6 +218,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
         }:null;
         const result = await invoke<string>('compute_cursor_trajectory', {
           mouseJsonPath: sidecarPath,
+          hover: recordingPath ? { recordingPath, enabled: isMacRuntime && followHover } : null,
           alwaysUsePointer,
           optimizeCursorTypes,
           durationMs: duration,
@@ -261,7 +264,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     sidecarPath,trajectoryDuration,timelineClips,timelineTracks,trimStart,trimEnd,recordingPath,
     videoWidth,
     videoHeight,
-    cursorScale, alwaysUsePointer, optimizeCursorTypes,
+    cursorScale, alwaysUsePointer, optimizeCursorTypes, followHover,
     hideCursorWhenIdle,
     idleTimeout,
     stopCursorAtEnd,

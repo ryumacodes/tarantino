@@ -65,6 +65,7 @@ pub struct CursorSettings {
     // Visual style settings
     pub style: Option<String>, // "pointer" | "circle" | "filled" | "outline" | "dotted"
     pub optimize_cursor_types: Option<bool>,
+    pub follow_hover: Option<bool>,
     pub always_use_pointer: Option<bool>, // Fix pointer shape while retaining the selected appearance
     pub color: Option<String>, // hex color e.g. "#ffffff"
     pub highlight_color: Option<String>, // hex color for click highlight

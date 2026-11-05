@@ -164,6 +164,7 @@ export interface VisualSettings {
   // Cursor Style & Behavior
   cursorStyle: 'pointer' | 'circle' | 'filled' | 'outline' | 'dotted';
   optimizeCursorTypes?: boolean;
+  followHover?: boolean;
   alwaysUsePointer: boolean; // Don't change cursor style even when selecting text
   hideCursor: boolean; // Completely hide cursor
   loopCursorPosition: boolean; // Return cursor to start position at video end

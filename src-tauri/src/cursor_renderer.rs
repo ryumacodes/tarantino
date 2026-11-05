@@ -4,6 +4,7 @@
 //! appearance still depends on each renderer and requires separate validation.
 
 mod simulation;
+pub(crate) mod hover;
 pub(crate) mod image_geometry;
 pub(crate) mod recorded_images;
 mod preset_hand;

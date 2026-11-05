@@ -44,6 +44,7 @@ pub fn get_cursor_config(settings: &ExportSettings) -> CursorSettings {
             smoothing: Some(0.15),
             style: Some("pointer".to_string()),
             optimize_cursor_types: None,
+            follow_hover: None,
             always_use_pointer: Some(false),
             color: Some("#ffffff".to_string()),
             highlight_color: Some("#ff6b6b".to_string()),

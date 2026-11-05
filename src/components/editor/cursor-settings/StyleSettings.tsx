@@ -1,3 +1,4 @@
+import { isMacRuntime } from '../../../utils/platform';
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { EyeOff } from 'lucide-react';
 import { CursorStylePreview, type CursorStyle } from './CursorStylePreview';
@@ -145,6 +146,21 @@ export const StyleSettings: React.FC<StyleSettingsProps> = ({
           </label>
         </div>
       </div>
+
+      {isMacRuntime && <div className="cursor-setting-section">
+        <div className="toggle-row">
+          <div className="toggle-info">
+            <label className="cursor-setting-label">Follow hover changes</label>
+            <span className="toggle-description">Keep the cursor aligned when buttons and links highlight.</span>
+          </div>
+          <label className="toggle-switch">
+            <input type="checkbox" checked={visualSettings.followHover ?? true}
+              onChange={(e) => updateVisualSettings({ followHover: e.target.checked })}
+              disabled={isExporting} />
+            <span className="toggle-slider" />
+          </label>
+        </div>
+      </div>}
 
       <div className="cursor-setting-section">
         <div className="toggle-row">

@@ -50,7 +50,7 @@ mod tests {
             ]
         })).unwrap();
         let result=super::super::compute_cursor_trajectory(path.to_string_lossy().into_owned(),1000,120,100,100,
-            1.0,false,2000,false,0,false,None,None,Some(170.0),Some(30.0),Some(0.0),Some(0.0),Some(false),Some(100.0),Some(request),None,Some(false)).await.unwrap();
+            1.0,false,2000,false,0,false,None,None,Some(170.0),Some(30.0),Some(0.0),Some(0.0),Some(false),Some(100.0),Some(request),None,Some(false), None).await.unwrap();
         let value:serde_json::Value=serde_json::from_str(&result).unwrap();
         assert_eq!(value["outputTime"],true);
         assert_eq!(value["originMs"],0);

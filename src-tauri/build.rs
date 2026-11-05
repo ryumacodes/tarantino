@@ -80,6 +80,16 @@ fn build_macos_backend() {
         .cpp(true)
         .compile("avcapture_wrapper");
 
+    println!("cargo:rerun-if-changed=src/cursor_renderer/hover/reader.mm");
+    cc::Build::new()
+        .file("src/cursor_renderer/hover/reader.mm")
+        .flag("-std=c++17")
+        .flag("-ObjC++")
+        .flag("-fobjc-arc")
+        .flag("-mmacosx-version-min=12.3")
+        .cpp(true)
+        .compile("hover_reader");
+
     // Link macOS frameworks
     println!("cargo:rustc-link-lib=framework=AVFoundation");
     println!("cargo:rustc-link-lib=framework=ScreenCaptureKit");
