@@ -168,7 +168,7 @@ mod volume_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let result = std::panic::catch_unwind(|| {
             let source = dir.join("tone.wav");
-            let output = std::process::Command::new("ffmpeg").args(["-v", "error", "-f", "lavfi", "-i",
+            let output = std::process::Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v", "error", "-f", "lavfi", "-i",
                 "sine=frequency=440:sample_rate=48000:duration=3", "-c:a", "pcm_f32le"]).arg(&source).output().unwrap();
             assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
             let clips:Vec<EditClip> = serde_json::from_value(serde_json::json!([
@@ -178,7 +178,7 @@ mod volume_tests {
             ])).unwrap();
             let plan = EditTimeline::build(&clips, 250.0, 3000.0).unwrap();
             for microphone in [true, false] {
-                let output = std::process::Command::new("ffmpeg").args(audio_decode_args_for_channel(&plan,&source,microphone)).output().unwrap();
+                let output = std::process::Command::new(crate::ffmpeg::binary("ffmpeg")).args(audio_decode_args_for_channel(&plan,&source,microphone)).output().unwrap();
                 assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
                 let samples:Vec<f64> = output.stdout.chunks_exact(4).map(|s|f32::from_le_bytes(s.try_into().unwrap()) as f64).collect();
                 assert!((samples.len() as i64 - 132000).abs() < 100);
@@ -207,7 +207,7 @@ mod fast_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let result = std::panic::catch_unwind(|| {
             let source = dir.join("source.mkv");
-            let output = std::process::Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i",
+            let output = std::process::Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i",
                 "color=red:s=16x16:r=30:d=12","-f","lavfi","-i","color=blue:s=16x16:r=30:d=12",
                 "-f","lavfi","-i","sine=frequency=440:sample_rate=48000:duration=24",
                 "-filter_complex","[0:v][1:v]concat=n=2:v=1:a=0[v]","-map","[v]","-map","2:a",
@@ -220,7 +220,7 @@ mod fast_tests {
                     "playbackRate":rate,"trackOrder":0,"muted":false
                 })).unwrap();
                 let plan = EditTimeline::build(&[clip],0.0,duration).unwrap();
-                let frames = std::process::Command::new("ffmpeg").args(video_decode_args(&plan,&source,16,16,30)).output().unwrap();
+                let frames = std::process::Command::new(crate::ffmpeg::binary("ffmpeg")).args(video_decode_args(&plan,&source,16,16,30)).output().unwrap();
                 assert!(frames.status.success(), "{}", String::from_utf8_lossy(&frames.stderr));
                 let count=(duration*30.0/1000.0).round() as usize;
                 assert_eq!(frames.stdout.len(),count*16*16*4,"rate={rate}");
@@ -228,7 +228,7 @@ mod fast_tests {
                     let pixel=&frames.stdout[frame*16*16*4..][..4];
                     assert!(if red {pixel[0]>200 && pixel[2]<20} else {pixel[2]>200 && pixel[0]<20});
                 }
-                let audio = std::process::Command::new("ffmpeg").args(audio_decode_args(&plan,&source)).output().unwrap();
+                let audio = std::process::Command::new(crate::ffmpeg::binary("ffmpeg")).args(audio_decode_args(&plan,&source)).output().unwrap();
                 assert!(audio.status.success(),"{}",String::from_utf8_lossy(&audio.stderr));
                 let samples:Vec<f32> = audio.stdout.chunks_exact(4).map(|s|f32::from_le_bytes(s.try_into().unwrap())).collect();
                 assert_eq!(samples.len(),(duration*48.0).round() as usize);

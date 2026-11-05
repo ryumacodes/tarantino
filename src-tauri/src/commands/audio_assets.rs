@@ -38,7 +38,7 @@ async fn import_path(root:&Path,source:&Path)->Result<AudioAsset,String>{
     validate_asset(pending,name).await
 }
 async fn validate_asset(mut pending:PendingAsset,name:&str)->Result<AudioAsset,String>{
-    let mut command=tokio::process::Command::new("ffprobe");
+    let mut command=tokio::process::Command::new(crate::ffmpeg::binary("ffprobe"));
     command.kill_on_drop(true).args(["-v","error","-select_streams","a:0","-show_entries","stream=codec_type","-of","json"]).arg(&pending.0);
     let result=tokio::time::timeout(Duration::from_secs(15),command.output()).await
         .map_err(|_|"Audio validation timed out")?.map_err(|error|error.to_string())?;
@@ -68,7 +68,7 @@ mod tests {
     async fn validates_and_copies_soundtracks_without_retaining_failed_imports(){
         if std::env::var_os("TARANTINO_TEST_FFMPEG").is_none(){return;}
         let root=std::env::temp_dir().join(format!("audio-assets-test-{}",uuid::Uuid::new_v4()));
-        let output=std::process::Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i","sine=frequency=440:duration=0.1","-f","wav","pipe:1"]).output().unwrap();
+        let output=std::process::Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i","sine=frequency=440:duration=0.1","-f","wav","pipe:1"]).output().unwrap();
         assert!(output.status.success());
         let asset=import_asset(&root,"../../music.wav",&STANDARD.encode(&output.stdout)).await.unwrap();
         assert_eq!(asset.name,"music.wav");assert_eq!(Path::new(&asset.path).parent(),Some(root.as_path()));

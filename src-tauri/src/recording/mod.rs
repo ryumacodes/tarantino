@@ -195,7 +195,7 @@ impl RecordingAPI {
         #[cfg(target_os = "windows")]
         {
             use tokio::process::Command;
-            let mut cmd = Command::new("ffmpeg");
+            let mut cmd = Command::new(crate::ffmpeg::binary("ffmpeg"));
             cmd.arg("-y")
                 .arg("-f")
                 .arg("gdigrab")

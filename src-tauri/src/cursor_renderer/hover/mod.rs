@@ -3,6 +3,7 @@
 pub mod analysis;
 mod input;
 mod pixels;
+mod spans;
 #[cfg(target_os = "macos")]
 pub mod reader;
 use anyhow::{Result, ensure};
@@ -15,6 +16,7 @@ pub struct Detector {
     clicks: Vec<f64>,
     scale: f64,
     history: VecDeque<Frame>,
+    recycled: Option<Frame>,
     last_change: f64,
 }
 
@@ -41,6 +43,7 @@ impl Detector {
             clicks,
             scale: pixels_per_point,
             history: VecDeque::new(),
+            recycled: None,
             last_change: f64::NEG_INFINITY,
         })
     }
@@ -62,9 +65,13 @@ impl Detector {
         self.history.push_back(frame);
         // Keep the predecessor of the settled-history boundary for irregular frame times.
         while self.history.len() > 1 && self.history[1].time_ms <= time - 270.0 {
-            self.history.pop_front();
+            self.recycled = self.history.pop_front();
         }
         Ok(changed.then_some(time))
+    }
+
+    pub fn take_recycled(&mut self) -> Option<Frame> {
+        self.recycled.take()
     }
 
     fn is_change(&self, frame: &Frame) -> bool {

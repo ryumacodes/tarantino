@@ -1,5 +1,6 @@
 use anyhow::{Result, ensure};
 
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct Frame {
     pub time_ms: f64,
     pub width: usize,
@@ -9,6 +10,10 @@ pub struct Frame {
 }
 
 impl Frame {
+    pub(super) fn into_planes(self) -> (Vec<u8>, Vec<u8>) {
+        (self.y, self.uv)
+    }
+
     pub fn new(time_ms: f64, width: usize, height: usize, y: Vec<u8>, uv: Vec<u8>) -> Result<Self> {
         ensure!(
             time_ms.is_finite() && width > 0 && height > 0,

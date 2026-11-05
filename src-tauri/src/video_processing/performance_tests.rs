@@ -20,7 +20,7 @@ async fn benchmark(root: &Path) -> Result<()> {
     if let Some(fixture) = std::env::var_os("TARANTINO_BENCH_INPUT") {
         std::fs::copy(fixture, &input)?;
     } else {
-        let generated = Command::new("ffmpeg")
+        let generated = Command::new(crate::ffmpeg::binary("ffmpeg"))
             .args([
                 "-v",
                 "error",
@@ -148,7 +148,7 @@ async fn benchmark(root: &Path) -> Result<()> {
 }
 
 fn probe(path: &Path) -> Result<serde_json::Value> {
-    let result = Command::new("ffprobe")
+    let result = Command::new(crate::ffmpeg::binary("ffprobe"))
         .args([
             "-v",
             "error",

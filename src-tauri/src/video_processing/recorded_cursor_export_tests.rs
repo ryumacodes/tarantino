@@ -4,7 +4,7 @@ use crate::input::cursor_images::{CursorImage,CursorImages,SystemCursor};
 use base64::Engine;
 
 fn ffmpeg(args:&[&str])->Vec<u8> {
-    let result=std::process::Command::new("ffmpeg").args(args).output().unwrap();
+    let result=std::process::Command::new(crate::ffmpeg::binary("ffmpeg")).args(args).output().unwrap();
     assert!(result.status.success(),"{}",String::from_utf8_lossy(&result.stderr));
     result.stdout
 }

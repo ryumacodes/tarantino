@@ -33,7 +33,7 @@ fn verify_audio(root: &Path) {
     let system = root.join("system.wav");
     for (path, hz) in [(&mic, 440), (&system, 880)] {
         successful(
-            Command::new("ffmpeg")
+            Command::new(crate::ffmpeg::binary("ffmpeg"))
                 .args([
                     "-v",
                     "error",
@@ -72,7 +72,7 @@ fn verify_audio(root: &Path) {
                     10,
                     &path,
                 );
-                let mut child = Command::new("ffmpeg")
+                let mut child = Command::new(crate::ffmpeg::binary("ffmpeg"))
                     .args(args)
                     .stdin(Stdio::piped())
                     .stdout(Stdio::null())
@@ -92,7 +92,7 @@ fn verify_audio(root: &Path) {
                     String::from_utf8_lossy(&output.stderr)
                 );
                 let probe: serde_json::Value = serde_json::from_slice(&successful(
-                    Command::new("ffprobe")
+                    Command::new(crate::ffmpeg::binary("ffprobe"))
                         .args(["-v", "error", "-show_streams", "-of", "json"])
                         .arg(&path),
                 ))
@@ -110,7 +110,7 @@ fn verify_audio(root: &Path) {
                         if format == "webm" { "opus" } else { "aac" }
                     );
                     let pcm = successful(
-                        Command::new("ffmpeg")
+                        Command::new(crate::ffmpeg::binary("ffmpeg"))
                             .args(["-v", "error", "-i"])
                             .arg(&path)
                             .args([
@@ -165,11 +165,11 @@ async fn audio_only_clip_edits_preserve_trimmed_video_and_channel_levels() {
     let root=std::env::temp_dir().join(format!("clip-export-{}",uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let input=root.join("source.mkv");
-    successful(Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i",
+    successful(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i",
         "color=red:s=64x64:r=30:d=1","-f","lavfi","-i","color=blue:s=64x64:r=30:d=1",
         "-filter_complex","[0:v][1:v]concat=n=2:v=1:a=0[out]","-map","[out]","-c:v","ffv1"]).arg(&input));
     for extension in ["mic.wav","system.wav"] {
-        successful(Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i",
+        successful(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i",
             "sine=frequency=440:sample_rate=48000:duration=2","-c:a","pcm_f32le"]).arg(input.with_extension(extension)));
     }
     let output=root.join("result.mp4");
@@ -186,7 +186,7 @@ async fn audio_only_clip_edits_preserve_trimmed_video_and_channel_levels() {
     })).unwrap();
     let info=VideoInfo{duration_ms:2000,width:64,height:64,fps:30.0,bitrate:0,format:"mkv".into(),size_bytes:0,frame_count:Some(60)};
     export_video(&root,&input,settings,&info,None).await.unwrap();
-    let frames=successful(Command::new("ffmpeg").args(["-v","error","-i"]).arg(&output)
+    let frames=successful(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-i"]).arg(&output)
         .args(["-map","0:v","-fps_mode","passthrough","-f","rawvideo","-pix_fmt","rgb24","-"]));
     assert_eq!(frames.len(),45*64*64*3);
     for (index,red) in [(0,true),(15,true),(30,false),(44,false)] {
@@ -194,7 +194,7 @@ async fn audio_only_clip_edits_preserve_trimmed_video_and_channel_levels() {
         assert!(if red {pixel[0]>200 && pixel[2]<30} else {pixel[2]>200 && pixel[0]<30}, "frame {index}: {pixel:?}");
     }
     for (track,gains) in [(0,[0.25*10_f64.powf(-6.0/20.0),0.0]),(1,[0.7,0.5])] {
-        let bytes=successful(Command::new("ffmpeg").args(["-v","error","-i"]).arg(&output)
+        let bytes=successful(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-i"]).arg(&output)
             .args(["-map",&format!("0:a:{track}"),"-ac","1","-ar","48000","-f","f32le","-"]));
         let samples:Vec<f64>=bytes.chunks_exact(4).map(|s|f32::from_le_bytes(s.try_into().unwrap()) as f64).collect();
         assert!((samples.len() as i64-72000).abs()<2048);
@@ -214,11 +214,11 @@ async fn high_speed_composed_exports_keep_video_and_audio_in_sync() {
     let root=std::env::temp_dir().join(format!("fast-export-{}",uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let input=root.join("source.mkv");
-    successful(Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i",
+    successful(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i",
         "color=red:s=64x64:r=30:d=12","-f","lavfi","-i","color=blue:s=64x64:r=30:d=12",
         "-filter_complex","[0:v][1:v]concat=n=2:v=1:a=0[out]","-map","[out]","-c:v","ffv1"]).arg(&input));
     for (extension,hz) in [("mic.wav",440),("system.wav",880)] {
-        successful(Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i",
+        successful(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i",
             &format!("sine=frequency={hz}:sample_rate=48000:duration=24"),"-c:a","pcm_f32le"]).arg(input.with_extension(extension)));
     }
     let info=VideoInfo{duration_ms:24000,width:64,height:64,fps:30.0,bitrate:0,format:"mkv".into(),size_bytes:0,frame_count:Some(720)};
@@ -238,7 +238,7 @@ async fn high_speed_composed_exports_keep_video_and_audio_in_sync() {
             ]
         })).unwrap();
         export_video(&root,&input,settings,&info,None).await.unwrap();
-        let frames=successful(Command::new("ffmpeg").args(["-v","error","-i"]).arg(&output)
+        let frames=successful(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-i"]).arg(&output)
             .args(["-map","0:v","-fps_mode","passthrough","-f","rawvideo","-pix_fmt","rgb24","-"]));
         let count=(duration*30.0/1000.0).round() as usize;
         assert_eq!(frames.len(),count*64*64*3,"rate {rate}");
@@ -249,7 +249,7 @@ async fn high_speed_composed_exports_keep_video_and_audio_in_sync() {
             assert_ne!(&frame[..3],pixel,"padding must survive composition");
         }
         for (track,hz,gains) in [(0,440,[0.5,0.25]),(1,880,[0.8,0.4])] {
-            let bytes=successful(Command::new("ffmpeg").args(["-v","error","-i"]).arg(&output)
+            let bytes=successful(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-i"]).arg(&output)
                 .args(["-map",&format!("0:a:{track}"),"-ac","1","-ar","48000","-f","f32le","-"]));
             let samples:Vec<f64>=bytes.chunks_exact(4).map(|s|f32::from_le_bytes(s.try_into().unwrap()) as f64).collect();
             assert!((samples.len() as i64-(duration*48.0).round() as i64).abs()<2048,"rate {rate}, audio length");
@@ -273,16 +273,16 @@ async fn composed_soundtrack_follows_edited_clock_across_cuts_and_speed_changes(
     let root=std::env::temp_dir().join(format!("soundtrack-composed-{}",uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let input=root.join("source.mkv");
-    successful(Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i","color=red:s=64x64:r=30:d=1",
+    successful(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i","color=red:s=64x64:r=30:d=1",
         "-f","lavfi","-i","color=blue:s=64x64:r=30:d=1","-filter_complex","[0:v][1:v]concat=n=2:v=1:a=0",
         "-c:v","ffv1"]).arg(&input));
     let silent=root.join("silent.mkv");std::fs::copy(&input,&silent).unwrap();
     for (extension,hz) in [("mic.wav",330),("system.wav",660)] {
-        successful(Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i",
+        successful(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i",
             &format!("sine=frequency={hz}:sample_rate=48000:duration=2"),"-c:a","pcm_f32le"]).arg(input.with_extension(extension)));
     }
     let music=root.join("music.wav");
-    successful(Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i","sine=frequency=220:sample_rate=48000:duration=0.5",
+    successful(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i","sine=frequency=220:sample_rate=48000:duration=0.5",
         "-f","lavfi","-i","sine=frequency=880:sample_rate=48000:duration=0.5","-filter_complex","[0:a][1:a]concat=n=2:v=0:a=1",
         "-c:a","pcm_f32le"]).arg(&music));
     let info=VideoInfo{duration_ms:2000,width:64,height:64,fps:30.0,bitrate:0,format:"mkv".into(),size_bytes:0,frame_count:Some(60)};
@@ -300,7 +300,7 @@ async fn composed_soundtrack_follows_edited_clock_across_cuts_and_speed_changes(
             ]
         })).unwrap();
         export_video(&root,if recorded {&input}else{&silent},settings,&info,None).await.unwrap();
-        let frames=successful(Command::new("ffmpeg").args(["-v","error","-i"]).arg(&output)
+        let frames=successful(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-i"]).arg(&output)
             .args(["-map","0:v","-fps_mode","passthrough","-f","rawvideo","-pix_fmt","rgb24","-"]));
         assert_eq!(frames.len(),60*64*64*3);
         for (index,red) in [(0,false),(20,true),(59,true)] {
@@ -308,10 +308,10 @@ async fn composed_soundtrack_follows_edited_clock_across_cuts_and_speed_changes(
             assert!(if red {pixel[0]>200 && pixel[2]<30}else{pixel[2]>200 && pixel[0]<30},"frame {index}: {pixel:?}");
             assert_ne!(&frame[..3],pixel);
         }
-        let probe:serde_json::Value=serde_json::from_slice(&successful(Command::new("ffprobe").args(["-v","error","-select_streams","a","-show_streams","-of","json"]).arg(&output))).unwrap();
+        let probe:serde_json::Value=serde_json::from_slice(&successful(Command::new(crate::ffmpeg::binary("ffprobe")).args(["-v","error","-select_streams","a","-show_streams","-of","json"]).arg(&output))).unwrap();
         let count=if dual {3}else{1};assert_eq!(probe["streams"].as_array().unwrap().len(),count);
         for track in 0..count {
-            let bytes=successful(Command::new("ffmpeg").args(["-v","error","-i"]).arg(&output)
+            let bytes=successful(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-i"]).arg(&output)
                 .args(["-map",&format!("0:a:{track}"),"-ac","1","-ar","48000","-f","f32le","-"]));
             let samples:Vec<f64>=bytes.chunks_exact(4).map(|s|f32::from_le_bytes(s.try_into().unwrap()) as f64).collect();
             assert!((samples.len() as i64-96000).abs()<2048);

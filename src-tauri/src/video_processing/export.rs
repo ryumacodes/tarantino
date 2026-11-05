@@ -221,7 +221,7 @@ pub async fn export_video(
             load_rotation_points(&mouse_events_path,cursor_config.shake_threshold.unwrap_or(0.0))
         } else {Vec::new()};
         let planned=crate::cursor_renderer::planner::runtime::prepare(&mouse_events_path,(source_width,source_height),
-            settings.source_crop,cursor_timeline.as_ref(),input_path,duration_ms as f64,&cursor_config,cursor_spring)?;
+            settings.source_crop,cursor_timeline.as_ref(),input_path,duration_ms as f64,&cursor_config,cursor_spring,Some(&|| control.check()))?;
         let position=|time|planned.as_ref().unwrap().at(time);
         let pressed=|time|planned.as_ref().unwrap().pressed_at_source(time,cursor_spring.mass!=0.0);
         let positions = if let Some(plan)=cursor_timeline.as_ref() {
@@ -315,7 +315,7 @@ pub async fn export_video(
     if let Some((ref webcam_path, _, _, _, _)) = webcam_info {
         if webcam_path.exists() {
             // Get webcam dimensions via ffprobe
-            let probe_output = control.output(Command::new("ffprobe").args([
+            let probe_output = control.output(Command::new(crate::ffmpeg::binary("ffprobe")).args([
                     "-v",
                     "quiet",
                     "-select_streams",
@@ -366,7 +366,7 @@ pub async fn export_video(
                     }
                     wc_args = video_decode_args(&linked_plan, &webcam_path, wc_w, wc_h, target_fps);
                 }
-                let wc_decoder = Command::new("ffmpeg")
+                let wc_decoder = Command::new(crate::ffmpeg::binary("ffmpeg"))
                     .args(&wc_args)
                     .stdout(Stdio::piped())
                     .stderr(Stdio::null())
@@ -432,7 +432,7 @@ pub async fn export_video(
     println!("  Decoder args: {:?}", decoder_args);
 
     control.check()?;
-    let decoder = Command::new("ffmpeg")
+    let decoder = Command::new(crate::ffmpeg::binary("ffmpeg"))
         .args(&decoder_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -452,7 +452,7 @@ pub async fn export_video(
 
     println!("  Encoder args: {:?}", encoder_args);
 
-    let encoder = Command::new("ffmpeg")
+    let encoder = Command::new(crate::ffmpeg::binary("ffmpeg"))
         .args(&encoder_args)
         .stdin(Stdio::piped())
         .stderr(Stdio::piped())

@@ -27,7 +27,7 @@ impl PreparedBackgroundAudio {
         // Trim after looping, preserving music phase when exporting a selection.
         // This clock is independent of recording cuts and clip playback rates.
         let filter=format!("aresample=48000,aformat=sample_fmts=flt:channel_layouts=stereo,atrim=start_sample={start}:end_sample={end},asetpts=PTS-STARTPTS,volume={volume:.8}");
-        let result=control.output(Command::new("ffmpeg").args(["-v","error","-y","-stream_loop","-1","-i"])
+        let result=control.output(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-y","-stream_loop","-1","-i"])
             .arg(source).args(["-vn","-af",&filter,"-c:a","pcm_f32le","-ar","48000","-ac","2"]).arg(&prepared.path))?;
         if !result.status.success() { bail!("Could not prepare background audio: {}",String::from_utf8_lossy(&result.stderr)); }
         Ok(prepared)
@@ -56,13 +56,13 @@ mod tests {
         let root=std::env::temp_dir().join(format!("background-test-{}",uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let source=root.join("music.wav");
-        let status=Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i","sine=frequency=220:sample_rate=48000:duration=0.5",
+        let status=Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i","sine=frequency=220:sample_rate=48000:duration=0.5",
             "-f","lavfi","-i","sine=frequency=880:sample_rate=48000:duration=0.5","-filter_complex","[0:a][1:a]concat=n=2:v=0:a=1",
             "-c:a","pcm_f32le","-y"]).arg(&source).status().unwrap();
         assert!(status.success());
         for volume in [1.0,0.5,0.0] {
             let prepared=PreparedBackgroundAudio::new(&root,&source,750.0,2200.0,volume,&ExportControl::default()).unwrap();
-            let decoded=Command::new("ffmpeg").args(["-v","error","-i"]).arg(&prepared.path)
+            let decoded=Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-i"]).arg(&prepared.path)
                 .args(["-f","f32le","-ac","1","pipe:1"]).output().unwrap();
             assert!(decoded.status.success());
             let samples:Vec<f32>=decoded.stdout.chunks_exact(4).map(|b|f32::from_le_bytes(b.try_into().unwrap())).collect();

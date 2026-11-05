@@ -37,7 +37,7 @@ pub async fn extract_timeline_thumbnail_samples(
     let mut samples = Vec::with_capacity(source_times_ms.len());
     for time in source_times_ms {
         let time = (time * 1000.0).round() / 1000.0;
-        let mut command = Command::new("ffmpeg");
+        let mut command = Command::new(crate::ffmpeg::binary("ffmpeg"));
         command.kill_on_drop(true).args([
             "-v", "error", "-hwaccel", "none", "-ss", &format!("{:.6}", time / 1000.0),
             "-i", &video_path, "-an", "-sn", "-frames:v", "1", "-vf",
@@ -76,7 +76,7 @@ mod tests {
     async fn samples_requested_source_frames_without_fallback_to_recording_start() {
         if std::env::var_os("TARANTINO_TEST_FFMPEG").is_none() { return; }
         let input = std::env::temp_dir().join(format!("thumbnail-source-{}.mkv",uuid::Uuid::new_v4()));
-        let status = std::process::Command::new("ffmpeg").args([
+        let status = std::process::Command::new(crate::ffmpeg::binary("ffmpeg")).args([
             "-v","error","-f","lavfi","-i","color=red:s=64x64:r=30:d=1",
             "-f","lavfi","-i","color=blue:s=64x64:r=30:d=1",
             "-filter_complex","[0:v][1:v]concat=n=2:v=1:a=0","-c:v","ffv1","-y",

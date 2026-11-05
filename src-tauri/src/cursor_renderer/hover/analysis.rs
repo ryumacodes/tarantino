@@ -70,6 +70,12 @@ impl Cache {
 static CACHE: Lazy<Mutex<Cache>> = Lazy::new(|| Mutex::new(Cache::default()));
 
 pub fn analyze(video: &Path, sidecar: &Path, source_size: (u32, u32)) -> Result<Arc<Vec<f64>>> {
+    analyze_with_check(video, sidecar, source_size, &|| Ok(()))
+}
+
+pub fn analyze_with_check(video: &Path, sidecar: &Path, source_size: (u32, u32),
+    check: &dyn Fn() -> Result<()>) -> Result<Arc<Vec<f64>>> {
+    check()?;
     let bytes = std::fs::read(sidecar).context("Cannot read hover cursor input")?;
     let mut hash = DefaultHasher::new();
     bytes.hash(&mut hash);
@@ -79,11 +85,18 @@ pub fn analyze(video: &Path, sidecar: &Path, source_size: (u32, u32)) -> Result<
         source_size,
     };
     let entry = CACHE.lock().entry(key.clone());
-    let mut cached = entry.lock();
+    let mut cached = loop {
+        check()?;
+        if let Some(cached) = entry.try_lock_for(std::time::Duration::from_millis(25)) {
+            break cached;
+        }
+    };
+    check()?;
     if let Some(times) = cached.as_ref() {
         return Ok(times.clone());
     }
-    let times = analyze_uncached(video, &bytes, source_size)?;
+    let times = analyze_uncached(video, &bytes, source_size, check)?;
+    check()?;
     ensure!(
         VideoIdentity::read(video)? == key.video,
         "Video changed during hover analysis"
@@ -93,7 +106,8 @@ pub fn analyze(video: &Path, sidecar: &Path, source_size: (u32, u32)) -> Result<
     Ok(times)
 }
 
-fn analyze_uncached(video: &Path, bytes: &[u8], source_size: (u32, u32)) -> Result<Vec<f64>> {
+fn analyze_uncached(video: &Path, bytes: &[u8], source_size: (u32, u32),
+    check: &dyn Fn() -> Result<()>) -> Result<Vec<f64>> {
     ensure!(
         source_size.0 > 0 && source_size.1 > 0,
         "Invalid hover source size"
@@ -112,12 +126,19 @@ fn analyze_uncached(video: &Path, bytes: &[u8], source_size: (u32, u32)) -> Resu
         .filter(|event| matches!(event.kind, Kind::Down | Kind::Up))
         .map(|event| event.time)
         .collect();
+    let spans = super::spans::decode_spans(&samples);
     let mut detector = Detector::new(samples, clicks, width as f64 / input.width)?;
-    let mut reader = Reader::open(video, width, height)?;
     let mut times = Vec::new();
-    while let Some(frame) = reader.next()? {
-        if let Some(time) = detector.push(frame)? {
-            times.push(time);
+    for [start, end] in spans {
+        check()?;
+        let mut reader = Reader::open_range(video, width, height, start, end)?;
+        loop {
+            check()?;
+            let Some(frame) = reader.next_reusing(detector.take_recycled())? else { break };
+            check()?;
+            if let Some(time) = detector.push(frame)? {
+                times.push(time);
+            }
         }
     }
     Ok(times)
@@ -126,6 +147,38 @@ fn analyze_uncached(video: &Path, bytes: &[u8], source_size: (u32, u32)) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancellation_interrupts_waiting_for_shared_analysis() {
+        let root = std::env::temp_dir().join(format!("hover-wait-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let video = root.join("video.mp4");
+        let sidecar = root.join("input.json");
+        std::fs::write(&video, []).unwrap();
+        let bytes = b"[]".to_vec();
+        std::fs::write(&sidecar, &bytes).unwrap();
+        let mut hash = DefaultHasher::new();
+        bytes.hash(&mut hash);
+        let entry = CACHE.lock().entry(Key {
+            video: VideoIdentity::read(&video).unwrap(),
+            input_hash: hash.finish(),
+            source_size: (1, 1),
+        });
+        let held = entry.lock();
+        let control = crate::video_processing::export_control::ExportControl::default();
+        let calls = std::cell::Cell::new(0);
+        let result = analyze_with_check(&video, &sidecar, (1, 1), &|| {
+            calls.set(calls.get() + 1);
+            if calls.get() == 4 { control.cancel(); }
+            control.check()
+        });
+        assert_eq!(result.unwrap_err().to_string(), crate::video_processing::export_control::CANCELLED);
+        assert_eq!(calls.get(), 4);
+        assert!(held.is_none());
+        drop(held);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     fn key(input_hash: u64) -> Key {
         Key {
             video: VideoIdentity {

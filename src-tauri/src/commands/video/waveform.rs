@@ -60,7 +60,7 @@ async fn extract_levels(path:&str,rate:u32,rms:bool)->Result<Waveform,String>{
 async fn decode(path:&str,rate:u32,rms:bool)->Result<Waveform,String>{
     // Keep stereo channels separate. Mono maps to left + silent right without
     // attenuation; per-channel RMS maxima avoid phase cancellation and dilution.
-    let mut child=tokio::process::Command::new("ffmpeg")
+    let mut child=tokio::process::Command::new(crate::ffmpeg::binary("ffmpeg"))
         .args(["-v","error","-nostdin","-i",path,"-map","0:a:0","-vn","-af","pan=stereo|c0=c0|c1=c1","-ar","8000","-f","f32le","pipe:1"])
         .stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true).spawn()
         .map_err(|error|format!("Could not start waveform analysis: {error}"))?;
@@ -114,7 +114,7 @@ mod tests {
         assert!(extract("missing.wav",1001).await.is_err());
         assert!(extract("missing.wav",100).await.is_err());
         let path=std::env::temp_dir().join(format!("waveform-{}.wav",uuid::Uuid::new_v4()));
-        let result=std::process::Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i","aevalsrc=if(lt(t\\,0.01)\\,0.25\\,0.75):s=8000:d=0.025","-c:a","pcm_f32le"])
+        let result=std::process::Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i","aevalsrc=if(lt(t\\,0.01)\\,0.25\\,0.75):s=8000:d=0.025","-c:a","pcm_f32le"])
             .arg(&path).status().unwrap();assert!(result.success());
         let data=extract(path.to_str().unwrap(),100).await.unwrap();
         assert!((data.duration_ms-25.0).abs()<0.01);

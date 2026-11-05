@@ -158,7 +158,7 @@ fn record_and_validate(
     })();
     pipeline.set_state(gst::State::Null)?;
     result?;
-    let output = Command::new("ffprobe")
+    let output = Command::new(crate::ffmpeg::binary("ffprobe"))
         .args([
             "-v",
             "error",
@@ -196,7 +196,7 @@ fn record_and_validate(
         (duration - 1.0).abs() < 0.1,
         "Unexpected duration: {duration}"
     );
-    let decoded = Command::new("ffmpeg")
+    let decoded = Command::new(crate::ffmpeg::binary("ffmpeg"))
         .args(["-v", "error", "-xerror", "-i"])
         .arg(path)
         .args(["-f", "null", "-"])

@@ -1,6 +1,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <CoreVideo/CoreVideo.h>
 #include <cstdio>
+#include <cmath>
 
 struct HoverFrameData {
     const uint8_t *y;
@@ -17,6 +18,7 @@ struct HoverReader {
     AVAssetReaderTrackOutput *output;
     CMSampleBufferRef sample = nullptr;
     CVPixelBufferRef pixels = nullptr;
+    bool exhausted = false;
 
     void release_frame() {
         if (pixels) CVPixelBufferUnlockBaseAddress(pixels, kCVPixelBufferLock_ReadOnly);
@@ -32,6 +34,7 @@ static void reader_error(char *error, size_t capacity, NSString *message) {
 }
 
 extern "C" void *tarantino_hover_reader_open(const char *path, uint32_t width, uint32_t height,
+                                             double start_ms, double end_ms,
                                              char *error, size_t capacity) {
     @autoreleasepool {
         NSURL *url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path]];
@@ -59,6 +62,17 @@ extern "C" void *tarantino_hover_reader_open(const char *path, uint32_t width, u
             return nullptr;
         }
         [reader addOutput:output];
+        CMTime start = CMTimeMakeWithSeconds(start_ms / 1000.0, 1000000);
+        CMTime end = std::isfinite(end_ms)
+            ? CMTimeAdd(CMTimeMakeWithSeconds(end_ms / 1000.0, 1000000), CMTimeMake(1, 1000000))
+            : asset.duration;
+        end = CMTimeMinimum(end, asset.duration);
+        if (CMTimeCompare(start, end) >= 0) {
+            auto *state = new HoverReader;
+            state->exhausted = true;
+            return state;
+        }
+        reader.timeRange = CMTimeRangeFromTimeToTime(start, end);
         if (![reader startReading]) {
             reader_error(error, capacity, reader.error.localizedDescription ?: @"Cannot start video reader");
             return nullptr;
@@ -74,6 +88,7 @@ extern "C" int tarantino_hover_reader_next(void *handle, HoverFrameData *frame,
                                             char *error, size_t capacity) {
     @autoreleasepool {
         auto *state = static_cast<HoverReader *>(handle);
+        if (state->exhausted) return 0;
         state->release_frame();
         state->sample = [state->output copyNextSampleBuffer];
         if (!state->sample) {

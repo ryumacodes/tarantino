@@ -27,7 +27,7 @@ async fn validate_existing_recording_exports()->Result<()> {
         let start=std::time::Instant::now();
         let output=export_video(root,&manifest.input,case.settings,&info,None).await?;
         let seconds=start.elapsed().as_secs_f64();
-        let probe=Command::new("ffprobe").args(["-v","error","-select_streams","v:0","-count_frames",
+        let probe=Command::new(crate::ffmpeg::binary("ffprobe")).args(["-v","error","-select_streams","v:0","-count_frames",
             "-show_entries","stream=width,height,nb_read_frames,codec_name,r_frame_rate,duration","-of","json"])
             .arg(&output).output()?;
         ensure!(probe.status.success(),"Export probe failed: {}",String::from_utf8_lossy(&probe.stderr));

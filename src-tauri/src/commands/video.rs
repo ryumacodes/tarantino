@@ -117,7 +117,7 @@ pub async fn extract_video_preview_frames(
         let width = preview_width.clamp(320, 1920);
         let count = frame_count.clamp(1, 60);
         let seek = start_bucket as f64 / LINUX_PREVIEW_FPS;
-        let output = Command::new("ffmpeg")
+        let output = Command::new(crate::ffmpeg::binary("ffmpeg"))
             .args([
                 "-v",
                 "error",
@@ -567,7 +567,7 @@ pub async fn compute_cursor_trajectory(
         let rotation_keys = crate::cursor_renderer::rotation::horizontal_tilt(&rotation_points,rotation_intensity.unwrap_or(30.0)/100.0);
         let recording = hover.as_ref().map_or(path, |request| Path::new(&request.recording_path));
         let planned=crate::cursor_renderer::planner::runtime::prepare(path,(video_width,video_height),source_crop,None,recording,
-            duration_ms as f64,&settings,spring).map_err(|e|e.to_string())?;
+            duration_ms as f64,&settings,spring,None).map_err(|e|e.to_string())?;
         let position=|time|planned.as_ref().unwrap().at(time);
         let pressed=|time|planned.as_ref().unwrap().pressed_at_source(time,spring.mass!=0.0);
         let frames = simulate_cursor_frames_from(

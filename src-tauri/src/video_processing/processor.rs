@@ -67,7 +67,7 @@ impl VideoProcessor {
 
         let output_data = if let Some(control) = control {
             let output = control.output(
-                std::process::Command::new("ffprobe")
+                std::process::Command::new(crate::ffmpeg::binary("ffprobe"))
                     .args([
                         "-v",
                         "quiet",

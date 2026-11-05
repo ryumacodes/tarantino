@@ -43,14 +43,14 @@ fn verify_timing(root: &Path, codec: &str, fps: u32) {
         fps,
         &path,
     );
-    let mut child = Command::new("ffmpeg")
+    let mut child = Command::new(crate::ffmpeg::binary("ffmpeg"))
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let source = Command::new("ffmpeg")
+    let source = Command::new(crate::ffmpeg::binary("ffmpeg"))
         .args([
             "-v",
             "error",
@@ -79,7 +79,7 @@ fn verify_timing(root: &Path, codec: &str, fps: u32) {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let probe = Command::new("ffprobe")
+    let probe = Command::new(crate::ffmpeg::binary("ffprobe"))
         .args([
             "-v",
             "error",

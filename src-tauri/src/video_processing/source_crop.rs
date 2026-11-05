@@ -138,7 +138,7 @@ mod decode_tests {
         std::fs::create_dir_all(&root).unwrap();
         let input = root.join("source.mkv");
         // RGB generation keeps the odd blue rectangle exact, without source chroma subsampling.
-        let result = Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i",
+        let result = Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i",
             "color=red:s=100x60:r=20:d=1,format=rgba,drawbox=x=33:y=11:w=31:h=25:color=blue:t=fill",
             "-c:v","ffv1"]).arg(&input).output().unwrap();
         assert!(result.status.success(),"{}",String::from_utf8_lossy(&result.stderr));
@@ -148,7 +148,7 @@ mod decode_tests {
         ])).unwrap();
         let plan = EditTimeline::build(&clips,0.0,750.0).unwrap();
         let crop = SourceCrop{x:0.33,y:11.0/60.0,width:0.31,height:25.0/60.0}.resolve(100,60).unwrap();
-        let result = Command::new("ffmpeg").args(video_decode_args_with_crop(&plan,&input,62,50,20,Some(crop))).output().unwrap();
+        let result = Command::new(crate::ffmpeg::binary("ffmpeg")).args(video_decode_args_with_crop(&plan,&input,62,50,20,Some(crop))).output().unwrap();
         assert!(result.status.success(),"{}",String::from_utf8_lossy(&result.stderr));
         assert_eq!(result.stdout.len(),15*62*50*4);
         for (index,frame) in result.stdout.chunks_exact(62*50*4).enumerate() {

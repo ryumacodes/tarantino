@@ -5,7 +5,7 @@ use super::{
 use std::process::Command;
 
 fn ffmpeg(args: &[&str]) -> Vec<u8> {
-    let output = Command::new("ffmpeg").args(args).output().unwrap();
+    let output = Command::new(crate::ffmpeg::binary("ffmpeg")).args(args).output().unwrap();
     assert!(
         output.status.success(),
         "{}",

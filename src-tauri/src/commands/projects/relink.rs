@@ -138,7 +138,7 @@ mod tests {
         let root=std::env::temp_dir().join(format!("relink-media-{}",uuid::Uuid::new_v4()));
         std::fs::create_dir_all(root.join("moved")).unwrap();
         let old=root.join("take.mp4");let moved=root.join("moved/take.mp4");
-        let status=std::process::Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i",
+        let status=std::process::Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i",
             "color=black:s=1280x720:r=30:d=5","-c:v","libx264","-pix_fmt","yuv420p","-y"])
             .arg(&old).status().unwrap();
         assert!(status.success());

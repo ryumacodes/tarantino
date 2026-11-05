@@ -128,7 +128,7 @@ impl PreparedAudio {
                 output.to_string_lossy().into_owned(),
             ]);
             control.check()?;
-            let child = super::resources::ExportChild::new(Command::new("ffmpeg").args(args)
+            let child = super::resources::ExportChild::new(Command::new(crate::ffmpeg::binary("ffmpeg")).args(args)
                 .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped()).spawn()?, control);
             let mut stderr = child.stderr().unwrap();
             let drain = std::thread::spawn(move || {

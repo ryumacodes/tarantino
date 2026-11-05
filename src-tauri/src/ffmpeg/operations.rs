@@ -15,7 +15,7 @@ pub fn build_command(operation: &FFmpegOperation) -> Result<AsyncCommand> {
             time_offset,
             width,
         } => {
-            let mut cmd = AsyncCommand::new("ffmpeg");
+            let mut cmd = AsyncCommand::new(crate::ffmpeg::binary("ffmpeg"));
             cmd.args(["-y"]); // Overwrite output
 
             // Explicitly disable hardware acceleration for thumbnails to prevent concurrency issues
@@ -48,7 +48,7 @@ pub fn build_command(operation: &FFmpegOperation) -> Result<AsyncCommand> {
         }
 
         FFmpegOperation::Probe { input } => {
-            let mut cmd = AsyncCommand::new("ffprobe");
+            let mut cmd = AsyncCommand::new(crate::ffmpeg::binary("ffprobe"));
             cmd.args([
                 "-v",
                 "quiet",
@@ -68,7 +68,7 @@ pub fn build_command(operation: &FFmpegOperation) -> Result<AsyncCommand> {
             output,
             config,
         } => {
-            let mut cmd = AsyncCommand::new("ffmpeg");
+            let mut cmd = AsyncCommand::new(crate::ffmpeg::binary("ffmpeg"));
             cmd.arg("-f").arg("avfoundation");
             cmd.arg("-framerate").arg(config.fps.to_string());
             cmd.arg("-capture_cursor").arg("0");
@@ -101,7 +101,7 @@ pub fn build_command(operation: &FFmpegOperation) -> Result<AsyncCommand> {
             settings: _,
         } => {
             // Simplified export for now
-            let mut cmd = AsyncCommand::new("ffmpeg");
+            let mut cmd = AsyncCommand::new(crate::ffmpeg::binary("ffmpeg"));
             cmd.args(["-y", "-i", input.to_string_lossy().as_ref()]);
             cmd.arg(output);
             cmd
@@ -112,7 +112,7 @@ pub fn build_command(operation: &FFmpegOperation) -> Result<AsyncCommand> {
             output,
             operations,
         } => {
-            let mut cmd = AsyncCommand::new("ffmpeg");
+            let mut cmd = AsyncCommand::new(crate::ffmpeg::binary("ffmpeg"));
             cmd.args(["-y"]);
 
             #[cfg(target_os = "macos")]
@@ -161,7 +161,7 @@ pub fn build_command_software_with_fallback_level(
             time_offset,
             width,
         } => {
-            let mut cmd = AsyncCommand::new("ffmpeg");
+            let mut cmd = AsyncCommand::new(crate::ffmpeg::binary("ffmpeg"));
             cmd.args(["-y"]); // Overwrite output
 
             // Explicitly disable hardware acceleration

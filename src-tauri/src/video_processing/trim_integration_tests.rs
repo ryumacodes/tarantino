@@ -9,7 +9,7 @@ use super::{
 use std::{path::Path, process::Command};
 
 fn run(args: &[String]) -> Vec<u8> {
-    let output = Command::new("ffmpeg").args(args).output().unwrap();
+    let output = Command::new(crate::ffmpeg::binary("ffmpeg")).args(args).output().unwrap();
     assert!(
         output.status.success(),
         "{}",
@@ -430,7 +430,7 @@ async fn verify_edited_export(format: &str, camera_changes: bool, cancel: bool) 
             .position(|b| b == b"NETSCAPE2.0")
             .expect("GIF loop extension");
         assert_eq!(&bytes[looping + 11..looping + 16], &[3, 1, 0, 0, 0]);
-        let probe = Command::new("ffprobe")
+        let probe = Command::new(crate::ffmpeg::binary("ffprobe"))
             .args(["-v", "error", "-show_streams", "-of", "json"])
             .arg(&output)
             .output()

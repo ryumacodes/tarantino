@@ -17,7 +17,7 @@ fn soundtrack_is_encoded_alone_mixed_or_separate_without_double_trimming(){
     std::fs::create_dir_all(&root).unwrap();
     let music=root.join("music.wav");let mic=root.join("mic.wav");
     for (path,hz,duration) in [(&music,880,1),(&mic,440,2)] {
-        run(Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i",&format!("sine=frequency={hz}:sample_rate=48000:duration={duration}"),"-c:a","pcm_f32le"]).arg(path));
+        run(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i",&format!("sine=frequency={hz}:sample_rate=48000:duration={duration}"),"-c:a","pcm_f32le"]).arg(path));
     }
     for with_mic in [false,true] {for dual in [false,true] {for volume in [0.5,0.0] {
         let prepared=PreparedBackgroundAudio::new(&root,&music,750.0,1000.0,volume,&ExportControl::default()).unwrap();
@@ -26,13 +26,13 @@ fn soundtrack_is_encoded_alone_mixed_or_separate_without_double_trimming(){
             "trim_start":750,"trim_end":1750,"audio_settings":{"dual_track":dual}})).unwrap();
         let path=root.join(format!("{with_mic}-{dual}-{volume}.mp4"));
         let args=encoder_args(&settings,&ExportAcceleration::Software,&tracks,&settings,(16,16),10,&path);
-        let mut child=Command::new("ffmpeg").args(args).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
+        let mut child=Command::new(crate::ffmpeg::binary("ffmpeg")).args(args).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
         child.stdin.take().unwrap().write_all(&vec![128;16*16*4*10]).unwrap();
         let output=child.wait_with_output().unwrap();assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
-        let probe:serde_json::Value=serde_json::from_slice(&run(Command::new("ffprobe").args(["-v","error","-select_streams","a","-show_streams","-of","json"]).arg(&path))).unwrap();
+        let probe:serde_json::Value=serde_json::from_slice(&run(Command::new(crate::ffmpeg::binary("ffprobe")).args(["-v","error","-select_streams","a","-show_streams","-of","json"]).arg(&path))).unwrap();
         let count=if with_mic && dual {2}else{1};assert_eq!(probe["streams"].as_array().unwrap().len(),count);
         for index in 0..count {
-            let bytes=run(Command::new("ffmpeg").args(["-v","error","-i"]).arg(&path).args(["-map",&format!("0:a:{index}"),"-ac","1","-ar","48000","-f","f32le","pipe:1"]));
+            let bytes=run(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-i"]).arg(&path).args(["-map",&format!("0:a:{index}"),"-ac","1","-ar","48000","-f","f32le","pipe:1"]));
             let samples:Vec<f32>=bytes.chunks_exact(4).map(|b|f32::from_le_bytes(b.try_into().unwrap())).collect();
             assert!((48000..=49024).contains(&samples.len()));
             let has_music=!with_mic || !dual || index==1;

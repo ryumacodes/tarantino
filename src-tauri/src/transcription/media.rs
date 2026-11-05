@@ -50,7 +50,7 @@ pub(crate) async fn prepare_audio(
         .context("The selected recording is missing")?;
     ensure!(source.is_file(), "Select a recording file");
     let mut prepared = PreparedAudio::create()?;
-    let mut command = Command::new("ffmpeg");
+    let mut command = Command::new(crate::ffmpeg::binary("ffmpeg"));
     command
         .args(["-nostdin", "-hide_banner", "-v", "error", "-n", "-i"])
         .arg(source)
@@ -121,7 +121,7 @@ mod tests {
     async fn extracts_selected_track_and_cleans_workspace() {
         let fixture = PreparedAudio::create().unwrap();
         let source = fixture.directory.join("two tracks.mkv");
-        let output = Command::new("ffmpeg")
+        let output = Command::new(crate::ffmpeg::binary("ffmpeg"))
             .args([
                 "-v",
                 "error",

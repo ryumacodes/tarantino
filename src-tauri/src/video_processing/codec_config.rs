@@ -146,7 +146,7 @@ fn verify_linux_encoder(
         "-".to_string(),
     ]);
 
-    let Ok(child) = Command::new("ffmpeg")
+    let Ok(child) = Command::new(crate::ffmpeg::binary("ffmpeg"))
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -179,7 +179,7 @@ fn verify_linux_encoder(
 #[cfg(target_os = "linux")]
 fn ffmpeg_encoder_list(control: &super::export_control::ExportControl) -> String {
     control
-        .output(Command::new("ffmpeg").args(["-hide_banner", "-encoders"]))
+        .output(Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-hide_banner", "-encoders"]))
         .ok()
         .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
         .unwrap_or_default()

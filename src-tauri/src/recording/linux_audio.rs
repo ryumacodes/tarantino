@@ -112,7 +112,7 @@ mod tests {
             pipeline.set_state(gst::State::Playing)?;
             super::super::wait_for_pipeline(&pipeline)?;
             pipeline.set_state(gst::State::Null)?;
-            let probe = std::process::Command::new("ffprobe")
+            let probe = std::process::Command::new(crate::ffmpeg::binary("ffprobe"))
                 .args([
                     "-v",
                     "error",

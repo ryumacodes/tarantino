@@ -1,5 +1,23 @@
 use super::{Detector, Sample, reader::Reader};
 
+#[test]
+#[ignore = "requires a local recording and hardware access"]
+fn measure_recording_analysis() {
+    let video = std::path::PathBuf::from(std::env::var("TARANTINO_HOVER_VIDEO").unwrap());
+    let sidecar = std::path::PathBuf::from(std::env::var("TARANTINO_HOVER_INPUT").unwrap());
+    let size: (u32, u32) = serde_json::from_str(&std::env::var("TARANTINO_HOVER_SIZE").unwrap()).unwrap();
+    let start = std::time::Instant::now();
+    let times = super::analysis::analyze(&video, &sidecar, size).unwrap();
+    let cold_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let start = std::time::Instant::now();
+    let cached = super::analysis::analyze(&video, &sidecar, size).unwrap();
+    let warm_ms = start.elapsed().as_secs_f64() * 1000.0;
+    assert!(std::sync::Arc::ptr_eq(&times, &cached));
+    let report = serde_json::json!({"cold_ms":cold_ms,"warm_ms":warm_ms,"times":*times});
+    std::fs::write(std::env::var("TARANTINO_HOVER_REPORT").unwrap(),
+        serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+}
+
 #[derive(serde::Deserialize)]
 struct Case {
     name: String,
@@ -53,10 +71,68 @@ fn native_reader_preserves_timestamps_and_hover_results() {
 #[test]
 fn copying_strided_planes_excludes_row_padding() {
     let data = [1, 2, 3, 99, 4, 5, 6, 99];
-    assert_eq!(
-        super::reader::copy_plane(data.as_ptr(), 4, 3, 2).unwrap(),
-        vec![1, 2, 3, 4, 5, 6]
-    );
+    let mut output = vec![42; 100];
+    let pointer = output.as_ptr();
+    super::reader::copy_plane(data.as_ptr(), 4, 3, 2, &mut output).unwrap();
+    assert_eq!(output, vec![1, 2, 3, 4, 5, 6]);
+    assert_eq!(output.as_ptr(), pointer);
+    super::reader::copy_plane(data.as_ptr(), 4, 2, 1, &mut output).unwrap();
+    assert_eq!(output, vec![1, 2]);
+    assert_eq!(output.as_ptr(), pointer);
+}
+
+#[test]
+#[ignore = "requires local video decode fixtures and hardware access"]
+fn range_decode_keeps_boundary_history_and_subsequent_source_frames() {
+    let path = std::env::var("TARANTINO_HOVER_VIDEO_FIXTURE").unwrap();
+    let cases: Vec<Case> = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    for case in cases {
+        let mut full = Reader::open(&case.video, case.width, case.height).unwrap();
+        let mut expected = Vec::new();
+        let mut predecessor = None;
+        while let Some(frame) = full.next().unwrap() {
+            if frame.time_ms < 431.0 {
+                predecessor = Some(frame);
+            } else if frame.time_ms <= 800.0 {
+                expected.push(frame);
+            }
+        }
+        if let Some(mut frame) = predecessor {
+            frame.time_ms = 431.0;
+            expected.insert(0, frame);
+        }
+        let mut ranged = Reader::open_range(&case.video, case.width, case.height, 431.0, 800.0).unwrap();
+        for expected in expected {
+            let actual = ranged.next().unwrap().unwrap();
+            assert_eq!(actual.time_ms, expected.time_ms, "{}", case.name);
+            assert_eq!(actual, expected, "{}", case.name);
+        }
+        assert!(ranged.next().unwrap().is_none(), "{}", case.name);
+        let mut beyond = Reader::open_range(&case.video, case.width, case.height, 10000.0, 11000.0).unwrap();
+        assert!(beyond.next().unwrap().is_none());
+    }
+}
+
+#[test]
+#[ignore = "requires local video decode fixtures and hardware access"]
+fn activity_ranges_match_full_video_detection() {
+    let path = std::env::var("TARANTINO_HOVER_VIDEO_FIXTURE").unwrap();
+    let cases: Vec<Case> = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    for case in cases {
+        for sparse in [false, true] {
+            let ranges = if sparse { super::spans::decode_spans(&case.samples) }
+                else { vec![[0.0, f64::INFINITY]] };
+            let mut detector = Detector::new(case.samples.clone(), case.clicks.clone(), 1.0).unwrap();
+            let mut changes = Vec::new();
+            for [start, end] in ranges {
+                let mut reader = Reader::open_range(&case.video, case.width, case.height, start, end).unwrap();
+                while let Some(frame) = reader.next_reusing(detector.take_recycled()).unwrap() {
+                    if let Some(time) = detector.push(frame).unwrap() { changes.push(time); }
+                }
+            }
+            assert_eq!(changes, case.expected, "{} sparse={sparse}", case.name);
+        }
+    }
 }
 
 #[test]
@@ -80,6 +156,15 @@ fn recording_analysis_reuses_results_and_invalidates_changed_input() {
         let bytes = serde_json::to_vec(&value).unwrap();
         std::fs::write(&sidecar, &bytes).unwrap();
         let size = (case.source_width, case.source_height);
+        let calls = std::cell::Cell::new(0);
+        let control = crate::video_processing::export_control::ExportControl::default();
+        let cancelled = super::analysis::analyze_with_check(&case.video, &sidecar, size, &|| {
+            calls.set(calls.get() + 1);
+            if calls.get() == 160 { control.cancel(); }
+            control.check()
+        });
+        assert_eq!(cancelled.unwrap_err().to_string(), crate::video_processing::export_control::CANCELLED);
+        assert_eq!(calls.get(), 160);
         let first = super::analysis::analyze(&case.video, &sidecar, size).unwrap();
         assert_eq!(*first, case.expected, "{}", case.name);
         let again = super::analysis::analyze(&case.video, &sidecar, size).unwrap();
@@ -145,6 +230,7 @@ async fn preview_and_shared_planner_use_detected_hover_constraints() {
         2000.0,
         &settings,
         spring,
+        None,
     )
     .unwrap()
     .unwrap();

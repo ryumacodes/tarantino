@@ -30,6 +30,22 @@ fn samples() -> Vec<Sample> {
 }
 
 #[test]
+fn recycling_keeps_the_settled_history_predecessor() {
+    let mut detector = Detector::new(samples(), vec![], 1.0).unwrap();
+    for time in [0.0, 10.0, 270.0] {
+        detector.push(frame(time, 80)).unwrap();
+        assert!(detector.take_recycled().is_none());
+    }
+    detector.push(frame(280.0, 80)).unwrap();
+    assert_eq!(detector.take_recycled().unwrap().time_ms, 0.0);
+    assert_eq!(detector.history.front().unwrap().time_ms, 10.0);
+    assert!(detector.take_recycled().is_none());
+    detector.push(frame(2000.0, 80)).unwrap();
+    assert_eq!(detector.take_recycled().unwrap().time_ms, 270.0);
+    assert_eq!(detector.history.front().unwrap().time_ms, 280.0);
+}
+
+#[test]
 fn settled_changes_respect_clicks_and_keep_bounded_history() {
     for (click, expected) in [
         (None, vec![600.0]),

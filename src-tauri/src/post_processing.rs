@@ -92,7 +92,7 @@ impl PostProcessor {
 
     /// Get video dimensions using FFprobe
     fn get_video_dimensions(&self, input_path: &Path) -> Result<(u32, u32)> {
-        let output = Command::new("ffprobe")
+        let output = Command::new(crate::ffmpeg::binary("ffprobe"))
             .args([
                 "-v",
                 "error",
@@ -153,7 +153,7 @@ impl PostProcessor {
             height,
         )?;
 
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = Command::new(crate::ffmpeg::binary("ffmpeg"));
         cmd.arg("-i")
             .arg(input_path)
             .arg("-filter_complex")
@@ -346,7 +346,7 @@ impl PostProcessor {
         let drawtext_filter = self.build_cursor_movement_filter(mouse_events, &cursor_path)?;
 
         // Apply cursor overlay with FFmpeg
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = Command::new(crate::ffmpeg::binary("ffmpeg"));
         cmd.arg("-i")
             .arg(input_path)
             .arg("-filter_complex")

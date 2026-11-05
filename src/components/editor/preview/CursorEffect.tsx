@@ -1,4 +1,5 @@
 import { isMacRuntime } from '../../../utils/platform';
+import { LatestTaskQueue } from '../../../utils/latestTaskQueue';
 import {RecordedCursor} from './RecordedCursor';
 import type {RecordedCursorData} from '../../../utils/motion/recordedCursor';
 import {CursorTile} from './CursorTile';
@@ -21,6 +22,13 @@ import { cursorFragmentShader } from './shaders/cursor.glsl';
 interface TrailPosition {
   x: number;
   y: number;
+}
+
+interface TrajectoryClock {
+  outputTime: boolean;
+  originMs: number;
+  segments?: number[][];
+  entryTimes?: number[];
 }
 
 function parseColor(hex: string): { r: number; g: number; b: number } {
@@ -178,7 +186,6 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
   const trimStart=useEditorStore(state=>state.trimStart);
   const trimEnd=useEditorStore(state=>state.trimEnd);
   const recordingPath=useEditorStore(state=>state.videoFilePath);
-  const trajectoryClock=useRef<{outputTime:boolean;originMs:number;segments?:number[][];entryTimes?:number[]}>({outputTime:false,originMs:0});
   const trajectoryDuration=useEditorStore(state=>state.duration);
   const cursorRotation=useEditorStore(state=>state.visualSettings.cursorRotation);
   const rotateWhileMoving=useEditorStore(state=>state.visualSettings.rotateCursorWhileMoving);
@@ -196,13 +203,21 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
   const cursorSpeedPreset = useEditorStore(state => state.visualSettings.cursorSpeedPreset);
   const spring = resolveCursorSpring({ cursorMotionStyle, cursorSpeedPreset });
 
-  const [trajectory, setTrajectory] = useState<number[][] | null>(null);
+  const trajectoryContext = useMemo(() => ({
+    sidecarPath, recordingPath, videoWidth, videoHeight, sourceCrop,
+    timelineClips, timelineTracks, trimStart, trimEnd, trajectoryDuration,
+  }), [sidecarPath, recordingPath, videoWidth, videoHeight, sourceCrop,
+    timelineClips, timelineTracks, trimStart, trimEnd, trajectoryDuration]);
+  const [trajectoryResult, setTrajectoryResult] = useState<{
+    context: typeof trajectoryContext; frames: number[][]; clock: TrajectoryClock;
+  } | null>(null);
+  const trajectory = trajectoryResult?.context === trajectoryContext ? trajectoryResult.frames : null;
+  const trajectoryQueue = useMemo(() => new LatestTaskQueue<string>(), []);
   const trailHistory = useRef<TrailPosition[]>([]);
   const priorTrajectory=useRef<number[][]|null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setTrajectory(null);trailHistory.current=[];
     const load = async () => {
       if (!sidecarPath) return;
 
@@ -216,7 +231,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
           recordingPath:store.videoFilePath,clips:timeline.timeline_clips,
           trimStart:timeline.trim_start,trimEnd:timeline.trim_end,
         }:null;
-        const result = await invoke<string>('compute_cursor_trajectory', {
+        const result = await trajectoryQueue.run(() => invoke<string>('compute_cursor_trajectory', {
           mouseJsonPath: sidecarPath,
           hover: recordingPath ? { recordingPath, enabled: isMacRuntime && followHover } : null,
           alwaysUsePointer,
@@ -237,29 +252,29 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
           springFriction: spring.friction,
           springMass: spring.mass,
           rotation:cursorRotation,rotateWhileMoving,rotationIntensity,edit,
-        });
+        }));
+
+        if (cancelled || result === undefined) return;
 
         const parsed=JSON.parse(result) as number[][]|{frames:number[][];outputTime:boolean;originMs:number;segments?:number[][]};
-        if (!cancelled) {
-          trajectoryClock.current=Array.isArray(parsed)?{outputTime:false,originMs:0}:parsed;
-          const frames=Array.isArray(parsed)?parsed:parsed.frames;
-          const spans=trajectoryClock.current.segments??[[0,frames.length*1000/CAMERA_SIMULATION_FPS]];
-          trajectoryClock.current.entryTimes=spans.map(([start,end])=>{
-            const last=Math.min(frames.length,Math.ceil(end*CAMERA_SIMULATION_FPS/1000));
-            for(let i=Math.ceil(start*CAMERA_SIMULATION_FPS/1000);i<last;i++) {
-              if(frames[i][2]>.01)return start+Math.floor((i*1000/CAMERA_SIMULATION_FPS-start)*CAMERA_SIMULATION_FPS/1000+1e-7)*1000/CAMERA_SIMULATION_FPS;
-            }
-            return Infinity;
-          });
-          setTrajectory(frames);
-        }
+        const clock: TrajectoryClock = Array.isArray(parsed)?{outputTime:false,originMs:0}:parsed;
+        const frames=Array.isArray(parsed)?parsed:parsed.frames;
+        const spans=clock.segments??[[0,frames.length*1000/CAMERA_SIMULATION_FPS]];
+        clock.entryTimes=spans.map(([start,end])=>{
+          const last=Math.min(frames.length,Math.ceil(end*CAMERA_SIMULATION_FPS/1000));
+          for(let i=Math.ceil(start*CAMERA_SIMULATION_FPS/1000);i<last;i++) {
+            if(frames[i][2]>.01)return start+Math.floor((i*1000/CAMERA_SIMULATION_FPS-start)*CAMERA_SIMULATION_FPS/1000+1e-7)*1000/CAMERA_SIMULATION_FPS;
+          }
+          return Infinity;
+        });
+        setTrajectoryResult({context: trajectoryContext, frames, clock});
       } catch (error) {
-        console.error('[CursorEffect] Failed to compute cursor trajectory:', error);
+        if (!cancelled) console.error('[CursorEffect] Failed to compute cursor trajectory:', error);
       }
     };
 
     load();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; trajectoryQueue.clearPending(); };
   }, [
     sidecarPath,trajectoryDuration,timelineClips,timelineTracks,trimStart,trimEnd,recordingPath,
     videoWidth,
@@ -272,6 +287,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     loopCursorPosition,
     cursorShakeThreshold, sourceCrop,
     spring.tension, spring.friction, spring.mass,cursorRotation,rotateWhileMoving,rotationIntensity,
+    trajectoryContext, trajectoryQueue,
   ]);
 
   useFrame(() => {
@@ -292,7 +308,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     // frame. Using one clock keeps cursor sampling, timeline, zoom, and export
     // on identical millisecond timestamps.
     const sample = previewSample(store, store.currentTime);
-    const clock=trajectoryClock.current;
+    const clock=trajectoryResult!.clock;
     const currentTime=clock.outputTime?store.currentTime-clock.originMs:sample.sourceTime;
     if (currentTime===null || (clock.outputTime && (currentTime<0 || currentTime*CAMERA_SIMULATION_FPS/1000>=trajectory.length))
       || sample.sourceTime === null || sample.hideCursor || vs.hideCursor) {

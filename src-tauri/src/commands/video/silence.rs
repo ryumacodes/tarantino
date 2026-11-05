@@ -36,7 +36,7 @@ mod tests{
         for right in ["-0.5","0","0.5"] {
             let path=std::env::temp_dir().join(format!("silence-stereo-{}.wav",uuid::Uuid::new_v4()));
             let expression=format!("aevalsrc=if(lt(n\\,1600)\\,0.5\\,0)|if(lt(n\\,1600)\\,{right}\\,0):s=8000:d=0.425");
-            let status=std::process::Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i",&expression,"-c:a","pcm_f32le"])
+            let status=std::process::Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i",&expression,"-c:a","pcm_f32le"])
                 .arg(&path).status().unwrap();assert!(status.success());
             let source=path.to_string_lossy().into_owned();
             let rms=waveform::extract_rms(&source,20).await.unwrap();
@@ -55,7 +55,7 @@ mod tests{
         assert!(detect_audio_silence("missing".into(),100.0,f64::NAN).await.is_err());
         if std::env::var_os("TARANTINO_TEST_FFMPEG").is_none(){return;}
         let path=std::env::temp_dir().join(format!("silence-{}.wav",uuid::Uuid::new_v4()));
-        let status=std::process::Command::new("ffmpeg").args(["-v","error","-f","lavfi","-i","aevalsrc=if(lt(n\\,8000)\\,0.5\\,if(lt(n\\,56000)\\,0\\,if(lt(n\\,60000)\\,0.5\\,0))):s=8000:d=12.525","-c:a","pcm_f32le"])
+        let status=std::process::Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i","aevalsrc=if(lt(n\\,8000)\\,0.5\\,if(lt(n\\,56000)\\,0\\,if(lt(n\\,60000)\\,0.5\\,0))):s=8000:d=12.525","-c:a","pcm_f32le"])
             .arg(&path).status().unwrap();assert!(status.success());
         let detected=detect_audio_silence(path.to_string_lossy().into_owned(),5000.0,0.1).await.unwrap();
         std::fs::remove_file(path).unwrap();

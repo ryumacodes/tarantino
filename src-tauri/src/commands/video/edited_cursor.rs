@@ -26,7 +26,7 @@ pub(super) fn prepare_with_input(request:&EditedCursorRequest,events:&[CursorEve
     let plan=crate::video_processing::export::timeline_support::cursor_plan(&export,plan.as_ref()).map_err(|error|error.to_string())?;
     let Some(plan)=plan else {return Ok(None);};
     let planned=input.map(|(path,size,crop)|crate::cursor_renderer::planner::runtime::prepare(path,size,crop,Some(&plan),
-        std::path::Path::new(&request.recording_path),duration as f64,settings,*spring)).transpose().map_err(|e|e.to_string())?.flatten();
+        std::path::Path::new(&request.recording_path),duration as f64,settings,*spring,None)).transpose().map_err(|e|e.to_string())?.flatten();
     let frames=crate::cursor_renderer::edited_simulation::simulate_with_planned_path(events,physical,&plan,&request.recording_path,
         spring,settings,&None,fps as f64,activity,planned.as_ref(),60.0);
     let frames=frames.iter().map(|p|[p.x,p.y,p.opacity,p.is_clicking,p.ripple_progress,p.ripple_x,p.ripple_y,p.rotation,p.fade_blur_radius,p.press_amount]).collect::<Vec<_>>();

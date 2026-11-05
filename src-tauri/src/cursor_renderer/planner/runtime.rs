@@ -31,7 +31,10 @@ pub fn prepare(
     duration: f64,
     settings: &CursorSettings,
     spring: SpringConfig,
+    check: Option<&dyn Fn() -> Result<()>>,
 ) -> Result<Option<Prepared>> {
+    let check = || check.map_or(Ok(()), |check| check());
+    check()?;
     if !sidecar.exists() {
         return Ok(None);
     }
@@ -40,7 +43,7 @@ pub fn prepare(
             !settings.always_use_pointer.unwrap_or(false), settings.optimize_cursor_types.unwrap_or(true))?;
     #[cfg(target_os = "macos")]
     if spring.mass > 0.0 && settings.follow_hover.unwrap_or(false) {
-        let times = crate::cursor_renderer::hover::analysis::analyze(recording, sidecar, size)?;
+        let times = crate::cursor_renderer::hover::analysis::analyze_with_check(recording, sidecar, size, &check)?;
         input.sync.extend(times.iter().map(|&time_ms| super::activity::SyncPoint { time_ms, tolerance: 4.0 }));
         input.sync.sort_by(|a, b| a.time_ms.total_cmp(&b.time_ms));
     }
@@ -156,6 +159,7 @@ mod tests {
             1000.0,
             &settings,
             spring,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -202,6 +206,7 @@ mod tests {
             1000.0,
             &loop_settings,
             spring,
+            None,
         )
         .unwrap()
         .unwrap();
@@ -212,7 +217,7 @@ mod tests {
             "trackOrder":0,"muted":false})).unwrap();
         let timeline=EditTimeline::build(&[clip],0.0,200.0).unwrap();
         let trimmed=prepare(&sidecar,(2000,1000),None,Some(&timeline),&sidecar,1000.0,
-            &settings,spring).unwrap().unwrap();
+            &settings,spring,None).unwrap().unwrap();
         assert!(!trimmed.pressed_at_source(0.0,true));
         assert!(!trimmed.pressed_at_source(399.0,true));
         std::fs::remove_file(sidecar).unwrap();

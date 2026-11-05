@@ -5,7 +5,7 @@ use super::{
 };
 use std::process::Command;
 fn ffmpeg(args: &[&str]) -> Vec<u8> {
-    let result = Command::new("ffmpeg").args(args).output().unwrap();
+    let result = Command::new(crate::ffmpeg::binary("ffmpeg")).args(args).output().unwrap();
     assert!(
         result.status.success(),
         "{}",
@@ -130,7 +130,7 @@ async fn validate_edited_export(
             }
         }
     }
-    let probe = Command::new("ffprobe")
+    let probe = Command::new(crate::ffmpeg::binary("ffprobe"))
         .args([
             "-v",
             "error",

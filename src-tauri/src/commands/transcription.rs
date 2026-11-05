@@ -197,7 +197,7 @@ mod tests {
         }
         let _cleanup = Cleanup(directory.clone());
         let source = directory.join("recording.mkv");
-        let output = tokio::process::Command::new("ffmpeg")
+        let output = tokio::process::Command::new(crate::ffmpeg::binary("ffmpeg"))
             .args([
                 "-v",
                 "error",
@@ -226,7 +226,7 @@ mod tests {
             .unwrap();
         assert!(output.status.success());
         let artifacts = crate::recording::artifacts::RecordingArtifacts::new(&source);
-        let output = tokio::process::Command::new("ffmpeg")
+        let output = tokio::process::Command::new(crate::ffmpeg::binary("ffmpeg"))
             .args(["-v", "error", "-i"])
             .arg(&source)
             .args(["-map", "0:a:0"])

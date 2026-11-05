@@ -23,7 +23,7 @@ pub async fn wait_for_file_ready(path: &Path, max_wait: tokio::time::Duration) -
                 }
 
                 if last_probe_attempt.elapsed() >= tokio::time::Duration::from_millis(500) {
-                    let probe_result = tokio::process::Command::new("ffprobe")
+                    let probe_result = tokio::process::Command::new(crate::ffmpeg::binary("ffprobe"))
                         .args([
                             "-v",
                             "error",
@@ -91,7 +91,7 @@ pub fn validate_video_file(path: &str) -> Result<bool> {
     }
 
     // Try to probe the file with ffprobe
-    let probe_result = Command::new("ffprobe")
+    let probe_result = Command::new(crate::ffmpeg::binary("ffprobe"))
         .args([
             "-v",
             "error",

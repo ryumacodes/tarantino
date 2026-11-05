@@ -6,6 +6,8 @@
 //! - Automatic hardware acceleration fallback
 //! - Statistics tracking
 
+mod binary;
+pub use binary::binary;
 pub mod operations;
 pub mod types;
 
