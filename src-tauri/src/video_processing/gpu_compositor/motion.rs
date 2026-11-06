@@ -73,7 +73,7 @@ pub(super) fn window_rect(camera:&ZoomFrameState, config:&super::GpuCompositorCo
             (height*config.input_height as f64) as f32,
         ];
     }
-    let (scale,x,y)=pose(camera,true);
+    let (scale,x,y)=pose(camera,config.window_mode);
     let w=config.input_width as f64;let h=config.input_height as f64;
     [(config.content_offset_x+config.input_offset_x) as f32+((0.5+x)*w) as f32,
      (config.content_offset_y+config.input_offset_y) as f32+((0.5-y)*h) as f32,
@@ -83,7 +83,7 @@ pub(super) fn window_rect(camera:&ZoomFrameState, config:&super::GpuCompositorCo
 pub(super) fn shutter_rect(now:&ZoomFrameState,previous:Option<&ZoomFrameState>,
     config:&super::GpuCompositorConfig)->([f32;4],[f32;4]) {
     let current=window_rect(now,config);
-    let Some(previous)=previous.filter(|_|config.window_mode && config.motion_blur_enabled) else {
+    let Some(previous)=previous.filter(|_|config.motion_blur_enabled) else {
         return (current,current);
     };
     let old=window_rect(previous,config);

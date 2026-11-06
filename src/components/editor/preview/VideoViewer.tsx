@@ -1,3 +1,4 @@
+import { sourceTextureTransform } from '../../../utils/motion/sourceTextureTransform';
 import {MaskBoundsEditor} from './MaskBoundsEditor';
 import type {PreviewCameraMotion} from '../../../utils/motion/cursorShutter';
 import {continuousPreviewMotion,type PreviewMotionSample} from '../../../utils/motion/previewContinuity';
@@ -193,7 +194,7 @@ export const VideoViewer = React.memo(function VideoViewer({
 
   const temporalFrame=():TemporalWindowFrame|null=>{
     const shutter=shutterRef.current,material=meshRef.current?.material;
-    if(captureMode!=='window'||!visualSettings.motionBlurEnabled||!shutter?.active||linuxNativeOverlayEnabled
+    if(!visualSettings.motionBlurEnabled||!shutter?.active||linuxNativeOverlayEnabled
       ||!(material instanceof THREE.MeshBasicMaterial)||!material.map
       ||(visualSettings.shadowEnabled&&!shadowTextureRef.current))return null;
     const {width,height,pixelsPerUnit}=renderSize.current;
@@ -201,13 +202,18 @@ export const VideoViewer = React.memo(function VideoViewer({
     const contentWidth=output.width-2*contentInset(output.width,output.height,visualSettings.padding);
     const contentHeight=output.height-2*contentInset(output.width,output.height,visualSettings.padding);
     const radius=visualSettings.cornerRadius>0?Math.max(1,Math.min(contentWidth,contentHeight)*visualSettings.cornerRadius/200):0;
-    return {width,height,input:{source:material.map,mask:nativeMaskRef.current??whiteMask,
+    const fixedDisplay=captureMode!=='window';
+    const view=displayViewRef.current;
+    const sourceTransform=fixedDisplay?sourceTextureTransform(material.map.matrix,view):material.map.matrix;
+    const sourceScaleX=material.map.repeat.x/(fixedDisplay?view.width:1);
+    const sourceScaleY=material.map.repeat.y/(fixedDisplay?view.height:1);
+    return {width,height,input:{fixedDisplay,source:material.map,mask:nativeMaskRef.current??whiteMask,
       shadow:shadowTextureRef.current??whiteMask,before:shutter.before,now:shutter.now,
       inputSize:[inputWidth,inputHeight],baseCenter:[width/2,height/2],
-      sourceSize:[(material.map.isRenderTargetTexture?(material.map.image as {width:number}).width:originalSource.width)*material.map.repeat.x,
-        (material.map.isRenderTargetTexture?(material.map.image as {height:number}).height:originalSource.height)*material.map.repeat.y],
+      sourceSize:[(material.map.isRenderTargetTexture?(material.map.image as {width:number}).width:originalSource.width)*sourceScaleX,
+        (material.map.isRenderTargetTexture?(material.map.image as {height:number}).height:originalSource.height)*sourceScaleY],
       cornerRadius:radius*width/output.width,hasNativeMask:!!nativeMaskRef.current,
-      shadowEnabled:visualSettings.shadowEnabled,sourceTransform:material.map.matrix,
+      shadowEnabled:visualSettings.shadowEnabled,sourceTransform,
       maskTransform:nativeMaskRef.current?.matrix}};
   };
 

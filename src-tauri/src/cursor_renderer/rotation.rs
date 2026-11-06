@@ -14,6 +14,16 @@ pub(crate) struct RotationKey {
     pub degrees: f64,
 }
 
+pub(crate) fn retimed_points(points: &[MotionPoint], target_time: impl Fn(f64) -> f64) -> Vec<MotionPoint> {
+    let mut drawn = Vec::with_capacity(points.len() + 1);
+    if let Some(first) = points.first() { drawn.push(*first); }
+    drawn.extend(points.iter().map(|point| MotionPoint {
+        time_ms: target_time(point.time_ms), ..*point
+    }));
+    drawn.sort_by(|a, b| a.time_ms.total_cmp(&b.time_ms));
+    drawn
+}
+
 pub(crate) fn sample(keys: &[RotationKey], time_ms: f64) -> f64 {
     let right = keys.partition_point(|key| key.time_ms <= time_ms);
     if right == 0 { return keys.first().map_or(0.0, |key| key.degrees); }
@@ -98,6 +108,18 @@ pub(crate) fn horizontal_tilt(points: &[MotionPoint], ratio: f64) -> Vec<Rotatio
 mod tests {
     use super::*;
     fn point(time_ms:f64,x:f64,y:f64)->MotionPoint {MotionPoint{time_ms,x,y}}
+    #[test]
+    fn anticipated_events_shift_rotation_targets_with_the_drawn_path() {
+        let points = (0..200).map(|i| point(i as f64 * 10.0,
+            if i < 60 { i as f64 * 10.0 } else { 600.0 - (i - 60) as f64 * 4.0 }, 100.0))
+            .collect::<Vec<_>>();
+        let keys = horizontal_tilt(&retimed_points(&points, |time| time - 120.0), 1.0);
+        for (time, expected) in [(0.0, 11.328726219244055), (500.0, 9.173945154824779),
+            (750.0, -3.060041605057827), (1000.0, -4.5805704885703555), (1500.0, -4.772155165492189)] {
+            assert!((sample(&keys, time) - expected).abs() < 1e-9);
+        }
+    }
+
     #[test]
     fn constant_pixel_speed_has_defined_gain_and_saturation() {
         for (speed,ratio,expected) in [(1.0,1.0,12.0),(-1.0,0.5,-6.0),(3.0,1.0,20.0)] {

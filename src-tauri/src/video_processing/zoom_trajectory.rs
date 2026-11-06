@@ -30,8 +30,13 @@ impl ZoomFrameState {
             (Some(a),Some(b)) => Some(std::array::from_fn(|i|lerp(a[i],b[i]))),
             _ => None,
         };
-        Self { rect, scale:lerp(self.scale,next.scale),
-            center_x:lerp(self.center_x,next.center_x),center_y:lerp(self.center_y,next.center_y) }
+        let (center_x,center_y) = match (self.rect,next.rect,rect) {
+            (Some(a),Some(b),Some(r)) => (
+                (lerp(a[0]+self.center_x*a[2],b[0]+next.center_x*b[2])-r[0])/r[2],
+                (lerp(a[1]+self.center_y*a[3],b[1]+next.center_y*b[3])-r[1])/r[3]),
+            _ => (lerp(self.center_x,next.center_x),lerp(self.center_y,next.center_y)),
+        };
+        Self { rect, scale:lerp(self.scale,next.scale),center_x,center_y }
     }
 
     pub(crate) fn from_sample(value: [f64; 7]) -> Self {
@@ -308,7 +313,7 @@ fn simulate_zoom_steps(
             prev_block_idx = None;
         }
 
-        if unified_screen_motion && window_mode {
+        if unified_screen_motion {
             let source = viewport.source;
             let target = source.zoom_to(viewport.zoom_area,(target_center_x,target_center_y),target_scale,None);
             let motion = rectangle_motion.get_or_insert_with(|| rectangle::RectMotion::new(target));

@@ -561,13 +561,15 @@ pub async fn compute_cursor_trajectory(
                 return Ok(result);
             }
         }
+        let recording = hover.as_ref().map_or(path, |request| Path::new(&request.recording_path));
+        let planned=crate::cursor_renderer::planner::runtime::prepare(path,(video_width,video_height),source_crop,None,recording,
+            duration_ms as f64,&settings,spring,None).map_err(|e|e.to_string())?;
+        let rotation_points = crate::cursor_renderer::rotation::retimed_points(&rotation_points,
+            |time| planned.as_ref().map_or(time, |plan| plan.target_time_of(time)));
         let rotation_points = if loop_cursor_position {
             crate::cursor_renderer::loop_path::rotation_points(&rotation_points,duration_ms,500)
         } else {rotation_points};
         let rotation_keys = crate::cursor_renderer::rotation::horizontal_tilt(&rotation_points,rotation_intensity.unwrap_or(30.0)/100.0);
-        let recording = hover.as_ref().map_or(path, |request| Path::new(&request.recording_path));
-        let planned=crate::cursor_renderer::planner::runtime::prepare(path,(video_width,video_height),source_crop,None,recording,
-            duration_ms as f64,&settings,spring,None).map_err(|e|e.to_string())?;
         let position=|time|planned.as_ref().unwrap().at(time);
         let pressed=|time|planned.as_ref().unwrap().pressed_at_source(time,spring.mass!=0.0);
         let frames = simulate_cursor_frames_from(

@@ -92,12 +92,14 @@ fn moving_window_edges_have_temporal_coverage_and_keep_straight_color() {
 fn temporal_shadow_follows_segment_geometry_without_double_composition() {
     let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
         "resolution":{"width":128,"height":128},"frame_rate":60,
-        "visual_settings":{"padding":25,"corner_radius":8,"shadow_enabled":true}
+        "visual_settings":{"padding":50,"corner_radius":8,"shadow_enabled":true}
     })).unwrap();
     let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
     config.window_mode=true;config.background_color=[0.0;4];
     config.shadow_enabled=true;config.shadow_blur=8.0;config.shadow_intensity=0.65;config.shadow_offset_y=20.0;
     config.motion_blur_enabled=true;config.motion_blur_pan_intensity=1.0;config.motion_blur_zoom_intensity=1.0;
+    assert_eq!((config.input_width,config.input_height),(64,64));
+    assert!(64.0+config.input_height as f64*1.4/2.0<118.0);
     let source=vec![0u8;(config.input_width*config.input_height*4) as usize];
     let opaque=[255u8,255,255,255].repeat((config.input_width*config.input_height) as usize);
     let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
@@ -125,4 +127,33 @@ fn temporal_shadow_follows_segment_geometry_without_double_composition() {
     let covered=compositor.composite_frame(&opaque,&now,None).unwrap();
     assert_eq!(&covered[(64*128+64)*4..(64*128+64)*4+4],&[255,255,255,255],"shadow must stay behind opaque content");
     assert_eq!(latest,compositor.composite_frame(&source,&now,None).unwrap(),"stationary shadow returns to exact baseline");
+}
+
+#[test]
+#[ignore="native GPU; display blur must sample earlier camera poses inside a fixed clip"]
+fn display_pan_samples_the_trailing_camera_without_blurring_the_frame() {
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":160,"height":160},"capture_mode":"display","frame_rate":60,
+        "visual_settings":{"padding":12.5,"corner_radius":0,"shadow_enabled":false}
+    })).unwrap();
+    let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+    assert_eq!((config.input_width,config.input_height),(128,128));
+    config.background_color=[0.0;4];config.motion_blur_enabled=true;
+    config.motion_blur_pan_intensity=0.2;config.motion_blur_zoom_intensity=0.0;
+    let source:Vec<u8>=(0..128).flat_map(|_|(0..128).flat_map(|x|[x*2,0,0,255])).collect();
+    let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
+    let before=ZoomFrameState{rect:Some([-0.1,-0.5,2.0,2.0]),scale:2.0,center_x:0.3,center_y:0.5};
+    let now=ZoomFrameState{rect:Some([-0.9,-0.5,2.0,2.0]),scale:2.0,center_x:0.7,center_y:0.5};
+    let still=compositor.composite_frame(&source,&now,None).unwrap();
+    compositor.reset_motion_history();
+    compositor.composite_frame(&source,&before,None).unwrap();
+    let moving=compositor.composite_frame(&source,&now,None).unwrap();
+    let center=(80*160+80)*4;
+    // The shutter covers source x=.62..=.70; its midpoint is .66.
+    assert!((moving[center] as i32-168).abs()<=2,"trailing sample {}",moving[center]);
+    assert!(still[center]>moving[center]+7);
+    assert_eq!(moving[(80*160+15)*4+3],0);
+    assert_eq!(moving[(80*160+16)*4+3],255);
+    compositor.reset_motion_history();
+    assert_eq!(still,compositor.composite_frame(&source,&now,None).unwrap());
 }

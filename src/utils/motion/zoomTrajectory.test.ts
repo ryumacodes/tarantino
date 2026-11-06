@@ -62,6 +62,21 @@ it('interpolates every rectangle component at trimmed and speed-adjusted source 
   for (const time of [1, 3.125, 6.25]) {
     const fraction = time * 120 / 1000;
     const expected = frames[0].map((value, i) => value! + (frames[1][i]! - value!) * fraction);
-    expect(sampleCameraFrame(frames, time)).toEqual(expected);
+    const actual = sampleCameraFrame(frames, time);
+    expect(actual.slice(3)).toEqual(expected.slice(3));
+    expect(actual[0]).toBe(expected[0]);
+    for (const [center, origin, extent] of [[1, 3, 5], [2, 4, 6]]) {
+      const anchor = frames.map(frame => frame[origin]! + frame[center]! * frame[extent]!);
+      expect(actual[origin]! + actual[center]! * actual[extent]!).toBeCloseTo(anchor[0] + (anchor[1] - anchor[0]) * fraction, 12);
+    }
   }
+});
+
+it('interpolates display camera geometry before deriving its crop center', () => {
+  const frames: CameraFrame[] = [[1, .5, .5, 0, 0, 1, 1], [2, .75, .75, -1, -1, 2, 2]];
+  const frame = sampleCameraFrame(frames, 1000 / 240);
+  expect(frame[0]).toBe(1.5);
+  expect(frame[1]).toBeCloseTo(2 / 3, 12);
+  expect(frame[2]).toBeCloseTo(2 / 3, 12);
+  frame.slice(3).forEach((value, index) => expect(value).toBeCloseTo([-.5, -.5, 1.5, 1.5][index], 12));
 });

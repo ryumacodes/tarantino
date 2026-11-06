@@ -21,8 +21,10 @@ export function sampleCameraFrame(frames: readonly CameraFrame[], timeMs: number
   if (fraction === 0) return current;
   const lerp = (a: number, b: number) => a + (b - a) * fraction;
   const result: CameraFrame = [lerp(current[0], next[0]), lerp(current[1], next[1]), lerp(current[2], next[2])];
-  if (current.length === 7 && next.length === 7) {
+  if (current[5]! > 0 && current[6]! > 0 && next[5]! > 0 && next[6]! > 0) {
     for (let i = 3; i < 7; i++) result[i] = lerp(current[i]!, next[i]!);
+    result[1] = (lerp(current[3]! + current[1] * current[5]!, next[3]! + next[1] * next[5]!) - result[3]!) / result[5]!;
+    result[2] = (lerp(current[4]! + current[2] * current[6]!, next[4]! + next[2] * next[6]!) - result[4]!) / result[6]!;
   }
   return result;
 }

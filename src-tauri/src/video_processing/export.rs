@@ -228,6 +228,8 @@ pub async fn export_video(
             crate::cursor_renderer::edited_simulation::simulate_with_planned_path(&raw_events,&rotation_points,plan,
                 &input_path.to_string_lossy(),&cursor_spring,&cursor_config,cursor_zoom_ref,target_fps as f64,Some(&activity),planned.as_ref(),target_fps as f64)
         } else {
+            let rotation_points = crate::cursor_renderer::rotation::retimed_points(&rotation_points,
+                |time| planned.as_ref().map_or(time, |plan| plan.target_time_of(time)));
             let rotation_points = if cursor_config.loop_to_start.unwrap_or(false) {
                 crate::cursor_renderer::loop_path::rotation_points(&rotation_points,duration_ms,cursor_config.loop_duration_ms.unwrap_or(500))
             } else {rotation_points};

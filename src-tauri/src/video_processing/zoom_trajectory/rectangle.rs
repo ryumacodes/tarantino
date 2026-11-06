@@ -77,11 +77,22 @@ mod tests {
         assert!(!cases.is_empty());
         for case in cases {
             let config=SpringConfig{tension:case.config.tension,friction:case.config.friction,mass:case.config.mass};
-            let frames=super::super::simulate_zoom_trajectory(&case.blocks,&[],&config,true,"focused",60.0,3001,true);
-            assert_eq!(frames.len(),case.samples.len());
-            for (index,(frame,expected)) in frames.iter().zip(case.samples).enumerate() {
-                for (actual,expected) in frame.rect.unwrap().into_iter().zip(expected) {
-                    assert!((actual-expected).abs()<1e-9,"frame {index}: {actual} != {expected}");
+            for window in [true, false] {
+                for fps in [24.0,60.0,120.0,144.0] {
+                    let frames=super::super::simulate_zoom_trajectory(&case.blocks,&[],&config,true,"focused",fps,3000,window);
+                    for (index,frame) in frames.iter().enumerate() {
+                        let position=index as f64*60.0/fps;
+                        let lower=position.floor() as usize;
+                        let fraction=position-lower as f64;
+                        let expected:[f64;4]=std::array::from_fn(|i|case.samples[lower][i]
+                            +(case.samples[lower+1][i]-case.samples[lower][i])*fraction);
+                        let rect=if window {frame.rect.unwrap()} else {
+                            [0.5-frame.center_x*frame.scale,0.5-frame.center_y*frame.scale,frame.scale,frame.scale]
+                        };
+                        for (actual,expected) in rect.into_iter().zip(expected) {
+                            assert!((actual-expected).abs()<1e-9,"window={window} {fps}fps frame {index}: {actual} != {expected}");
+                        }
+                    }
                 }
             }
         }

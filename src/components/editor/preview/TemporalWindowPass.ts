@@ -6,6 +6,7 @@ import { temporalWindowShader } from './shaders/temporalWindow.glsl';
 
 export interface TemporalWindowInputs {
   source: Texture;
+  fixedDisplay?: boolean;
   mask: Texture;
   shadow: Texture;
   /** All rectangles/positions are in top-left output pixels; rectangles are center + size. */
@@ -36,7 +37,7 @@ export class TemporalWindowPass {
       sourceTransform:{value:new Matrix3()},maskTransform:{value:new Matrix3()},
       outputSize:{value:new Vector2()},inputSize:{value:new Vector2()},baseCenter:{value:new Vector2()},sourceSize:{value:new Vector2()},
       shutterStart:{value:new Vector4()},shutterNow:{value:new Vector4()},
-      cornerRadius:{value:0},hasNativeMask:{value:0},shadowEnabled:{value:0},
+      fixedDisplay:{value:0},cornerRadius:{value:0},hasNativeMask:{value:0},shadowEnabled:{value:0},
     },
   });
 
@@ -53,6 +54,7 @@ export class TemporalWindowPass {
     u.outputSize.value.set(width,height);u.inputSize.value.set(...input.inputSize);
     u.baseCenter.value.set(...input.baseCenter);u.sourceSize.value.set(...input.sourceSize);
     u.shutterStart.value.set(...input.before);u.shutterNow.value.set(...input.now);
+    u.fixedDisplay.value=Number(input.fixedDisplay??false);
     u.cornerRadius.value=input.cornerRadius;u.hasNativeMask.value=Number(input.hasNativeMask);u.shadowEnabled.value=Number(input.shadowEnabled);
     u.sourceTransform.value.identity();u.maskTransform.value.identity();
     if(input.sourceTransform) u.sourceTransform.value.copy(input.sourceTransform);

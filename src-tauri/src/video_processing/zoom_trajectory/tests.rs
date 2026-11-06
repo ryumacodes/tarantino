@@ -567,13 +567,50 @@ fn fractional_camera_sampling_preserves_rectangle_at_trimmed_source_times() {
     ];
     for time in [1.0, 3.125, 6.25] {
         let actual = super::sample_camera_frame(&frames, time).unwrap().sample();
-        for (i, value) in actual.into_iter().enumerate() {
+        for i in [0,3,4,5,6] {
+            let value = actual[i];
             let expected = frames[0].sample()[i]
                 + (frames[1].sample()[i] - frames[0].sample()[i]) * time * 120.0 / 1000.0;
             assert!((value - expected).abs() < 1e-12);
+        }
+        for (center,origin,extent) in [(1,3,5),(2,4,6)] {
+            let anchor=frames.each_ref().map(|frame| {
+                let sample=frame.sample(); sample[origin]+sample[center]*sample[extent]
+            });
+            let expected=anchor[0]+(anchor[1]-anchor[0])*time*120.0/1000.0;
+            assert!((actual[origin]+actual[center]*actual[extent]-expected).abs()<1e-12);
         }
     }
     assert_eq!(super::sample_camera_frame(&frames, -1.0).unwrap().sample(), frames[0].sample());
     assert_eq!(super::sample_camera_frame(&frames, 1000.0).unwrap().sample(), frames[1].sample());
     assert!(super::sample_camera_frame(&[], 1.0).is_none());
+}
+
+#[test]
+fn display_zoom_uses_rectangle_motion_for_off_center_transitions() {
+    let config = SpringConfig { tension:250.0,friction:40.0,mass:2.25 };
+    let block: ZoomBlock = serde_json::from_value(serde_json::json!({
+        "start_time_ms":300,"end_time_ms":699,"zoom_level":2,
+        "center_x":1,"center_y":1,"is_manual":true
+    })).unwrap();
+    let frames=simulate_zoom_trajectory(&[block],&[],&config,true,"focused",60.0,1000,false);
+    let frame=&frames[32];
+    assert!(frame.rect.is_some());
+    assert!((0.5-frame.center_x*frame.scale-(-0.8050778465083411)).abs()<1e-9);
+    assert!((0.5-frame.center_y*frame.scale-(-0.8050778465083411)).abs()<1e-9);
+}
+
+#[test]
+fn display_transport_preserves_rectangle_geometry_between_style_steps() {
+    let config = SpringConfig { tension:250.0,friction:40.0,mass:2.25 };
+    let block: ZoomBlock = serde_json::from_value(serde_json::json!({
+        "start_time_ms":300,"end_time_ms":699,"zoom_level":2,
+        "center_x":1,"center_y":1,"is_manual":true
+    })).unwrap();
+    let frames=simulate_zoom_trajectory(&[block],&[],&config,true,"focused",120.0,1000,false);
+    let frame=&frames[43];
+    assert!((0.5-frame.center_x*frame.scale-(-0.19757373352986746)).abs()<1e-9);
+    let sampled=sample_camera_frame(&frames,360.0).unwrap();
+    let rect=sampled.rect.unwrap();
+    assert!((0.5-sampled.center_x*sampled.scale-rect[0]).abs()<1e-12);
 }

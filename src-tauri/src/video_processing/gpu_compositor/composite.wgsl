@@ -157,35 +157,24 @@ fn background_at(px: vec2<f32>) -> vec4<f32> {
     return gradient_color((uv.x + uv.y) * 0.5);
 }
 
-// Sample with motion blur (directional + radial blur)
+// Sample the source along the camera shutter while retaining the display clip.
 fn sample_with_motion_blur(uv: vec2<f32>) -> vec4<f32> {
-    if (u.motion_blur_enabled < 0.5) {
-        return sample_zoomed(uv);
+    if (!window_temporal_active()) { return sample_zoomed(uv); }
+    let size=vec2<f32>(u.input_width,u.input_height);
+    let pixel=vec2<f32>(u.content_offset_x+u.input_offset_x,u.content_offset_y+u.input_offset_y)+uv*size;
+    let before=window_shutter_start();let now=window_shutter_now();
+    let a=(pixel-before.xy)/before.zw+vec2<f32>(0.5);
+    let b=(pixel-now.xy)/now.zw+vec2<f32>(0.5);
+    let travel=length((b-a)*vec2<f32>(textureDimensions(source_tex)));
+    let count=i32(clamp(ceil(travel/4.0),1.0,16.0));
+    var color=vec4<f32>(0.0);
+    for (var tap=0;tap<count;tap=tap+1) {
+        let pos=clamp(mix(a,b,(f32(tap)+0.5)/f32(count)),vec2<f32>(0.0),vec2<f32>(1.0));
+        let value=textureSampleLevel(source_tex,bilinear_sampler,pos,0.0);
+        color=color+vec4<f32>(value.rgb*value.rgb*value.a,value.a)/f32(count);
     }
-    let pan_speed = sqrt(u.velocity_x * u.velocity_x + u.velocity_y * u.velocity_y);
-    let pan_blur = min(pan_speed * u.motion_blur_pan_intensity * 0.008, 0.012);
-    let zoom_speed = abs(u.velocity_scale);
-    let zoom_blur = min(zoom_speed * u.motion_blur_zoom_intensity * 0.006, 0.008);
-    if (pan_blur < 0.001 && zoom_blur < 0.001) {
-        return sample_zoomed(uv);
-    }
-    var pan_dir = vec2<f32>(u.velocity_x, u.velocity_y);
-    let dir_mag = length(pan_dir);
-    if (dir_mag > 0.001) { pan_dir = pan_dir / dir_mag; } else { pan_dir = vec2<f32>(0.0); }
-    var color = vec4<f32>(0.0);
-    var total_weight = 0.0;
-    let samples = 12;
-    for (var i = 0; i < samples; i = i + 1) {
-        let t = f32(i) / f32(samples - 1) - 0.5;
-        let weight = 1.0 - abs(t) * 0.5;
-        var offset = pan_dir * pan_blur * t;
-        let from_center = uv - vec2<f32>(0.5);
-        offset = offset + from_center * zoom_blur * t;
-        let sample_uv = clamp(uv + offset, vec2<f32>(0.0), vec2<f32>(1.0));
-        color = color + sample_zoomed(sample_uv) * weight;
-        total_weight = total_weight + weight;
-    }
-    return color / total_weight;
+    if (color.a<=0.0) {return vec4<f32>(0.0);}
+    return vec4<f32>(sqrt(max(color.rgb/color.a,vec3<f32>(0.0))),color.a);
 }
 
 fn sample_window_motion_blur(uv: vec2<f32>) -> vec4<f32> {

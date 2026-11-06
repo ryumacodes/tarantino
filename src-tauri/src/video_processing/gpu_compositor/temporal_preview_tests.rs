@@ -4,13 +4,13 @@ use super::*;
 #[ignore="native GPU; writes temporal window fixtures for real preview comparison"]
 fn write_temporal_window_preview_fixtures() {
     let mut fixtures=Vec::new();
-    for (width,height) in [(96,64),(97,65)] {for shadow in [false,true] {for opacity in [128u8,255] {for zoom in [false,true] {
+    for (width,height) in [(96,64),(97,65)] {for shadow in [false,true] {for opacity in [128u8,255] {for zoom in [false,true] {for window in [true,false] {
         let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
             "resolution":{"width":width,"height":height},"frame_rate":60,
             "visual_settings":{"padding":20,"corner_radius":8,"shadow_enabled":shadow}
         })).unwrap();
         let mut config=build_gpu_config_with_webcam(&settings,&None,Some(width),Some(height));
-        config.window_mode=true;config.background_color=[0.0;4];config.shadow_enabled=shadow;
+        config.window_mode=window;config.background_color=[0.0;4];config.shadow_enabled=shadow;
         config.motion_blur_enabled=true;config.motion_blur_pan_intensity=1.0;config.motion_blur_zoom_intensity=1.0;
         let (iw,ih)=(config.input_width,config.input_height);
         let source:Vec<u8>=(0..ih).flat_map(|y|(0..iw).flat_map(move |x|[((x*13+y*7)%256) as u8,if (x+y)%2==0 {255} else {0},80,opacity])).collect();
@@ -32,8 +32,8 @@ fn write_temporal_window_preview_fixtures() {
         compositor.composite_frame(&source,&now,None).unwrap();
         let expected=super::layer_tests::read_texture(&compositor,&compositor.loupe_layers.foreground);
         fixtures.push(serde_json::json!({"width":width,"height":height,"inputSize":[iw,ih],"baseCenter":base,
-            "before":start,"now":end,"cornerRadius":radius,"shadowEnabled":shadow,"source":source,"shadow":shadow_pixels,"expected":expected}));
-    }}}}
+            "fixedDisplay":!window,"before":start,"now":end,"cornerRadius":radius,"shadowEnabled":shadow,"source":source,"shadow":shadow_pixels,"expected":expected}));
+    }}}}}
     let path=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("oss-research/temporal-window-native.json");
     std::fs::write(path,serde_json::to_vec(&fixtures).unwrap()).unwrap();
 }
