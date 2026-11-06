@@ -1,19 +1,25 @@
 //! Reduce tiny pointer movements for camera targeting in logical source pixels.
 use serde_json::Value;
+use std::borrow::Borrow;
 
 /// Discard a sample isolated from both following samples, including the release
 /// paired with a discarded press. Work before normalization so thresholds are pixels.
-pub(crate) fn remove_shake(mut events: Vec<Value>, threshold: f64) -> Vec<Value> {
+pub(crate) fn remove_shake<T: Borrow<Value>>(mut events: Vec<T>, threshold: f64) -> Vec<T> {
     if !threshold.is_finite() || threshold <= 0.0 { return events; }
-    events.sort_by_key(|event| event.get("base").unwrap_or(event).get("timestamp").and_then(Value::as_u64));
-    let point = |event: &Value| {
+    events.sort_by_key(|event| {
+        let event = event.borrow();
+        event.get("base").unwrap_or(event).get("timestamp").and_then(Value::as_u64)
+    });
+    let point = |event: &T| {
+        let event = event.borrow();
         let base = event.get("base").unwrap_or(event);
         Some((base.get("x")?.as_f64()?, base.get("y")?.as_f64()?))
     };
     let mut skip_release = false;
     let mut keep = Vec::with_capacity(events.len());
     for (index, event) in events.iter().enumerate() {
-        let kind = &event.get("base").unwrap_or(event)["event_type"];
+        let value = event.borrow();
+        let kind = &value.get("base").unwrap_or(value)["event_type"];
         let press = kind.as_str() == Some("ButtonPress") || kind.get("ButtonPress").is_some();
         let release = kind.as_str() == Some("ButtonRelease") || kind.get("ButtonRelease").is_some();
         if skip_release && release { skip_release = false; keep.push(false); continue; }
@@ -71,6 +77,23 @@ mod tests {
         assert_eq!(remove_shake(events.clone(), 0.0), events);
         let kept = remove_shake(events, 100.0);
         assert_eq!(kept.iter().map(|v| v["timestamp"].as_u64().unwrap()).collect::<Vec<_>>(), [1,2,4,5]);
+    }
+
+    #[test]
+    fn borrowed_samples_match_owned_filtering_without_copying_events() {
+        let events = vec![
+            json!({"base":{"timestamp":3,"x":2,"y":2,"event_type":"ButtonRelease"}}),
+            json!({"base":{"timestamp":0,"x":200,"y":200,"event_type":"ButtonPress"}}),
+            json!({"base":{"timestamp":1,"x":0,"y":0}}),
+            json!({"base":{"timestamp":2,"x":1,"y":1}}),
+            json!({"base":{"timestamp":4,"x":100,"y":100}}),
+        ];
+        for threshold in [0.0, 10.0, 100.0, f64::NAN] {
+            let owned = remove_shake(events.clone(), threshold);
+            let borrowed = remove_shake(events.iter().collect(), threshold);
+            assert_eq!(borrowed, owned.iter().collect::<Vec<_>>());
+            assert!(borrowed.iter().all(|event| events.iter().any(|original| std::ptr::eq(*event, original))));
+        }
     }
 
     #[test]

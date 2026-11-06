@@ -82,7 +82,7 @@ impl RecordingInput {
             width *= crop.width;
             height *= crop.height;
         }
-        let mut events = filter_pointer_shakes(events.clone(), shake_threshold);
+        let mut events = filter_pointer_shakes(events.iter().collect(), shake_threshold);
         events.sort_by_key(|event| {
             event
                 .get("base")
