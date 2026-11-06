@@ -111,10 +111,10 @@ pub(super) fn build(
             time_ms: p.time_ms - origin,
             ..*p
         }));
-        let sync = mapped
-            .sync
+        let first_sync = mapped.sync.partition_point(|p| p.time_ms < from);
+        let last_sync = mapped.sync.partition_point(|p| p.time_ms <= to);
+        let sync = mapped.sync[first_sync..last_sync]
             .iter()
-            .filter(|p| p.time_ms >= from && p.time_ms <= to)
             .map(|p| super::activity::SyncPoint {
                 time_ms: p.time_ms - origin,
                 ..*p
