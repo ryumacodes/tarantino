@@ -21,7 +21,7 @@ use resources::{ExportChild, ExportOutput};
 pub(crate) mod timeline_support;
 use super::timeline_decode::{video_decode_args, video_decode_args_with_crop};
 use super::source_crop::remap_motion;
-pub(crate) use support::{get_cursor_spring_config,load_camera_tracks,load_camera_activity};
+pub(crate) use support::{parse_filtered_cursor_events,get_cursor_spring_config,load_camera_tracks,load_camera_activity};
 pub use support::{load_raw_cursor_events, load_camera_events, load_filtered_cursor_events};
 mod camera_samples;
 pub(crate) use camera_samples::remove_shake as filter_pointer_shakes;

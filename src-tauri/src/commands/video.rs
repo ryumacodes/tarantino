@@ -484,7 +484,7 @@ pub async fn compute_cursor_trajectory(
     hover: Option<HoverRequest>,
 ) -> Result<String, String> {
     use crate::cursor_renderer::simulate_cursor_frames_from;
-    use crate::video_processing::export::load_filtered_cursor_events;
+    use crate::video_processing::export::parse_filtered_cursor_events;
     use crate::video_processing::types::CursorSettings;
 
     let spring = crate::cursor_renderer::SpringConfig {
@@ -511,9 +511,13 @@ pub async fn compute_cursor_trajectory(
             return Err(format!("Mouse events file not found: {}", mouse_json_path));
         }
 
-        let activity = crate::cursor_renderer::typing_activity::TypingActivity::load(path);
+        let (activity, mut events) = {
+            let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+            let input = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+            (crate::cursor_renderer::typing_activity::TypingActivity::from_value(&input),
+                parse_filtered_cursor_events(&input, video_width, video_height, shake_threshold.unwrap_or(0.0)))
+        };
         let typing = |time| activity.active(time);
-        let mut events = load_filtered_cursor_events(path, video_width, video_height, shake_threshold.unwrap_or(0.0));
         let crop = source_crop.map(|rect| rect.resolve(video_width,video_height)).transpose().map_err(|error| error.to_string())?;
         crate::video_processing::source_crop::remap_motion(crop,&mut events,&mut []);
         if events.is_empty() {

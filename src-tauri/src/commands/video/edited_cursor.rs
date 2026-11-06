@@ -38,6 +38,30 @@ pub(super) fn prepare_with_input(request:&EditedCursorRequest,events:&[CursorEve
 mod tests {
     use super::*;
     #[tokio::test]
+    #[ignore = "opt-in recorded preview command profile"]
+    async fn recorded_preview_command_profile() {
+        let path = std::env::var("TARANTINO_CURSOR_PROFILE_INPUT").unwrap();
+        let duration = std::env::var("TARANTINO_CURSOR_PROFILE_DURATION").unwrap().parse().unwrap();
+        let data: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let width = data["display_width"].as_u64().unwrap() as u32;
+        let height = data["display_height"].as_u64().unwrap() as u32;
+        let start = std::time::Instant::now();
+        let result = super::super::compute_cursor_trajectory(path, duration, 120, width, height,
+            1.0, false, 2000, false, 0, false, None, None, Some(470.0), Some(70.0), Some(3.0),
+            Some(0.0), Some(true), Some(30.0), Some("horizontal".into()), None, None, Some(false), None)
+            .await.unwrap();
+        let command_ms = start.elapsed().as_secs_f64() * 1000.0;
+        let frames: Vec<[f64; 10]> = serde_json::from_str(&result).unwrap();
+        assert_eq!(frames.len(), (duration as f64 * 120.0 / 1000.0).ceil() as usize);
+        assert!(frames.iter().flatten().all(|value| value.is_finite()));
+        println!("PREVIEW_PROFILE duration_ms={duration} frames={} bytes={} command_ms={command_ms:.3}",
+            frames.len(), result.len());
+        if let Ok(output) = std::env::var("TARANTINO_CURSOR_PROFILE_OUTPUT") {
+            std::fs::write(output, result).unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn preview_trajectory_is_independent_of_rendered_cursor_size() {
         let path=std::env::temp_dir().join(format!("cursor-size-{}.json",uuid::Uuid::new_v4()));
         let samples=(0..=100).map(|i|serde_json::json!({"timestamp":i*10,"x":20.0+i as f64*0.5,"y":20,

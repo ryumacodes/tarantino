@@ -96,6 +96,19 @@ fn load_pointer_tracks(
         Err(_) => return (Vec::new(),Vec::new(),(source_width as f64,source_height as f64)),
     };
 
+    parse_pointer_tracks(&sidecar, source_width, source_height, camera, include_raw, threshold)
+}
+
+pub(crate) fn parse_filtered_cursor_events(
+    sidecar: &serde_json::Value, width: u32, height: u32, threshold: f64,
+) -> Vec<CursorEvent> {
+    parse_pointer_tracks(sidecar, width, height, false, false, threshold).0
+}
+
+fn parse_pointer_tracks(
+    sidecar: &serde_json::Value, source_width: u32, source_height: u32,
+    camera: bool, include_raw: bool, threshold: f64,
+) -> (Vec<CursorEvent>, Vec<CursorEvent>, (f64, f64)) {
     let (events, _sf, ex, ey, ew, eh) = if let Some(mouse_events) = sidecar.get("mouse_events") {
         let dw = sidecar
             .get("display_width")

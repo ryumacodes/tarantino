@@ -10,7 +10,7 @@ impl TypingActivity {
         std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .map(|value| Self::from_value(&value)).unwrap_or_default()
     }
-    fn from_value(value: &serde_json::Value) -> Self {
+    pub(crate) fn from_value(value: &serde_json::Value) -> Self {
         let all = value["key_events"].as_array().into_iter().flatten();
         let mut all_keys: Vec<_> = all.clone().filter_map(|key| key["timestamp"].as_u64()).collect();
         let mut keys: Vec<_> = all
