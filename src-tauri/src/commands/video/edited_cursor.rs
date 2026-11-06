@@ -29,14 +29,65 @@ pub(super) fn prepare_with_input(request:&EditedCursorRequest,events:&[CursorEve
         std::path::Path::new(&request.recording_path),duration as f64,settings,*spring,None)).transpose().map_err(|e|e.to_string())?.flatten();
     let frames=crate::cursor_renderer::edited_simulation::simulate_with_planned_path(events,physical,&plan,&request.recording_path,
         spring,settings,&None,fps as f64,activity,planned.as_ref(),60.0);
-    let frames=frames.iter().map(|p|[p.x,p.y,p.opacity,p.is_clicking,p.ripple_progress,p.ripple_x,p.ripple_y,p.rotation,p.fade_blur_radius,p.press_amount]).collect::<Vec<_>>();
-    serde_json::to_string(&serde_json::json!({"frames":frames,"originMs":request.trim_start,"outputTime":true,"segments":plan.segments.iter().map(|segment|[segment.output_start_ms,segment.output_end_ms]).collect::<Vec<_>>()}))
-        .map(Some).map_err(|error|error.to_string())
+    let response = EditedTrajectory {
+        frames: &frames,
+        origin_ms: request.trim_start,
+        output_time: true,
+        segments: plan.segments.iter().map(|segment| [segment.output_start_ms, segment.output_end_ms]).collect(),
+    };
+    serde_json::to_string(&response).map(Some).map_err(|error| error.to_string())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EditedTrajectory<'a> {
+    #[serde(serialize_with = "serialize_frames")]
+    frames: &'a [crate::cursor_renderer::CursorFrameState],
+    origin_ms: u64,
+    output_time: bool,
+    segments: Vec<[f64; 2]>,
+}
+
+fn serialize_frames<S: serde::Serializer>(
+    frames: &&[crate::cursor_renderer::CursorFrameState],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.collect_seq(frames.iter().map(|p| {
+        [p.x, p.y, p.opacity, p.is_clicking, p.ripple_progress, p.ripple_x,
+            p.ripple_y, p.rotation, p.fade_blur_radius, p.press_amount].map(f64::from)
+    }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn edited_response_preserves_numeric_precision_and_frame_columns() {
+        let mut frame = crate::cursor_renderer::CursorFrameState::default();
+        frame.x = 0.12345679;
+        frame.y = -0.2345679;
+        frame.opacity = 0.3456789;
+        frame.is_clicking = 1.0;
+        frame.ripple_progress = 0.456789;
+        frame.ripple_x = 0.56789;
+        frame.ripple_y = 0.6789;
+        frame.rotation = -112.56789;
+        frame.fade_blur_radius = 2.345678;
+        frame.press_amount = 0.0789123;
+        let expected = serde_json::json!({
+            "frames": [[frame.x, frame.y, frame.opacity, frame.is_clicking,
+                frame.ripple_progress, frame.ripple_x, frame.ripple_y, frame.rotation,
+                frame.fade_blur_radius, frame.press_amount]],
+            "originMs": 125, "outputTime": true, "segments": [[0.0, 500.5]]
+        });
+        let frames = [frame];
+        let response = EditedTrajectory {
+            frames: &frames, origin_ms: 125, output_time: true, segments: vec![[0.0, 500.5]],
+        };
+        let actual: serde_json::Value = serde_json::from_str(&serde_json::to_string(&response).unwrap()).unwrap();
+        assert_eq!(actual, expected);
+    }
+
     #[tokio::test]
     #[ignore = "opt-in recorded preview command profile"]
     async fn recorded_preview_command_profile() {
