@@ -174,7 +174,8 @@ export interface VisualSettings {
 
   // Cursor Rotation
   cursorRotation: number; // 0-360 degrees static rotation
-  rotateCursorWhileMoving: boolean; // Dynamic rotation based on horizontal movement
+  rotateCursorWhileMoving: boolean; // Dynamic rotation based on cursor movement
+  cursorRotationMode: "horizontal" | "directional";
   rotationIntensity: number; // 0-100 intensity for dynamic rotation
 
   // Advanced Cursor Options

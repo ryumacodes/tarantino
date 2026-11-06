@@ -150,6 +150,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onClose }) => {
           spring_mass: resolveCursorSpring(visualSettings).mass,
           rotation: visualSettings.cursorRotation ?? 0,
           rotate_while_moving: visualSettings.rotateCursorWhileMoving ?? false,
+          rotation_mode: visualSettings.cursorRotationMode ?? "horizontal",
           rotation_intensity: visualSettings.rotationIntensity ?? 50,
           hide_when_idle: visualSettings.hideCursorWhenIdle ?? true,
           idle_timeout: visualSettings.idleTimeout ?? 3000,

@@ -6,7 +6,10 @@ impl GpuCompositor {
         if placement.is_some()&&self.mask_stage.is_none() {
             self.mask_stage=Some(MaskStage::new(&self.device,&self.source_texture)?);
         }
-        if self.mask_placement.is_some()!=placement.is_some(){self.bind_group=None;}
+        if self.mask_placement.is_some()!=placement.is_some(){
+            self.bind_group=None;
+            self.source_pyramid=None;
+        }
         self.mask_placement=placement;
         Ok(())
     }

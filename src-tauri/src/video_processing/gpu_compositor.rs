@@ -8,6 +8,7 @@ use anyhow::{Result, anyhow};
 use image::RgbaImage;
 mod shortcuts;
 mod masks;
+mod source_filter;
 mod config;
 mod init;
 mod shader;
@@ -42,6 +43,8 @@ pub struct GpuCompositorConfig {
     /// Input dimensions (aspect-fit source within content area)
     pub input_width: u32,
     pub input_height: u32,
+    /// Decoded texture size, independent of its displayed dimensions.
+    pub source_size: [u32; 2],
     /// Input placement offset within content area (letterbox/pillarbox)
     pub input_offset_x: u32,
     pub input_offset_y: u32,
@@ -258,6 +261,7 @@ pub struct GpuCompositor {
     bind_group_layout: wgpu::BindGroupLayout,
     // Textures
     source_texture: wgpu::Texture,
+    source_pyramid: Option<super::loupe::mip_pyramid::MipPyramid>,
     mask_stage: Option<super::mask_stage::MaskStage>,
     mask_placement: Option<super::mask_composite::MaskPlacement>,
     output_texture: wgpu::Texture,
@@ -358,8 +362,7 @@ impl GpuCompositor {
     ) -> Result<Vec<u8>> {
         let out_w = self.config.output_width;
         let out_h = self.config.output_height;
-        let in_w = self.config.input_width;
-        let in_h = self.config.input_height;
+        let [in_w, in_h] = self.config.source_size;
         let input_frame_size = (in_w * in_h * 4) as usize;
 
         if source_frame.len() != input_frame_size {
@@ -558,6 +561,7 @@ impl GpuCompositor {
         );
 
         // Ensure bind group is built (cached, only rebuilt when textures change)
+        self.prepare_source_filter()?;
         self.ensure_bind_group();
 
 
@@ -569,6 +573,7 @@ impl GpuCompositor {
             });
 
         self.encode_source_mask(&mut encoder)?;
+        self.encode_source_filter(&mut encoder,shutter_start,shutter_now);
         let bind_group = self.bind_group.as_ref().unwrap();
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {

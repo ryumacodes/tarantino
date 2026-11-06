@@ -3,6 +3,13 @@ import { useEffect } from 'react';
 import { Undo2, Redo2 } from 'lucide-react';
 import { useEditorStore } from '../../stores/editor';
 
+function usesTextHistory(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target.closest('textarea')) return true;
+  const input = target.closest('input');
+  return input !== null && ['text', 'search', 'url', 'tel', 'email', 'password', 'number'].includes(input.type);
+}
+
 export default function HistoryControls({ disabled = false }: { disabled?: boolean }) {
   useHistoryGestures(disabled);
   const canUndo = useEditorStore(state => state.canUndo);
@@ -12,8 +19,7 @@ export default function HistoryControls({ disabled = false }: { disabled?: boole
   useEffect(() => {
     const onNativeHistory = (event: Event) => {
       const target = document.activeElement;
-      // Let WebKit handle typing history when focus is in a form field.
-      if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input,textarea,select'))) return;
+      if (usesTextHistory(target)) return;
       const action = (event as CustomEvent).detail;
       if (action !== 'undo' && action !== 'redo') return;
       event.preventDefault();
@@ -22,7 +28,7 @@ export default function HistoryControls({ disabled = false }: { disabled?: boole
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target;
       if (disabled || event.defaultPrevented || event.altKey || (!event.metaKey && !event.ctrlKey)) return;
-      if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input,textarea,select'))) return;
+      if (usesTextHistory(target)) return;
       const key = event.key.toLowerCase();
       if (key === 'z') {
         event.preventDefault();

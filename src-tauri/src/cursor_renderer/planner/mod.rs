@@ -2,16 +2,18 @@
 //! synchronization and settling tolerances do not depend on recording size.
 use super::SpringConfig;
 use anyhow::{bail, Result};
+use std::cell::Cell;
 pub mod activity;
 pub mod approach;
+pub mod input;
+mod motion_chunks;
 pub mod optimize;
 pub mod plan;
-pub mod input;
 pub mod playback;
 pub mod press;
 pub(crate) mod press_window;
-pub(crate) mod source_window;
 pub mod runtime;
+pub(crate) mod source_window;
 pub mod timing;
 
 #[derive(Clone, Copy, Debug, serde::Deserialize)]
@@ -24,6 +26,7 @@ pub struct Point {
 pub struct SourcePath {
     points: Vec<Point>,
     activity: activity::MotionIntervals,
+    sample_hint: Cell<usize>,
 }
 
 impl SourcePath {
@@ -36,7 +39,11 @@ impl SourcePath {
         }
         points.sort_by(|a, b| a.time_ms.total_cmp(&b.time_ms));
         let activity = activity::MotionIntervals::new(&points);
-        Ok(Self { points, activity })
+        Ok(Self {
+            points,
+            activity,
+            sample_hint: Cell::new(0),
+        })
     }
 
     pub fn start(&self) -> f64 {
@@ -47,15 +54,33 @@ impl SourcePath {
         &self.activity
     }
 
-    pub fn at(&self, time: f64) -> [f64; 2] {
-        let end = self.points.partition_point(|p| p.time_ms <= time);
-        let Some(previous) = self.points.get(end.saturating_sub(1)) else {
-            return [0.0; 2];
-        };
-        if end == 0 {
-            return [previous.x, previous.y];
+    fn sample_index(&self, time: f64) -> Option<usize> {
+        let hint = self.sample_hint.get();
+        for index in hint..(hint + 2).min(self.points.len()) {
+            if self.points[index].time_ms <= time
+                && self.points.get(index + 1).is_none_or(|p| p.time_ms > time)
+            {
+                self.sample_hint.set(index);
+                return Some(index);
+            }
         }
-        let Some(next) = self.points.get(end) else {
+        // On a seek, enter equal-time samples at their first recorded point.
+        let next = self.points.partition_point(|p| p.time_ms < time);
+        let index = if self.points.get(next).is_some_and(|p| p.time_ms == time) {
+            Some(next)
+        } else {
+            next.checked_sub(1)
+        };
+        self.sample_hint.set(index.unwrap_or(0));
+        index
+    }
+
+    pub fn at(&self, time: f64) -> [f64; 2] {
+        let Some(index) = self.sample_index(time) else {
+            return self.points.first().map_or([0.0; 2], |p| [p.x, p.y]);
+        };
+        let previous = &self.points[index];
+        let Some(next) = self.points.get(index + 1) else {
             return [previous.x, previous.y];
         };
         let span = next.time_ms - previous.time_ms;
@@ -232,6 +257,24 @@ pub struct MotionTrack {
     runs: Vec<Run>,
 }
 impl MotionTrack {
+    pub(super) fn into_playback_window(self, duration: f64) -> Self {
+        let initial = self.at(0.0);
+        let end = duration.ceil();
+        let runs = self
+            .runs
+            .into_iter()
+            .filter_map(|run| {
+                let first = (-run.start).max(0.0) as usize;
+                let last = ((end - run.start + 1.0).max(0.0) as usize).min(run.positions.len());
+                (first < last).then(|| Run {
+                    start: run.start + first as f64,
+                    positions: run.positions[first..last].to_vec(),
+                })
+            })
+            .collect();
+        Self { initial, runs }
+    }
+
     pub fn at(&self, time: f64) -> [f64; 2] {
         let count = self.runs.partition_point(|r| r.start <= time);
         if count == 0 {

@@ -28,7 +28,9 @@ pub(crate) fn simulate_with_planned_path(
     let mut motion_timeline=timeline.clone();
     for segment in &mut motion_timeline.segments {segment.hide_cursor=false;}
     let segments=map_cursor(events,&motion_timeline,recording);
-    let physical_segments=map_recording(physical,&motion_timeline,recording);
+    let physical_segments = if planned.and_then(|plan| plan.rotation_keys()).is_some() {
+        Vec::new()
+    } else { map_recording(physical,&motion_timeline,recording) };
     let count=(timeline.duration_ms*fps/1000.0).ceil() as usize;
     let mut output=vec![CursorFrameState::default();count];
     let opening=segments.first().and_then(|segment|segment.motion.points.first()).copied();
@@ -163,15 +165,17 @@ mod tests {
         let whole=EditTimeline::build(&[clip("whole",0.0,0.0,2000.0,1.0)],0.0,2000.0).unwrap();
         let split=EditTimeline::build(&[clip("a",0.0,0.0,737.25,1.0),
             clip("b",737.25,737.25,1262.75,1.0)],0.0,2000.0).unwrap();
-        let settings=serde_json::from_value(serde_json::json!({"rotate_while_moving":true,"rotation_intensity":100,"rotation":7})).unwrap();
-        let spring=SpringConfig{tension:170.0,friction:30.0,mass:0.0};
-        for fps in [24.0,60.0,120.0,144.0] {
-            let run=|plan:&EditTimeline|simulate(&events,&physical,plan,"recording.mp4",&spring,&settings,&None,fps);
-            if fps==24.0 {
-                assert!((run(&split)[18].rotation as f64-13.899027884665369).abs()<1e-5);
-            }
-            for (index,(a,b)) in run(&whole).iter().zip(run(&split)).enumerate() {
-                assert!((a.rotation-b.rotation).abs()<1e-5,"{fps}fps frame{index}: {} != {}",a.rotation,b.rotation);
+        for mode in ["horizontal","directional"] {
+            let settings=serde_json::from_value(serde_json::json!({"rotate_while_moving":true,"rotation_intensity":100,"rotation":7,"rotation_mode":mode})).unwrap();
+            let spring=SpringConfig{tension:170.0,friction:30.0,mass:0.0};
+            for fps in [24.0,60.0,120.0,144.0] {
+                let run=|plan:&EditTimeline|simulate(&events,&physical,plan,"recording.mp4",&spring,&settings,&None,fps);
+                if fps==24.0 && mode=="horizontal" {
+                    assert!((run(&split)[18].rotation as f64-13.899027884665369).abs()<1e-5);
+                }
+                for (index,(a,b)) in run(&whole).iter().zip(run(&split)).enumerate() {
+                    assert!((a.rotation-b.rotation).abs()<1e-5,"{fps}fps frame{index}: {} != {}",a.rotation,b.rotation);
+                }
             }
         }
     }

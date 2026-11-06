@@ -111,7 +111,7 @@ mod tests {
         for fps in [24,30,60,120] {
             let response = crate::commands::video::compute_cursor_trajectory(
                 path.to_string_lossy().into_owned(),2500,fps,100,100,1.0,false,2000,false,0,
-                false,None,None,None,None,None,None,None,None,None,None,Some(false), None).await.unwrap();
+                false,None,None,None,None,None,None,None,None, None,None,None,Some(false), None).await.unwrap();
             let preview: Vec<[f32;10]> = serde_json::from_str(&response).unwrap();
             let range = ExportRange{start_ms:500,end_ms:2500};
             let export = simulate_cursor_range_with_activity(&events,&spring,fps as f64,range,&None,

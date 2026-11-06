@@ -153,3 +153,58 @@ fn cursor_planning_matches_external_numeric_fixtures() {
     assert!(compared > 10000);
     println!("Compared {compared} cursor positions");
 }
+
+#[test]
+fn playback_window_discards_overlap_without_changing_fractional_samples() {
+    for points in [
+        vec![(-3000.0, 50.0), (13000.0, 50.0)],
+        vec![
+            (-3000.0, 0.0),
+            (-2990.0, 100.0),
+            (500.0, 100.0),
+            (520.0, 200.0),
+        ],
+        (0..=800)
+            .map(|i| {
+                (
+                    i as f64 * 20.0 - 3000.0,
+                    300.0 + (i as f64 * 0.03).sin() * 150.0,
+                )
+            })
+            .collect(),
+    ] {
+        let source = path(&points);
+        let solver = Solver::new(
+            &source,
+            SpringConfig {
+                tension: 530.0,
+                friction: 40.0,
+                mass: 1.0,
+            },
+            &[],
+        )
+        .unwrap();
+        for duration in [0.0_f64, 500.25, 10000.0] {
+            let original = solver.trajectory(13000.0, &|_| 0.0, &|_| 1.0);
+            let count: usize = original.runs.iter().map(|run| run.positions.len()).sum();
+            let expected = (0..=(duration.ceil() * 4.0) as usize)
+                .map(|i| original.at(i as f64 / 4.0))
+                .collect::<Vec<_>>();
+            let compact = original.into_playback_window(duration);
+            for (index, wanted) in expected.iter().enumerate().rev() {
+                assert_eq!(compact.at(index as f64 / 4.0), *wanted);
+            }
+            assert_eq!(
+                compact.at(duration.ceil() + 100.0),
+                *expected.last().unwrap()
+            );
+            let retained: usize = compact
+                .runs
+                .iter()
+                .map(|run| run.positions.capacity())
+                .sum();
+            assert!(retained <= count);
+            println!("window={duration}ms positions={count} retained={retained}");
+        }
+    }
+}

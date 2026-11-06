@@ -5,6 +5,7 @@ use std::path::Path;
 
 pub struct PlaybackInput {
     pub points: Vec<Point>,
+    pub rotation_events: Option<Vec<Point>>,
     pub sync: Vec<SyncPoint>,
     pub cuts: Vec<f64>,
     pub instant: Vec<(f64, f64)>,
@@ -73,13 +74,15 @@ pub fn map(input: &RecordingInput, timeline: &EditTimeline, recording: &Path) ->
             instant.push((start, end));
         }
     }
-    seeds.extend(points);
+    points.sort_by(|a,b|a.time_ms.total_cmp(&b.time_ms));
+    seeds.extend(points.iter().copied());
     seeds.sort_by(|a, b| a.time_ms.total_cmp(&b.time_ms));
     sync.sort_by(|a, b| a.time_ms.total_cmp(&b.time_ms));
     cuts.sort_by(f64::total_cmp);
     cuts.dedup();
     PlaybackInput {
         points: seeds,
+        rotation_events: Some(points),
         sync,
         cuts,
         instant,
@@ -201,6 +204,8 @@ mod tests {
         let output = map(&recording(), &timeline, Path::new("recording.mp4"));
         assert!(output.cuts.is_empty());
         assert_eq!(output.points[0].time_ms, 0.0);
+        assert_eq!(output.rotation_events.as_ref().unwrap()[0].time_ms,75.0,
+            "clip seed belongs to position planning, not recorded rotation events");
         assert_eq!(
             output.points[0].x, 100.0,
             "seed must hold the preceding sample, not interpolate to125"

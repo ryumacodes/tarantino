@@ -10,8 +10,8 @@ pub(super) fn prepare<T: Clone>(
     let cutoff=duration_ms.saturating_sub(loop_duration_ms.min(duration_ms)) as f64;
     let mut retained=points.iter().take_while(|point|time(point)<=cutoff).cloned().collect::<Vec<_>>();
     if retained.is_empty() {retained.push(first.clone());}
-    retained[0]=retime(&retained[0],0.0,false);
     let end=time(retained.last().unwrap())+1.0;
+    retained[0]=retime(&retained[0],0.0,false);
     retained.push(retime(&retained[0],end,true));
     retained
 }
@@ -59,7 +59,7 @@ mod tests {
     fn empty_and_short_recordings_are_bounded() {
         assert!(cursor_events(&[],200,500).is_empty());
         let points=cursor_events(&[event(50,0.4)],200,500);
-        assert_eq!(points.iter().map(|p|p.timestamp_ms).collect::<Vec<_>>(),vec![0,1]);
+        assert_eq!(points.iter().map(|p|p.timestamp_ms).collect::<Vec<_>>(),vec![0,51]);
         assert!(points.iter().all(|p|p.x==0.4));
     }
 }

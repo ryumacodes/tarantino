@@ -5,12 +5,14 @@ pub(super) struct AngularSpring {
     velocity: f64,
     target: f64,
     precision: f64,
+    stiffness: f64,
+    damping: f64,
 }
 
 impl AngularSpring {
     pub(super) fn new(degrees: f64) -> Self {
         let value=degrees.to_radians();
-        Self {value,velocity:0.0,target:value,precision:0.002}
+        Self {value,velocity:0.0,target:value,precision:0.002,stiffness:120.0,damping:8.0}
     }
 
     pub(super) fn advance(&mut self, degrees: f64, dt: f64) -> f64 {
@@ -24,16 +26,16 @@ impl AngularSpring {
         }
         if self.value==target && self.velocity==0.0 { return degrees; }
         let distance=target-self.value;
-        let damping=if self.velocity*distance>0.0 && self.velocity.abs()>distance.abs()*120.0_f64.sqrt() {
-            2.0*120.0_f64.sqrt()
-        } else {8.0};
+        let damping=if self.velocity*distance>0.0 && self.velocity.abs()>distance.abs()*self.stiffness.sqrt() {
+            2.0*self.stiffness.sqrt()
+        } else {self.damping};
         let milliseconds=dt*1000.0;
         let ticks=milliseconds.ceil() as usize;
         for tick in 1..=ticks {
             // Preserve the fractional tick convention of the animation clock:
             // its final tick uses the distance to the next whole millisecond.
             let step=if tick as f64>milliseconds {(tick as f64-milliseconds)/1000.0} else {0.001};
-            self.velocity+=(120.0*(target-self.value)-damping*self.velocity)*step;
+            self.velocity+=(self.stiffness*(target-self.value)-damping*self.velocity)*step;
             self.value+=self.velocity*step;
             if self.velocity.abs()<self.precision && (self.value-target).abs()<self.precision {
                 self.value=target;
@@ -54,6 +56,15 @@ pub(super) struct AngularTimeline {
 impl AngularTimeline {
     pub(super) fn new(initial: f64) -> Self {
         Self { spring: AngularSpring::new(initial), next_frame: 0, lower: initial, upper: initial }
+    }
+
+    pub(super) fn for_mode(initial: f64, mode: Option<&str>) -> Self {
+        let mut timeline = Self::new(initial);
+        if mode == Some("directional") {
+            timeline.spring.stiffness = 320.0;
+            timeline.spring.damping = 28.0;
+        }
+        timeline
     }
 
     pub(super) fn sample(&mut self, time_ms: f64, target: impl Fn(f64) -> f64) -> f64 {

@@ -329,3 +329,31 @@
   margin-top: 4px;
   overflow-wrap: break-word;
 }
+
+.cursor-settings-panel .cursor-rotation-mode {
+  margin-top: 12px;
+}
+
+.cursor-settings-panel .cursor-rotation-mode select {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--editor-border);
+  border-radius: 6px;
+  background: var(--editor-bg-secondary);
+  color: var(--editor-text-primary);
+  font: inherit;
+}
+
+.cursor-settings-panel .cursor-rotation-mode select:focus-visible {
+  outline: 2px solid var(--editor-border-active);
+  outline-offset: 2px;
+}
+
+.cursor-settings-panel .cursor-rotation-mode select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

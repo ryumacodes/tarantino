@@ -7,9 +7,30 @@ uniform sampler2D sourceTexture, maskTexture, shadowTexture;
 uniform mat3 sourceTransform, maskTransform;
 uniform vec2 outputSize, inputSize, baseCenter, sourceSize;
 uniform vec4 shutterStart, shutterNow;
+uniform float fetchBudget, fetchSpan;
 uniform float cornerRadius, hasNativeMask, shadowEnabled, fixedDisplay;
 out vec4 outputColor;
 ${temporalCoverageShader}
+float shutterSamplePhase(vec2 pixel) {
+  ivec2 cell=ivec2(pixel);int rank=0;
+  for(int bit=0;bit<3;bit++) {
+    rank=rank*4+2*((cell.x^cell.y)&1)+(cell.y&1);
+    cell=cell>>1;
+  }
+  return float(rank)/64.0;
+}
+vec4 sourceColor(vec2 uv) {
+  vec2 inset=0.5/sourceSize;
+  uv=clamp(uv,inset,vec2(1.0)-inset);
+  vec2 footprint=sourceSize/shutterStart.zw;
+  float lod=max(0.0,log2(max(footprint.x,footprint.y)));
+  return textureLod(sourceTexture,(sourceTransform*vec3(uv.x,1.0-uv.y,1.0)).xy,lod);
+}
+int shutterFetchCount(vec2 delta) {
+  vec2 texelsPerPixel=sourceSize/shutterStart.zw;
+  float pixelsPerTexel=inversesqrt(max(max(texelsPerPixel.x*texelsPerPixel.x,texelsPerPixel.y*texelsPerPixel.y),1e-8));
+  return int(clamp(ceil(length(delta*sourceSize)*pixelsPerTexel/fetchSpan),1.0,fetchBudget));
+}
 float windowDistance(vec2 pixel,vec4 rect) {
   float fallback=hasNativeMask>0.5?0.0:min(inputSize.x,inputSize.y)*0.022;
   float radius=min(max(cornerRadius,fallback)*rect.z/inputSize.x,min(rect.z,rect.w)*0.5);
@@ -29,11 +50,12 @@ vec4 displayContent(vec2 pixel) {
   if(all(greaterThanEqual(local,vec2(0.0)))&&all(lessThan(local,inputSize))) {
     vec2 a=(pixel-shutterStart.xy)/shutterStart.zw+vec2(0.5);
     vec2 b=(pixel-shutterNow.xy)/shutterNow.zw+vec2(0.5);
-    int count=int(clamp(ceil(length((b-a)*sourceSize)/4.0),1.0,16.0));
+    bool slow=length((b-a)*shutterStart.zw)<1.0;
+    int count=slow?1:shutterFetchCount(b-a);
     for(int tap=0;tap<16;tap++) {
       if(tap>=count) break;
-      vec2 uv=clamp(mix(a,b,(float(tap)+0.5)/float(count)),vec2(0.0),vec2(1.0));
-      vec4 value=texture(sourceTexture,(sourceTransform*vec3(uv.x,1.0-uv.y,1.0)).xy);
+      vec2 uv=clamp(mix(a,b,(float(tap)+(slow?0.5:shutterSamplePhase(pixel)))/float(count)),vec2(0.0),vec2(1.0));
+      vec4 value=sourceColor(uv);
       content+=vec4(value.rgb*value.rgb*value.a,value.a)/float(count);
     }
     float radius=min(cornerRadius,min(inputSize.x,inputSize.y)*0.5);
@@ -66,11 +88,22 @@ void main() {
   }
   outputColor=vec4(0.0);
   if(any(lessThan(pixel,low))||any(greaterThan(pixel,high))) return;
+  vec2 uvStart=(pixel-before.xy)/before.zw+vec2(0.5),uvEnd=(pixel-now.xy)/now.zw+vec2(0.5);
+  if(length((uvEnd-uvStart)*before.zw)<1.0) {
+    vec4 rect=(before+now)*0.5;
+    vec2 uv=clamp((uvStart+uvEnd)*0.5,vec2(0.0),vec2(1.0));
+    vec4 color=sourceColor(uv);
+    float mask=texture(maskTexture,(maskTransform*vec3(uv.x,1.0-uv.y,1.0)).xy).r;
+    float alpha=color.a*mask*(1.0-smoothstep(-0.5,0.5,windowDistance(pixel,rect)));
+    vec4 content=vec4(color.rgb*color.rgb*alpha,alpha);
+    if(shadowEnabled>0.5)content+=windowShadow(pixel,rect)*(1.0-content.a);
+    outputColor=vec4(sqrt(max(content.rgb*content.a,vec3(0.0))),content.a);
+    return;
+  }
   vec3 distance=motionFitDistance(windowDistance(pixel,before),windowDistance(pixel,(before+now)*0.5),windowDistance(pixel,now));
   vec3 coverage=motionCoverageRamp(distance,0.0,0.5);
   vec2 roots=motionLevelRoots(distance,0.0,0.0,1.0);
   float edges[4]=float[4](0.0,min(roots.x,roots.y),max(roots.x,roots.y),1.0);
-  vec2 uvStart=(pixel-before.xy)/before.zw+vec2(0.5),uvEnd=(pixel-now.xy)/now.zw+vec2(0.5);
   vec4 accumulated=vec4(0.0);float totalWeight=0.0;
   for(int segment=0;segment<3;segment++) {
     float start=edges[segment],end=edges[segment+1],span=end-start;
@@ -79,13 +112,12 @@ void main() {
     vec4 content=vec4(0.0);
     if(alpha>0.001) {
       vec2 a=mix(uvStart,uvEnd,start),b=mix(uvStart,uvEnd,end);
-      float travel=length((b-a)*sourceSize);
-      int count=int(clamp(ceil(travel/4.0),1.0,16.0));
+      int count=shutterFetchCount(b-a);
       for(int tap=0;tap<16;tap++) {
         if(tap>=count) break;
-        vec2 uv=clamp(mix(a,b,(float(tap)+0.5)/float(count)),vec2(0.0),vec2(1.0));
+        vec2 uv=clamp(mix(a,b,(float(tap)+shutterSamplePhase(pixel))/float(count)),vec2(0.0),vec2(1.0));
         vec3 bottomUv=vec3(uv.x,1.0-uv.y,1.0);
-        vec4 color=texture(sourceTexture,(sourceTransform*bottomUv).xy);
+        vec4 color=sourceColor(uv);
         float mask=texture(maskTexture,(maskTransform*bottomUv).xy).r;
         float opacity=color.a*mask;
         content+=vec4(color.rgb*color.rgb*opacity,opacity)/float(count);

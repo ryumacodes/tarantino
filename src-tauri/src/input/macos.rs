@@ -8,7 +8,7 @@ pub(super) use pointer::install as install_pointer_listener;
 
 use core_foundation::base::{CFRelease, CFType, CFTypeRef, TCFType};
 use core_foundation::string::{CFString, CFStringRef};
-use core_graphics::geometry::{CGPoint, CGRect, CGSize};
+use core_graphics::geometry::CGRect;
 use std::ffi::c_void;
 
 /// Read Quartz desktop coordinates without waiting for a movement event.
@@ -26,8 +26,6 @@ type CFArrayRef = *const c_void;
 type CFIndex = isize;
 
 const K_AX_ERROR_SUCCESS: AXError = 0;
-const K_AX_VALUE_CG_POINT_TYPE: i32 = 1;
-const K_AX_VALUE_CG_SIZE_TYPE: i32 = 2;
 const K_AX_VALUE_CF_RANGE_TYPE: i32 = 4;
 const K_AX_VALUE_CG_RECT_TYPE: i32 = 3;
 const MAX_CARET_DESCENDANTS: usize = 64;
@@ -137,76 +135,10 @@ unsafe fn copy_focused_elements(
     elements
 }
 
-unsafe fn copy_range_attribute(element: AXUIElementRef, attribute: CFStringRef) -> Option<CFRange> {
-    let value = copy_attribute(element, attribute)?;
-    let mut range = CFRange::default();
-    let ok = AXValueGetValue(
-        value,
-        K_AX_VALUE_CF_RANGE_TYPE,
-        &mut range as *mut _ as *mut c_void,
-    );
-    CFRelease(value);
-    ok.then_some(range)
-}
-
-unsafe fn focused_element_frame(
-    focused: AXUIElementRef,
-    position_attr: CFStringRef,
-    size_attr: CFStringRef,
-) -> Option<CGRect> {
-    let position_value = copy_attribute(focused, position_attr)?;
-    let size_value = match copy_attribute(focused, size_attr) {
-        Some(value) => value,
-        None => {
-            CFRelease(position_value);
-            return None;
-        }
-    };
-
-    let mut origin = CGPoint::default();
-    let mut size = CGSize::default();
-    let has_origin = AXValueGetValue(
-        position_value,
-        K_AX_VALUE_CG_POINT_TYPE,
-        &mut origin as *mut _ as *mut c_void,
-    );
-    let has_size = AXValueGetValue(
-        size_value,
-        K_AX_VALUE_CG_SIZE_TYPE,
-        &mut size as *mut _ as *mut c_void,
-    );
-    CFRelease(position_value);
-    CFRelease(size_value);
-
-    (has_origin && has_size && size.width > 0.0 && size.height > 0.0)
-        .then_some(CGRect::new(&origin, &size))
-}
-
-fn estimated_caret_from_visible_range(
-    element_frame: CGRect,
-    selected_range: CFRange,
-    visible_range: CFRange,
-) -> Option<(f64, f64)> {
-    if visible_range.length <= 1 || selected_range.location < visible_range.location {
-        return None;
-    }
-
-    let offset =
-        (selected_range.location - visible_range.location).clamp(0, visible_range.length) as f64;
-    let progress = (offset / visible_range.length as f64).clamp(0.0, 1.0);
-    Some((
-        element_frame.origin.x + element_frame.size.width * progress,
-        element_frame.origin.y + element_frame.size.height / 2.0,
-    ))
-}
-
 unsafe fn caret_position_from_cf_range(
     element: AXUIElementRef,
     selected_range_attr: CFStringRef,
     bounds_for_range_attr: CFStringRef,
-    position_attr: CFStringRef,
-    size_attr: CFStringRef,
-    visible_range_attr: CFStringRef,
 ) -> Option<(f64, f64)> {
     let range_value = copy_attribute(element, selected_range_attr)?;
 
@@ -250,13 +182,6 @@ unsafe fn caret_position_from_cf_range(
                     })
                 })
             })
-            .or_else(|| {
-                focused_element_frame(element, position_attr, size_attr)
-                    .zip(copy_range_attribute(element, visible_range_attr))
-                    .and_then(|(frame, visible)| {
-                        estimated_caret_from_visible_range(frame, range, visible)
-                    })
-            })
     } else {
         selected_bounds.map(|bounds| {
             (
@@ -291,9 +216,6 @@ unsafe fn caret_position_from_text_marker(
 struct CaretAttributes {
     selected_range: CFString,
     bounds_for_range: CFString,
-    position: CFString,
-    size: CFString,
-    visible_range: CFString,
     selected_text_marker_range: CFString,
     bounds_for_text_marker_range: CFString,
     active_element: CFString,
@@ -308,9 +230,6 @@ impl CaretAttributes {
         Self {
             selected_range: CFString::new("AXSelectedTextRange"),
             bounds_for_range: CFString::new("AXBoundsForRange"),
-            position: CFString::new("AXPosition"),
-            size: CFString::new("AXSize"),
-            visible_range: CFString::new("AXVisibleCharacterRange"),
             selected_text_marker_range: CFString::new("AXSelectedTextMarkerRange"),
             bounds_for_text_marker_range: CFString::new("AXBoundsForTextMarkerRange"),
             active_element: CFString::new("AXActiveElement"),
@@ -330,9 +249,6 @@ unsafe fn caret_position_for_element(
         element,
         attrs.selected_range.as_concrete_TypeRef(),
         attrs.bounds_for_range.as_concrete_TypeRef(),
-        attrs.position.as_concrete_TypeRef(),
-        attrs.size.as_concrete_TypeRef(),
-        attrs.visible_range.as_concrete_TypeRef(),
     )
     .or_else(|| {
         caret_position_from_text_marker(
@@ -454,6 +370,7 @@ fn usable_caret_bounds(bounds:CGRect)->bool {
 #[cfg(test)]
 mod caret_bounds_tests {
     use super::*;
+    use core_graphics::geometry::{CGPoint, CGSize};
     #[test]
     fn rejects_empty_provider_bounds_but_keeps_insertion_carets() {
         let rect=|x,y,w,h|CGRect::new(&CGPoint::new(x,y),&CGSize::new(w,h));

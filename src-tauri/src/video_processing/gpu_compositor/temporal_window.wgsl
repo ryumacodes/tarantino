@@ -1,3 +1,22 @@
+fn source_sampling_lod() -> f32 {
+    let extent=select(window_shutter_now().zw,window_shutter_start().zw,window_temporal_active());
+    let footprint=vec2<f32>(textureDimensions(source_tex))/extent;
+    return max(0.0,log2(max(footprint.x,footprint.y)));
+}
+fn window_sample_phase(pixel:vec2<f32>) -> f32 {
+    var cell=vec2<u32>(pixel);var rank=0u;
+    for (var bit=0;bit<3;bit=bit+1) {
+        rank=rank*4u+2u*((cell.x^cell.y)&1u)+(cell.y&1u);
+        cell=cell>>vec2<u32>(1u);
+    }
+    return f32(rank)/64.0;
+}
+fn window_fetch_count(delta:vec2<f32>) -> i32 {
+    let size=vec2<f32>(textureDimensions(source_tex));
+    let texels_per_pixel=size/window_shutter_start().zw;
+    let pixels_per_texel=inverseSqrt(max(max(texels_per_pixel.x*texels_per_pixel.x,texels_per_pixel.y*texels_per_pixel.y),1e-8));
+    return i32(clamp(ceil(length(delta*size)*pixels_per_texel/4.0),1.0,16.0));
+}
 fn window_shutter_start() -> vec4<f32> {
     return vec4<f32>(u.shutter_start_x,u.shutter_start_y,u.shutter_start_w,u.shutter_start_h);
 }
@@ -36,13 +55,24 @@ fn window_temporal_content(pixel:vec2<f32>) -> vec4<f32> {
         high=max(high,max(before.xy+end_uv*before.zw,now.xy+end_uv*now.zw));
     }
     if (any(pixel<low)||any(pixel>high)) {return vec4<f32>(0.0);}
+    let uv_start=(pixel-before.xy)/before.zw+vec2<f32>(0.5);
+    let uv_end=(pixel-now.xy)/now.zw+vec2<f32>(0.5);
+    if (length((uv_end-uv_start)*before.zw)<1.0) {
+        let rect=(before+now)*0.5;
+        let uv=clamp((uv_start+uv_end)*0.5,vec2<f32>(0.0),vec2<f32>(1.0));
+        let color=textureSampleLevel(source_tex, bilinear_sampler, uv, source_sampling_lod());
+        let mask=textureSampleLevel(corner_mask_tex,bilinear_sampler,uv,0.0).r;
+        let alpha=color.a*mask*(1.0-smoothstep(-0.5,0.5,window_temporal_distance(pixel,rect)));
+        var content=vec4<f32>(color.rgb*color.rgb*alpha,alpha);
+        if (u.shadow_enabled>0.5) {content=content+window_temporal_shadow(pixel,rect)*(1.0-content.a);}
+        if (content.a<=0.0) {return vec4<f32>(0.0);}
+        return vec4<f32>(sqrt(max(content.rgb/content.a,vec3<f32>(0.0))),content.a);
+    }
     let distance=motion_fit_distance(window_temporal_distance(pixel,before),
         window_temporal_distance(pixel,(before+now)*0.5),window_temporal_distance(pixel,now));
     let coverage=motion_coverage_ramp(distance,0.0,0.5);
     let roots=motion_level_roots(distance,0.0,0.0,1.0);
     let edges=array<f32,4>(0.0,min(roots.x,roots.y),max(roots.x,roots.y),1.0);
-    let uv_start=(pixel-before.xy)/before.zw+vec2<f32>(0.5);
-    let uv_end=(pixel-now.xy)/now.zw+vec2<f32>(0.5);
     var accumulated=vec4<f32>(0.0);var total_weight=0.0;
     for (var segment=0;segment<3;segment=segment+1) {
         let start=edges[segment];let end=edges[segment+1];let span=end-start;
@@ -51,11 +81,10 @@ fn window_temporal_content(pixel:vec2<f32>) -> vec4<f32> {
         var content=vec4<f32>(0.0);
         if (alpha>0.001) {
             let a=mix(uv_start,uv_end,start);let b=mix(uv_start,uv_end,end);
-            let travel=length((b-a)*vec2<f32>(textureDimensions(source_tex)));
-            let count=i32(clamp(ceil(travel/4.0),1.0,16.0));
+            let count=window_fetch_count(b-a);
             for (var tap=0;tap<count;tap=tap+1) {
-                let uv=clamp(mix(a,b,(f32(tap)+0.5)/f32(count)),vec2<f32>(0.0),vec2<f32>(1.0));
-                let color=textureSampleLevel(source_tex,bilinear_sampler,uv,0.0);
+                let uv=clamp(mix(a,b,(f32(tap)+window_sample_phase(pixel))/f32(count)),vec2<f32>(0.0),vec2<f32>(1.0));
+                let color=textureSampleLevel(source_tex, bilinear_sampler, uv, source_sampling_lod());
                 let mask=textureSampleLevel(corner_mask_tex,bilinear_sampler,uv,0.0).r;
                 let opacity=color.a*mask;
                 content=content+vec4<f32>(color.rgb*color.rgb*opacity,opacity)/f32(count);

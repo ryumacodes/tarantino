@@ -89,3 +89,38 @@ async fn crop_edges_clip_cursor_effects_to_video_during_zoom() {
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires local FFmpeg and GPU; source detail during zoom"]
+async fn zoom_preserves_detail_above_unzoomed_resolution() {
+    let root = std::env::temp_dir().join(format!("zoom-detail-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let input = root.join("stripes.mkv");
+    ffmpeg(&["-v", "error", "-f", "lavfi", "-i",
+        "nullsrc=s=512x512:r=30:d=0.2,geq=lum='mod(floor(X/2),2)*255':cb=128:cr=128",
+        "-c:v", "ffv1", input.to_str().unwrap()]);
+    let info = VideoInfo { duration_ms: 200, width: 512, height: 512, fps: 30.0,
+        bitrate: 0, format: "mkv".into(), size_bytes: 0, frame_count: Some(6) };
+    for mode in ["display", "window"] {
+        let output = root.join(format!("{mode}.mp4"));
+        let settings: ExportSettings = serde_json::from_value(serde_json::json!({
+            "output_path": output, "resolution": {"width":128,"height":128},
+            "source_width":512,"source_height":512,"frame_rate":30,"format":"mp4","codec":"h264",
+            "capture_mode": mode,
+            "zoom_blocks":[{"start_time_ms":0,"end_time_ms":200,"zoom_level":4,"center_x":0.5,"center_y":0.5,"is_manual":true,"instant_animation":true}],
+            "cursor_settings":{"enabled":false},
+            "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false}
+        })).unwrap();
+        export_video(&root, &input, settings, &info, None).await.unwrap();
+        let frames = ffmpeg(&["-v","error","-i",output.to_str().unwrap(),"-f","rawvideo","-pix_fmt","rgb24","-"]);
+        assert_eq!(frames.len(), 6 * 128 * 128 * 3);
+        for frame in frames.chunks_exact(128 * 128 * 3) {
+            let row = &frame[64 * 128 * 3..65 * 128 * 3];
+            let dark = row.chunks_exact(3).filter(|rgb| rgb[0] < 40).count();
+            let light = row.chunks_exact(3).filter(|rgb| rgb[0] > 215).count();
+            assert!(dark >= 32 && light >= 32,
+                "{mode}: source stripes lost during zoom ({dark} dark, {light} light); {}", root.display());
+        }
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}

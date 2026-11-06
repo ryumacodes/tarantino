@@ -76,7 +76,9 @@ impl GpuCompositor {
             return;
         }
 
-        let source = if self.mask_placement.is_some() {
+        let source = if let Some(pyramid) = &self.source_pyramid {
+            pyramid.texture()
+        } else if self.mask_placement.is_some() {
             self.mask_stage.as_ref().expect("Mask stage initialized").texture()
         } else { &self.source_texture };
         let source_view = source.create_view(&wgpu::TextureViewDescriptor::default());

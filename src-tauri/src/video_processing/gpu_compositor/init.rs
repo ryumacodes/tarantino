@@ -57,8 +57,7 @@ impl GpuCompositor {
 
         let out_w = config.output_width;
         let out_h = config.output_height;
-        let in_w = config.input_width;
-        let in_h = config.input_height;
+        let [in_w, in_h] = config.source_size;
         let unpadded_bytes_per_row = out_w * 4;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
@@ -429,6 +428,7 @@ impl GpuCompositor {
             composite_pipeline,
             bind_group_layout,
             source_texture,
+            source_pyramid: None,
             mask_stage: None,
             mask_placement: None,
             output_texture,

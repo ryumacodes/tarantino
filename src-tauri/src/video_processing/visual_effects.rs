@@ -66,6 +66,7 @@ pub fn get_cursor_config(settings: &ExportSettings) -> CursorSettings {
             spring_mass: Some(1.0),
             rotation: Some(0.0),
             rotate_while_moving: Some(false),
+            rotation_mode: None,
             rotation_intensity: Some(50.0),
             hide_when_idle: Some(true),
             idle_timeout: Some(3000),

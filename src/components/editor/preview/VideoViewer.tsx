@@ -207,7 +207,7 @@ export const VideoViewer = React.memo(function VideoViewer({
     const sourceTransform=fixedDisplay?sourceTextureTransform(material.map.matrix,view):material.map.matrix;
     const sourceScaleX=material.map.repeat.x/(fixedDisplay?view.width:1);
     const sourceScaleY=material.map.repeat.y/(fixedDisplay?view.height:1);
-    return {width,height,input:{fixedDisplay,source:material.map,mask:nativeMaskRef.current??whiteMask,
+    return {width,height,input:{fixedDisplay,playing:isPlaying,source:material.map,mask:nativeMaskRef.current??whiteMask,
       shadow:shadowTextureRef.current??whiteMask,before:shutter.before,now:shutter.now,
       inputSize:[inputWidth,inputHeight],baseCenter:[width/2,height/2],
       sourceSize:[(material.map.isRenderTargetTexture?(material.map.image as {width:number}).width:originalSource.width)*sourceScaleX,

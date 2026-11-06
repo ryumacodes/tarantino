@@ -8,12 +8,16 @@ import {resolveSourceCrop,type SourceCrop} from '../../../../utils/sourceCrop';
 import {maskPixelBounds} from '../../../../utils/masks/geometry';
 import {MaskSource} from '../MaskSource';
 import {MaskStage} from '../MaskStage';
+import {SourceTextureFilter} from '../SourceTextureFilter';
+import {sourceTextureTransform} from '../../../../utils/motion/sourceTextureTransform';
 
 export function useMaskPreview(texture:Texture|null,viewRef?:MutableRefObject<SourceCrop>){
  const material=useRef<MeshBasicMaterial>(null);
  const encodedMask=useRef({value:false});
+ const filter=useRef(new SourceTextureFilter());
+ const maskRevision=useRef(0);
  const resources=useRef<{key:string;source:MaskSource;stage:MaskStage;last?:{texture:Texture;version:number;time:number;mask:RecordingMask}}|null>(null);
- useEffect(()=>()=>{resources.current?.source.dispose();resources.current?.stage.dispose();resources.current=null;},[]);
+ useEffect(()=>()=>{resources.current?.source.dispose();resources.current?.stage.dispose();resources.current=null;filter.current.dispose();},[]);
  useFrame(({gl})=>{
   if(!material.current||!texture)return;
   if(!material.current.userData.maskDecode){
@@ -55,11 +59,23 @@ export function useMaskPreview(texture:Texture|null,viewRef?:MutableRefObject<So
     stage.update(gl,source.update(gl,texture),{rect:[rect.x*scaleX,rect.y*scaleY,rect.width*scaleX,rect.height*scaleY],
      radius:16*scaleX,opacity:1,highlightOpacity:mask.highlightOpacity,sensitive:mask.type==='sensitive-data'});
     resources.current!.last={texture,version:texture.version,time,mask};
+    maskRevision.current++;
    }
    output=stage.target.texture;
    encodedMask.current.value=true;
    const view=viewRef?.current??{x:0,y:0,width:1,height:1};
    output.repeat.set(view.width,view.height);output.offset.set(view.x,1-view.y-view.height);output.updateMatrix();
+  }
+  if(output&&width&&height){
+   const view=viewRef?.current??{x:0,y:0,width:1,height:1};
+   const transform=sourceTextureTransform(output.matrix,view);
+   const dimensions=output.isRenderTargetTexture?output.image as {width:number;height:number}:{width,height};
+   const filteredWidth=Math.max(1,Math.round(dimensions.width*transform.elements[0]));
+   const filteredHeight=Math.max(1,Math.round(dimensions.height*transform.elements[4]));
+   output=filter.current.update(gl,output,filteredWidth,filteredHeight,transform,
+    `${texture.version}:${image.currentTime??0}:${maskRevision.current}`);
+   output.repeat.set(view.width,view.height);output.offset.set(view.x,1-view.y-view.height);output.updateMatrix();
+   encodedMask.current.value=true;
   }
   if(material.current.map!==output){material.current.map=output;material.current.needsUpdate=true;}
  },-.5);

@@ -122,6 +122,7 @@ pub fn build_gpu_config(
         content_offset_y: padding_y,
         input_width: input_w,
         input_height: input_h,
+        source_size: [input_w, input_h],
         input_offset_x: input_off_x,
         input_offset_y: input_off_y,
         background_color,

@@ -162,6 +162,7 @@ export const DEFAULT_VISUAL_SETTINGS: VisualSettings = {
   cursorRotation: 0,
   rotateCursorWhileMoving: false,
   rotationIntensity: 30,
+  cursorRotationMode: "horizontal",
   // Advanced cursor options
   stopCursorAtEnd: false,
   stopCursorDuration: 500,

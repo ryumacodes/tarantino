@@ -1,6 +1,9 @@
 //! Rotation targets in recording pixel coordinates, independent of output FPS.
 //! The target curve is separate from the angular spring used to render it.
 
+#[path = "directional_rotation.rs"]
+pub(crate) mod directional;
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MotionPoint {
     pub time_ms: f64,
@@ -12,6 +15,24 @@ pub(crate) struct MotionPoint {
 pub(crate) struct RotationKey {
     pub time_ms: f64,
     pub degrees: f64,
+}
+
+pub(crate) fn prepared_or_retimed_targets<'a>(
+    planned: Option<&'a super::planner::runtime::Prepared>,
+    settings: &crate::video_processing::CursorSettings,
+    duration_ms: u64,
+    load_points: impl FnOnce() -> Vec<MotionPoint>,
+) -> std::borrow::Cow<'a, [RotationKey]> {
+    if let Some(keys) = planned.and_then(|plan| plan.rotation_keys()) {
+        return std::borrow::Cow::Borrowed(keys);
+    }
+    let points = retimed_points(&load_points(), |time| {
+        planned.map_or(time, |plan| plan.target_time_of(time))
+    });
+    let points = if settings.loop_to_start.unwrap_or(false) {
+        super::loop_path::rotation_points(&points, duration_ms, settings.loop_duration_ms.unwrap_or(500))
+    } else { points };
+    std::borrow::Cow::Owned(targets(&points, settings))
 }
 
 pub(crate) fn retimed_points(points: &[MotionPoint], target_time: impl Fn(f64) -> f64) -> Vec<MotionPoint> {
@@ -162,5 +183,13 @@ mod tests {
         }
         assert!(horizontal_tilt(&[],1.0).is_empty());
         assert!(horizontal_tilt(&[point(0.0,0.0,0.0)],0.0).is_empty());
+    }
+}
+
+pub(crate) fn targets(points: &[MotionPoint], settings: &crate::video_processing::CursorSettings) -> Vec<RotationKey> {
+    if settings.rotation_mode.as_deref() == Some("directional") {
+        directional::targets(points, None)
+    } else {
+        horizontal_tilt(points, settings.rotation_intensity.unwrap_or(30.0) / 100.0)
     }
 }

@@ -192,9 +192,9 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
   const trajectoryDuration=useEditorStore(state=>state.duration);
   const cursorRotation=useEditorStore(state=>state.visualSettings.cursorRotation);
   const rotateWhileMoving=useEditorStore(state=>state.visualSettings.rotateCursorWhileMoving);
+  const rotationMode=useEditorStore(state=>state.visualSettings.cursorRotationMode ?? "horizontal");
   const rotationIntensity=useEditorStore(state=>state.visualSettings.rotationIntensity);
   const sourceCrop = useEditorStore(state => state.visualSettings.sourceCrop);
-  const cursorScale = useEditorStore((state) => state.visualSettings.cursorScale);
   const hideCursorWhenIdle = useEditorStore((state) => state.visualSettings.hideCursorWhenIdle);
   const idleTimeout = useEditorStore((state) => state.visualSettings.idleTimeout);
   const stopCursorAtEnd = useEditorStore((state) => state.visualSettings.stopCursorAtEnd);
@@ -243,7 +243,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
           fps: CAMERA_SIMULATION_FPS,
           videoWidth: videoWidth,
           videoHeight: videoHeight,
-          cursorScale: cursorScale ?? 3.0,
+          cursorScale: 1.0,
           hideCursorWhenIdle,
           idleTimeout,
           stopCursorAtEnd,
@@ -254,7 +254,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
           springTension: spring.tension,
           springFriction: spring.friction,
           springMass: spring.mass,
-          rotation:cursorRotation,rotateWhileMoving,rotationIntensity,edit,
+          rotation:cursorRotation,rotateWhileMoving,rotationIntensity,rotationMode,edit,
         }));
 
         if (cancelled || result === undefined) return;
@@ -282,14 +282,14 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     sidecarPath,trajectoryDuration,timelineClips,timelineTracks,trimStart,trimEnd,recordingPath,
     videoWidth,
     videoHeight,
-    cursorScale, alwaysUsePointer, optimizeCursorTypes, followHover,
+    alwaysUsePointer, optimizeCursorTypes, followHover,
     hideCursorWhenIdle,
     idleTimeout,
     stopCursorAtEnd,
     stopCursorDuration,
     loopCursorPosition,
     cursorShakeThreshold, sourceCrop,
-    spring.tension, spring.friction, spring.mass,cursorRotation,rotateWhileMoving,rotationIntensity,
+    spring.tension, spring.friction, spring.mass,cursorRotation,rotateWhileMoving,rotationIntensity,rotationMode,
     trajectoryContext, trajectoryQueue,
   ]);
 

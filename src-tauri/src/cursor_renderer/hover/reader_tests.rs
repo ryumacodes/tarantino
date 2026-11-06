@@ -256,7 +256,7 @@ async fn preview_and_shared_planner_use_detected_hover_constraints() {
         Some(spring.mass),
         Some(0.0),
         Some(false),
-        Some(100.0),
+        Some(100.0), None,
         None,
         Some(false),
         Some(false),

@@ -65,7 +65,7 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
                     <label className="cursor-setting-label">Rotate cursor while moving</label>
                   </div>
                   <span className="toggle-description">
-                    If cursor is moving horizontally, it will slightly rotate as if it is chasing the mouse.
+                    Rotate with horizontal movement or follow the direction of travel.
                   </span>
                 </div>
                 <label className="toggle-switch">
@@ -80,6 +80,17 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
               </div>
 
               {visualSettings.rotateCursorWhileMoving && (
+                <label className="cursor-setting-label cursor-rotation-mode">
+                  Rotation mode
+                  <select value={visualSettings.cursorRotationMode ?? "horizontal"}
+                    onChange={(event) => updateVisualSettings({ cursorRotationMode: event.target.value === "directional" ? "directional" : "horizontal" })}
+                    disabled={isExporting}>
+                    <option value="horizontal">Horizontal tilt</option>
+                    <option value="directional">Follow direction</option>
+                  </select>
+                </label>
+              )}
+              {visualSettings.rotateCursorWhileMoving && visualSettings.cursorRotationMode !== "directional" && (
                 <div className="slider-with-reset" style={{ marginTop: '12px' }}>
                   <input
                     type="range"

@@ -217,23 +217,20 @@ pub async fn export_video(
         } else {
             &zoom_trajectory
         };
-        let rotation_points = if cursor_config.rotate_while_moving.unwrap_or(false) {
-            load_rotation_points(&mouse_events_path,cursor_config.shake_threshold.unwrap_or(0.0))
-        } else {Vec::new()};
         let planned=crate::cursor_renderer::planner::runtime::prepare(&mouse_events_path,(source_width,source_height),
             settings.source_crop,cursor_timeline.as_ref(),input_path,duration_ms as f64,&cursor_config,cursor_spring,Some(&|| control.check()))?;
+        let rotation_points = if cursor_config.rotate_while_moving.unwrap_or(false)
+            && planned.as_ref().and_then(|plan| plan.rotation_keys()).is_none() {
+            load_rotation_points(&mouse_events_path,cursor_config.shake_threshold.unwrap_or(0.0))
+        } else {Vec::new()};
         let position=|time|planned.as_ref().unwrap().at(time);
         let pressed=|time|planned.as_ref().unwrap().pressed_at_source(time,cursor_spring.mass!=0.0);
         let positions = if let Some(plan)=cursor_timeline.as_ref() {
             crate::cursor_renderer::edited_simulation::simulate_with_planned_path(&raw_events,&rotation_points,plan,
                 &input_path.to_string_lossy(),&cursor_spring,&cursor_config,cursor_zoom_ref,target_fps as f64,Some(&activity),planned.as_ref(),target_fps as f64)
         } else {
-            let rotation_points = crate::cursor_renderer::rotation::retimed_points(&rotation_points,
-                |time| planned.as_ref().map_or(time, |plan| plan.target_time_of(time)));
-            let rotation_points = if cursor_config.loop_to_start.unwrap_or(false) {
-                crate::cursor_renderer::loop_path::rotation_points(&rotation_points,duration_ms,cursor_config.loop_duration_ms.unwrap_or(500))
-            } else {rotation_points};
-            let rotation_keys = crate::cursor_renderer::rotation::horizontal_tilt(&rotation_points,cursor_config.rotation_intensity.unwrap_or(30.0)/100.0);
+            let rotation_keys = crate::cursor_renderer::rotation::prepared_or_retimed_targets(
+                planned.as_ref(), &cursor_config, duration_ms, || rotation_points);
             simulate_cursor_frames_from(&raw_events,&cursor_spring,target_fps as f64,range.end_ms,cursor_zoom_ref,
                 &cursor_config,range.start_ms,CAMERA_SIMULATION_FPS,Some(&rotation_keys),Some(&typing),
                 planned.as_ref().map(|_|&position as &dyn Fn(f64)->[f64;2]),planned.as_ref().map(|_|(&pressed as &dyn Fn(f64)->bool,target_fps as f64)),Clone::clone)
@@ -264,7 +261,8 @@ pub async fn export_video(
     let src_h = crop.map(|c| c.height).or(settings.source_height).or(Some(source_height));
 
     // Build GPU compositor config
-    let gpu_config = build_gpu_config_with_webcam(&settings, &webcam_info, src_w, src_h);
+    let mut gpu_config = build_gpu_config_with_webcam(&settings, &webcam_info, src_w, src_h);
+    gpu_config.source_size = crop.map_or([source_width, source_height], |c| [c.width, c.height]);
     let webcam_timeline = super::webcam_timeline::WebcamTimeline::new(&settings, gpu_config.webcam.clone())?;
     let camera_opacity = if webcam_info.is_some() {
         Some(super::loupe::camera_opacity_prepare::prepare_camera_opacity(
@@ -277,7 +275,7 @@ pub async fn export_video(
     let (out_width, out_height) = (gpu_config.output_width, gpu_config.output_height);
     let shortcuts=super::shortcut_overlay::Prepared::new(shortcut_overlay.as_ref(),out_width,out_height,expected_frames)?;
     let captions=caption_overlay.map(|input|super::caption_overlay::Prepared::new(input,out_width,out_height,expected_frames)).transpose()?;
-    let (input_width, input_height) = (gpu_config.input_width, gpu_config.input_height);
+    let [input_width, input_height] = gpu_config.source_size;
     println!("=== GPU EXPORT START ===");
     println!("  Input (decode): {}x{}", input_width, input_height);
     println!("  Output: {}x{} @ {}fps", out_width, out_height, target_fps);
@@ -473,7 +471,7 @@ pub async fn export_video(
 
     let input_frame_size = (input_width * input_height * 4) as usize;
     let output_frame_size = (out_width * out_height * 4) as usize;
-    let mut reader = BufReader::with_capacity(input_frame_size * 4, decoder_stdout);
+    let mut reader = decoder_stdout;
     let mut writer = BufWriter::with_capacity(output_frame_size * 4, encoder_stdin);
 
     let mut frame_buffer = vec![0u8; input_frame_size];

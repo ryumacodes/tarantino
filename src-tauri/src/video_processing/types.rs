@@ -85,6 +85,7 @@ pub struct CursorSettings {
     // Rotation
     pub rotation: Option<f64>, // 0-360 degrees
     pub rotate_while_moving: Option<bool>,
+    pub rotation_mode: Option<String>,
     pub rotation_intensity: Option<f64>, // 0-100
     // Idle behavior
     pub hide_when_idle: Option<bool>,

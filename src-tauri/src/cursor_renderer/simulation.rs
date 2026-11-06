@@ -329,8 +329,8 @@ pub(crate) fn simulate_cursor_frames_from<T>(
 
     let mut visibility = visibility::VisibilityTimeline::new();
 
-    let mut angular_state = super::angular_spring::AngularTimeline::new(
-        rotation_keys.map_or(0.0, |keys| super::rotation::sample(keys, 0.0)));
+    let mut angular_state = super::angular_spring::AngularTimeline::for_mode(
+        rotation_keys.map_or(0.0, |keys| super::rotation::sample(keys, 0.0)),cursor_settings.rotation_mode.as_deref());
     // Rotation state
     let mut horizontal_velocity: f64 = 0.0;
     let mut last_x_position: f64 = init_x;
@@ -394,7 +394,7 @@ pub(crate) fn simulate_cursor_frames_from<T>(
                 rotation += angular_state.sample(time_ms_f, |time| {
                     let target = super::rotation::sample(keys, time.min(freeze_time_ms as f64));
                     let resting_ms = (time-freeze_time_ms as f64).max(0.0);
-                    target * if resting_ms>=720.0 {0.0} else {(-resting_ms/120.0).exp()}
+                    target * if cursor_settings.rotation_mode.as_deref()==Some("directional") {1.0} else if resting_ms>=720.0 {0.0} else {(-resting_ms/120.0).exp()}
                 });
             } else {
                 rotation += (horizontal_velocity * 2.0).clamp(-max_rot, max_rot);

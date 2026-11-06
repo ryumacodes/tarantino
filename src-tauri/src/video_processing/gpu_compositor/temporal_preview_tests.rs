@@ -4,7 +4,7 @@ use super::*;
 #[ignore="native GPU; writes temporal window fixtures for real preview comparison"]
 fn write_temporal_window_preview_fixtures() {
     let mut fixtures=Vec::new();
-    for (width,height) in [(96,64),(97,65)] {for shadow in [false,true] {for opacity in [128u8,255] {for zoom in [false,true] {for window in [true,false] {
+    for (width,height) in [(96,64),(97,65)] {for shadow in [false,true] {for opacity in [128u8,255] {for zoom in [false,true] {for window in [true,false] {for masked in [false,true] {for slow in [false,true] {for source_scale in [1,3] {
         let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
             "resolution":{"width":width,"height":height},"frame_rate":60,
             "visual_settings":{"padding":20,"corner_radius":8,"shadow_enabled":shadow}
@@ -13,10 +13,18 @@ fn write_temporal_window_preview_fixtures() {
         config.window_mode=window;config.background_color=[0.0;4];config.shadow_enabled=shadow;
         config.motion_blur_enabled=true;config.motion_blur_pan_intensity=1.0;config.motion_blur_zoom_intensity=1.0;
         let (iw,ih)=(config.input_width,config.input_height);
-        let source:Vec<u8>=(0..ih).flat_map(|y|(0..iw).flat_map(move |x|[((x*13+y*7)%256) as u8,if (x+y)%2==0 {255} else {0},80,opacity])).collect();
+        let (sw,sh)=(iw*source_scale,ih*source_scale);
+        config.source_size=[sw,sh];
+        let source:Vec<u8>=(0..sh).flat_map(|y|(0..sw).flat_map(move |x|[((x*13+y*7)%256) as u8,if (x+y)%2==0 {255} else {0},80,opacity])).collect();
+        let mask=image::RgbaImage::from_fn(iw,ih,|x,y| {
+            let edge=x.min(iw-1-x).min(y.min(ih-1-y));
+            let alpha=(edge*85).min(255) as u8;
+            image::Rgba([alpha,alpha,alpha,255])
+        });
+        if masked {config.window_mask=Some(mask.clone());}
         let shadow_pixels:Vec<u8>=(0..height).flat_map(|y|(0..width).flat_map(move |x|[0,0,0,((x+y)%160) as u8])).collect();
         let before=ZoomFrameState { rect: None,scale:if zoom {1.1} else {1.5},center_x:0.3,center_y:0.5};
-        let now=ZoomFrameState { rect: None,scale:1.5,center_x:0.7,center_y:0.5};
+        let now=ZoomFrameState { rect: None,scale:if slow {before.scale+0.002} else {1.5},center_x:if slow {0.301} else {0.7},center_y:0.5};
         let (start,end)=motion::shutter_rect(&now,Some(&before),&config);
         let base=[(config.content_offset_x+config.input_offset_x) as f32+iw as f32*0.5,
             (config.content_offset_y+config.input_offset_y) as f32+ih as f32*0.5];
@@ -31,9 +39,9 @@ fn write_temporal_window_preview_fixtures() {
         compositor.composite_frame(&source,&before,None).unwrap();
         compositor.composite_frame(&source,&now,None).unwrap();
         let expected=super::layer_tests::read_texture(&compositor,&compositor.loupe_layers.foreground);
-        fixtures.push(serde_json::json!({"width":width,"height":height,"inputSize":[iw,ih],"baseCenter":base,
-            "fixedDisplay":!window,"before":start,"now":end,"cornerRadius":radius,"shadowEnabled":shadow,"source":source,"shadow":shadow_pixels,"expected":expected}));
-    }}}}}
+        fixtures.push(serde_json::json!({"width":width,"height":height,"inputSize":[iw,ih],"sourceSize":[sw,sh],"baseCenter":base,
+            "mask":if masked {Some(mask.into_raw())} else {None},"fixedDisplay":!window,"before":start,"now":end,"cornerRadius":radius,"shadowEnabled":shadow,"source":source,"shadow":shadow_pixels,"expected":expected}));
+    }}}}}}}}
     let path=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("oss-research/temporal-window-native.json");
     std::fs::write(path,serde_json::to_vec(&fixtures).unwrap()).unwrap();
 }

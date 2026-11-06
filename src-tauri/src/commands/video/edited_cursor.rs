@@ -38,6 +38,28 @@ pub(super) fn prepare_with_input(request:&EditedCursorRequest,events:&[CursorEve
 mod tests {
     use super::*;
     #[tokio::test]
+    async fn preview_trajectory_is_independent_of_rendered_cursor_size() {
+        let path=std::env::temp_dir().join(format!("cursor-size-{}.json",uuid::Uuid::new_v4()));
+        let samples=(0..=100).map(|i|serde_json::json!({"timestamp":i*10,"x":20.0+i as f64*0.5,"y":20,
+            "event_type":if i==50 {serde_json::json!({"ButtonPress":{"button":"Left"}})}
+                else if i==55 {serde_json::json!({"ButtonRelease":{"button":"Left"}})}
+                else {serde_json::json!("Move")}})).collect::<Vec<_>>();
+        std::fs::write(&path,serde_json::to_vec(&samples).unwrap()).unwrap();
+        let mut results=Vec::new();
+        for size in [1.0,5.0] {
+            results.push(super::super::compute_cursor_trajectory(path.to_string_lossy().into_owned(),1000,120,100,100,
+                size,false,2000,false,0,false,None,None,Some(470.0),Some(70.0),Some(3.0),Some(0.0),Some(true),Some(30.0),
+                Some("directional".into()),None,None,Some(false),None).await.unwrap());
+        }
+        assert_eq!(results[0],results[1]);
+        let frames:Vec<[f64;10]>=serde_json::from_str(&results[0]).unwrap();
+        assert_eq!(frames.len(),120);
+        assert!(frames.iter().any(|frame|frame[4]>0.0));
+        assert!(frames.last().unwrap()[0]>frames[0][0]);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
     async fn command_returns_output_time_frames_for_repeated_speed_adjusted_clips() {
         let path=std::env::temp_dir().join(format!("edited-cursor-{}.json",uuid::Uuid::new_v4()));
         let samples=(0..=50).map(|i|serde_json::json!({"timestamp":i*10,"x":20.0+i as f64*1.2,"y":20})).collect::<Vec<_>>();
@@ -50,7 +72,7 @@ mod tests {
             ]
         })).unwrap();
         let result=super::super::compute_cursor_trajectory(path.to_string_lossy().into_owned(),1000,120,100,100,
-            1.0,false,2000,false,0,false,None,None,Some(170.0),Some(30.0),Some(0.0),Some(0.0),Some(false),Some(100.0),Some(request),None,Some(false), None).await.unwrap();
+            1.0,false,2000,false,0,false,None,None,Some(170.0),Some(30.0),Some(0.0),Some(0.0),Some(false),Some(100.0), None,Some(request),None,Some(false), None).await.unwrap();
         let value:serde_json::Value=serde_json::from_str(&result).unwrap();
         assert_eq!(value["outputTime"],true);
         assert_eq!(value["originMs"],0);

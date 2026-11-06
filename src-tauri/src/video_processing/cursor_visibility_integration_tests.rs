@@ -387,3 +387,46 @@ async fn encoded_cursor_press_shrinks_and_returns_without_moving_hotspot() {
     }}}
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires local FFmpeg and GPU; encoded directional cursor orientation"]
+async fn directional_motion_renders_the_expected_heading() {
+    let root = std::env::temp_dir().join(format!("cursor-heading-{}",uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let input = root.join("black.mkv");
+    ffmpeg(&["-v","error","-f","lavfi","-i","color=c=black:s=128x128:r=24:d=1",
+        "-c:v","ffv1",input.to_str().unwrap()]);
+    let info = VideoInfo {duration_ms:1000,width:128,height:128,fps:24.0,
+        bitrate:0,format:"mkv".into(),size_bytes:0,frame_count:Some(24)};
+    for (dx,dy,angle) in [(20.0,0.0,112.5),(0.0,-20.0,22.5),(-20.0,0.0,-67.5),(0.0,20.0,-135.0)] {
+        std::fs::write(input.with_extension("mouse.json"),serde_json::to_vec(&serde_json::json!({
+            "display_width":128,"display_height":128,"scale_factor":1,
+            "mouse_events":[{"timestamp":0,"x":64,"y":64},
+                {"timestamp":999,"x":64.0+dx,"y":64.0+dy}]
+        })).unwrap()).unwrap();
+        let mut expected = None;
+        for dynamic in [false,true] {
+            let output = root.join(format!("{angle}-{dynamic}.mp4"));
+            let settings: ExportSettings = serde_json::from_value(serde_json::json!({
+                "output_path":output,"resolution":{"width":128,"height":128},
+                "capture_mode":"window","source_width":128,"source_height":128,
+                "frame_rate":24,"format":"mp4","codec":"h264","zoom_blocks":[],
+                "cursor_settings":{"enabled":true,"size":1,"color":"#ffffff","click_effect":"none",
+                    "spring_mass":0,"rotation":if dynamic {0.0}else{angle},
+                    "rotation_mode":"directional","rotate_while_moving":dynamic},
+                "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false}
+            })).unwrap();
+            export_video(&root,&input,settings,&info,None).await.unwrap();
+            let decoded = ffmpeg(&["-v","error","-i",output.to_str().unwrap(),"-fps_mode","passthrough",
+                "-f","rawvideo","-pix_fmt","rgb24","-"]);
+            assert_eq!(decoded.len(),24*128*128*3);
+            if let Some(expected) = expected.as_ref() {
+                assert!(&decoded==expected,"directional heading {angle} differs from fixed-angle render");
+            } else {
+                assert!(decoded.iter().filter(|value| **value>128).count()>100,"missing cursor");
+                expected = Some(decoded);
+            }
+        }
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}

@@ -71,15 +71,21 @@ mod tests {
         #[derive(serde::Deserialize)]
         struct Config { tension:f64,friction:f64,mass:f64 }
         #[derive(serde::Deserialize)]
-        struct Case { config:Config,blocks:Vec<super::super::ZoomBlock>,samples:Vec<[f64;4]> }
+        struct Case { config:Config,blocks:Vec<super::super::ZoomBlock>,samples:Vec<[f64;4]>,
+            source:Option<ScreenRect>,area:Option<ScreenRect>,window:Option<bool> }
         let path=std::env::var("TARANTINO_RECT_PIPELINE_CASES").unwrap();
         let cases:Vec<Case>=serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         assert!(!cases.is_empty());
         for case in cases {
             let config=SpringConfig{tension:case.config.tension,friction:case.config.friction,mass:case.config.mass};
             for window in [true, false] {
+                if case.window.is_some_and(|mode|mode!=window) {continue;}
+                let viewport=match (case.source,case.area) {
+                    (Some(source),Some(zoom_area))=>super::super::CameraViewport{source,zoom_area},
+                    _=>super::super::CameraViewport::default(),
+                };
                 for fps in [24.0,60.0,120.0,144.0] {
-                    let frames=super::super::simulate_zoom_trajectory(&case.blocks,&[],&config,true,"focused",fps,3000,window);
+                    let frames=super::super::simulate_zoom_trajectory_in_viewport(&case.blocks,&[],&config,true,"focused",fps,3000,window,viewport,None);
                     for (index,frame) in frames.iter().enumerate() {
                         let position=index as f64*60.0/fps;
                         let lower=position.floor() as usize;
@@ -87,7 +93,9 @@ mod tests {
                         let expected:[f64;4]=std::array::from_fn(|i|case.samples[lower][i]
                             +(case.samples[lower+1][i]-case.samples[lower][i])*fraction);
                         let rect=if window {frame.rect.unwrap()} else {
-                            [0.5-frame.center_x*frame.scale,0.5-frame.center_y*frame.scale,frame.scale,frame.scale]
+                            let anchor_x=(viewport.zoom_area.x+viewport.zoom_area.width/2.0-viewport.source.x)/viewport.source.width;
+                            let anchor_y=(viewport.zoom_area.y+viewport.zoom_area.height/2.0-viewport.source.y)/viewport.source.height;
+                            [anchor_x-frame.center_x*frame.scale,anchor_y-frame.center_y*frame.scale,frame.scale,frame.scale]
                         };
                         for (actual,expected) in rect.into_iter().zip(expected) {
                             assert!((actual-expected).abs()<1e-9,"window={window} {fps}fps frame {index}: {actual} != {expected}");

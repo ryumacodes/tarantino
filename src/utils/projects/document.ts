@@ -90,6 +90,7 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
   check(['slow', 'mellow', 'quick', 'rapid'].includes(state.visualSettings.cursorSpeedPreset), 'cursor speed');
   check(state.visualSettings.zoomLeadInMs === undefined || (Number.isFinite(state.visualSettings.zoomLeadInMs) && state.visualSettings.zoomLeadInMs >= 0 && state.visualSettings.zoomLeadInMs <= 2000), 'zoom lead-in');
   check(state.visualSettings.screenMotionStyle === undefined || ['focused', 'smooth'].includes(state.visualSettings.screenMotionStyle), 'screen style');
+  check(state.visualSettings.cursorRotationMode === undefined || ['horizontal', 'directional'].includes(state.visualSettings.cursorRotationMode), 'cursor rotation mode');
   check(state.visualSettings.cursorMotionStyle === undefined || ['smooth', 'medium', 'rapid', 'none'].includes(state.visualSettings.cursorMotionStyle), 'cursor motion style');
   if (state.zoomAnalysis !== null) {
     check(object(state.zoomAnalysis) && Array.isArray(state.zoomAnalysis.zoom_blocks), 'zoom analysis');

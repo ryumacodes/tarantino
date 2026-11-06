@@ -149,11 +149,34 @@ fn display_pan_samples_the_trailing_camera_without_blurring_the_frame() {
     compositor.composite_frame(&source,&before,None).unwrap();
     let moving=compositor.composite_frame(&source,&now,None).unwrap();
     let center=(80*160+80)*4;
-    // The shutter covers source x=.62..=.70; its midpoint is .66.
-    assert!((moving[center] as i32-168).abs()<=2,"trailing sample {}",moving[center]);
+    // Six stratified samples over source x=.62..=.70, using the output-pixel phase.
+    let expected = [
+        [166, 169, 169, 171, 170, 173, 173, 176],
+        [169, 168, 171, 171, 173, 172, 175, 175],
+        [167, 170, 169, 171, 171, 174, 173, 175],
+        [170, 169, 171, 170, 174, 173, 175, 175],
+        [167, 169, 169, 172, 170, 173, 173, 176],
+        [169, 168, 171, 171, 173, 172, 175, 175],
+        [167, 170, 169, 171, 171, 174, 173, 175],
+        [170, 169, 171, 171, 174, 173, 175, 174],
+    ];
+    for (y,row) in expected.iter().enumerate() {for (x,&red) in row.iter().enumerate() {
+        let actual=moving[((80+y)*160+80+x)*4];
+        assert!((actual as i32-red).abs()<=1,"dithered sample {x},{y}: {actual} != {red}");
+    }}
     assert!(still[center]>moving[center]+7);
     assert_eq!(moving[(80*160+15)*4+3],0);
     assert_eq!(moving[(80*160+16)*4+3],255);
     compositor.reset_motion_history();
     assert_eq!(still,compositor.composite_frame(&source,&now,None).unwrap());
+
+    let stripes:Vec<u8>=(0..128).flat_map(|_|(0..128).flat_map(|x|[if x%2==0 {0} else {255},0,0,255])).collect();
+    let slow=ZoomFrameState{rect:Some([-0.12,-0.5,2.0,2.0]),scale:2.0,center_x:0.31,center_y:0.5};
+    compositor.reset_motion_history();
+    compositor.composite_frame(&stripes,&before,None).unwrap();
+    let subtle=compositor.composite_frame(&stripes,&slow,None).unwrap();
+    // Half a display pixel of travel: sample source u=.309, between texels 39 and 40.
+    for y in 80..88 {
+        assert!((subtle[(y*160+80)*4] as i32-242).abs()<=1,"slow pan must not carry a dither grid");
+    }
 }

@@ -58,7 +58,11 @@ impl MipPyramid {
     /// Separate passes establish dependencies between adjacent mip levels.
     /// Bindings and textures are reused; there is no CPU pixel readback.
     pub fn encode(&self,encoder:&mut wgpu::CommandEncoder) {
-        for (level,(binding,width,height)) in self.levels.iter().enumerate() {
+        self.encode_through(encoder, self.texture.mip_level_count() - 1);
+    }
+
+    pub fn encode_through(&self,encoder:&mut wgpu::CommandEncoder,last_level:u32) {
+        for (level,(binding,width,height)) in self.levels.iter().enumerate().take(last_level as usize + 1) {
             let mut pass=encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label:Some("Magnifier pyramid level"),timestamp_writes:None,
             });
