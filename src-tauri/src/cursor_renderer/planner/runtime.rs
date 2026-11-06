@@ -99,18 +99,56 @@ pub fn prepare(
     }
     let rotating = settings.rotate_while_moving.unwrap_or(false);
     let rotation_source = rotating.then(|| input.points.clone());
-    if let Some((start, end)) = bounds.filter(|_| looped) {
+    let window = bounds.filter(|&(start, end)| {
+        looped
+            || timeline.is_none_or(|timeline| {
+                timeline.segments.iter().all(|segment| {
+                    segment.source_start_ms.is_none_or(|source| {
+                        source >= start
+                            && source
+                                + (segment.output_end_ms - segment.output_start_ms) * segment.rate
+                                <= end
+                    })
+                })
+            })
+    });
+    if let Some((start, end)) = window {
+        let first_time = input
+            .points
+            .get(input.points.partition_point(|p| p.time_ms < start))
+            .filter(|p| p.time_ms <= end)
+            .map(|p| p.time_ms);
         input.points = super::source_window::select(
             &input.points,
             start,
             end,
-            true,
+            looped,
             |p| p.time_ms,
             |p, time_ms| Point { time_ms, ..p },
         );
         input
             .sync
             .retain(|p| p.time_ms >= start && p.time_ms <= end);
+        // Pointer constraints follow retimed samples; hover/image times stay in source time.
+        for point in &mut input.sync {
+            if Some(point.time_ms) == first_time && point.tolerance == 2.0 {
+                point.time_ms = start;
+            }
+        }
+        if looped
+            && input
+                .sync
+                .iter()
+                .any(|p| p.time_ms == start && p.tolerance == 2.0)
+        {
+            if let Some(point) = input.points.last() {
+                input.sync.push(super::activity::SyncPoint {
+                    time_ms: point.time_ms,
+                    tolerance: 2.0,
+                });
+            }
+        }
+        input.sync.sort_by(|a, b| a.time_ms.total_cmp(&b.time_ms));
     }
     let mut mapped = if let Some(timeline) = timeline {
         playback::map(&input, timeline, recording)
@@ -172,6 +210,62 @@ pub fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn trimmed_opening_uses_in_range_sample_without_discarding_reordered_clips() {
+        use crate::video_processing::timeline::EditTimeline;
+        let sidecar =
+            std::env::temp_dir().join(format!("trimmed-cursor-{}.json", uuid::Uuid::new_v4()));
+        let events = (0..4)
+            .map(|i| {
+                serde_json::json!({
+                    "timestamp":i*20,"x":(i+1)*10,"y":50,"event_type":"Move",
+                })
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(
+            &sidecar,
+            serde_json::to_vec(&serde_json::json!({
+                "display_width":100,"display_height":100,"mouse_events":events,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let settings = serde_json::from_value(serde_json::json!({"follow_hover":false})).unwrap();
+        for (ranges, expected) in [
+            (vec![(5.5, 50.0)], 0.2),
+            (vec![(40.0, 20.0), (0.0, 20.0)], 0.3),
+        ] {
+            let mut start = 0.0;
+            let clips=ranges.into_iter().enumerate().map(|(index,(source,duration))| {
+                let clip=serde_json::from_value(serde_json::json!({"id":index.to_string(),
+                    "startTime":start,"duration":duration,"sourceIn":source,"sourceOut":source+duration,
+                    "playbackRate":1,"trackOrder":0,"muted":false})).unwrap();
+                start+=duration;clip
+            }).collect::<Vec<_>>();
+            let timeline = EditTimeline::build(&clips, 0.0, start).unwrap();
+            let prepared = prepare(
+                &sidecar,
+                (100, 100),
+                None,
+                Some(&timeline),
+                &sidecar,
+                start,
+                &settings,
+                SpringConfig {
+                    tension: 470.0,
+                    friction: 70.0,
+                    mass: 0.0,
+                },
+                None,
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(prepared.at(0.0)[0], expected);
+            assert_ne!(prepared.at(0.0), prepared.at(start));
+        }
+        std::fs::remove_file(sidecar).unwrap();
+    }
+
     #[test]
     #[ignore = "opt-in recorded cursor planning profile"]
     fn recorded_cursor_planning_profile() {
