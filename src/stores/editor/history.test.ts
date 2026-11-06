@@ -489,3 +489,19 @@ it('toggles all video tracks as one saved edit without deleting clips or moving 
   actions.setVideoTracksVisible(true);
   expect(exportTimeline(useEditorStore.getState()).timeline_clips).toHaveLength(1);
 });
+
+it('updates the playback clock without traversing frozen project data', () => {
+  const before = useEditorStore.getState();
+  const frozenCheck = vi.spyOn(Object, 'isFrozen');
+  before.setCurrentTime(16, 'playback');
+  before.setIsPlaying(true);
+  before.setCurrentTime(500);
+  const checks = frozenCheck.mock.calls.length;
+  frozenCheck.mockRestore();
+  const after = useEditorStore.getState();
+  expect(checks).toBe(0);
+  expect(after.currentTime).toBe(500);
+  expect(after.playbackRevision).toBe(before.playbackRevision + 2);
+  expect(after.clips).toBe(before.clips);
+  expect(after.history).toBe(before.history);
+});

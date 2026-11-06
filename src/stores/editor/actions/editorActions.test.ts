@@ -33,8 +33,9 @@ const track = (id: string) => ({
 });
 
 type Store = EditorState & EditorActions;
-const harness = <T,>(state: Store, factory: (set: (recipe: (draft: Store) => void) => void, get: () => Store) => T) => {
-  const set = (recipe: (draft: Store) => void) => recipe(state);
+type Update = Partial<Store> | ((draft: Store) => void);
+const harness = <T,>(state: Store, factory: (set: (update: Update) => void, get: () => Store) => T) => {
+  const set = (update: Update) => typeof update === 'function' ? update(state) : Object.assign(state, update);
   const actions = factory(set, () => state);
   Object.assign(state, actions);
   return actions;

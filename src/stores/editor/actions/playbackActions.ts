@@ -1,19 +1,18 @@
 import { edit, restoreEdit } from '../history';
 import type { EditorState, EditorActions } from '../types';
 
-type SetFn = (fn: (state: EditorState & EditorActions) => void) => void;
+type SetFn = (update: Partial<EditorState & EditorActions> | ((state: EditorState & EditorActions) => void)) => void;
 type GetFn = () => EditorState & EditorActions;
 
 export const createPlaybackActions = (set: SetFn, get: GetFn) => ({
-  setIsPlaying: (isPlaying: boolean) => set((state) => {
-    if(state.isPlaying!==isPlaying)state.playbackRevision=state.playbackRevision + 1;
-    state.isPlaying = isPlaying;
-  }),
+  setIsPlaying: (isPlaying: boolean) => {
+    const state = get();
+    set({ isPlaying, playbackRevision: state.playbackRevision + Number(state.isPlaying !== isPlaying) });
+  },
 
-  setCurrentTime: (time: number, origin: 'seek' | 'playback' = 'seek') => set((state) => {
-    if(origin==='seek')state.playbackRevision=state.playbackRevision + 1;
-    state.currentTime = time;
-  }),
+  setCurrentTime: (time: number, origin: 'seek' | 'playback' = 'seek') => {
+    set({ currentTime: time, playbackRevision: get().playbackRevision + Number(origin === 'seek') });
+  },
 
   setDuration: (duration: number) => set((state) => {
     state.duration = duration;
