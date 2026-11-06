@@ -449,6 +449,10 @@ mod edited_tests {
         let mut failures = Vec::new();
         for case in data["results"].as_array().unwrap() {
             let clips: Vec<EditClip> = serde_json::from_value(case["clips"].clone()).unwrap();
+            let width = case["width"].as_u64().unwrap_or(1000) as u32;
+            let height = case["height"].as_u64().unwrap_or(600) as u32;
+            let source_size = (case["sourceWidth"].as_u64().unwrap_or(width as u64) as u32,
+                case["sourceHeight"].as_u64().unwrap_or(height as u64) as u32);
             let duration = case["duration"].as_f64().unwrap();
             let timeline = EditTimeline::build(&clips, 0.0, duration).unwrap();
             let sidecar =
@@ -467,20 +471,28 @@ mod edited_tests {
                     "x":p["x"],"y":p["y"],"event_type":kind})
                 })
                 .collect::<Vec<_>>();
-            std::fs::write(&sidecar,serde_json::to_vec(&serde_json::json!({"display_width":1000,"display_height":600,"mouse_events":events,"cursor_images":case["cursorImages"]})).unwrap()).unwrap();
+            std::fs::write(&sidecar,serde_json::to_vec(&serde_json::json!({"display_width":width,"display_height":height,"mouse_events":events,"cursor_images":case["cursorImages"]})).unwrap()).unwrap();
             let spring = SpringConfig {
                 tension: case["spring"]["stiffness"].as_f64().unwrap(),
                 friction: case["spring"]["damping"].as_f64().unwrap(),
                 mass: case["spring"]["mass"].as_f64().unwrap(),
             };
             let mode = case["mode"].as_str().unwrap_or("directional");
-            let settings = serde_json::from_value(serde_json::json!({"rotate_while_moving":true,"rotation_mode":mode,"follow_hover":false,"optimize_cursor_types":case["optimizeCursorTypes"].as_bool().unwrap_or(true),"loop_to_start":!case["loopDuration"].is_null(),"loop_duration_ms":case["loopDuration"]})).unwrap();
+            let settings = serde_json::from_value(serde_json::json!({"rotate_while_moving":true,"rotation_mode":mode,"follow_hover":case["video"].is_string(),"optimize_cursor_types":case["optimizeCursorTypes"].as_bool().unwrap_or(true),"loop_to_start":!case["loopDuration"].is_null(),"loop_duration_ms":case["loopDuration"]})).unwrap();
+            #[cfg(target_os = "macos")]
+            if let Some(video) = case["video"].as_str() {
+                let times = crate::cursor_renderer::hover::analysis::analyze(
+                    std::path::Path::new(video), &sidecar, source_size,
+                ).unwrap();
+                let expected: Vec<f64> = serde_json::from_value(case["hoverTimes"].clone()).unwrap();
+                assert_eq!(*times, expected);
+            }
             let prepared = super::super::runtime::prepare(
                 &sidecar,
-                (1000, 600),
+                source_size,
                 None,
                 Some(&timeline),
-                &sidecar,
+                case["video"].as_str().map(std::path::Path::new).unwrap_or(&sidecar),
                 duration,
                 &settings,
                 spring,
@@ -496,8 +508,8 @@ mod edited_tests {
             if let Some(samples) = case["positionSamples"].as_array() {
                 for expected in samples {
                     let actual = prepared.at(expected["time_ms"].as_f64().unwrap());
-                    let error = (actual[0] * 1000.0 - expected["x"].as_f64().unwrap())
-                        .hypot(actual[1] * 600.0 - expected["y"].as_f64().unwrap());
+                    let error = (actual[0] * width as f64 - expected["x"].as_f64().unwrap())
+                        .hypot(actual[1] * height as f64 - expected["y"].as_f64().unwrap());
                     assert!(error.is_finite());
                     position_error = position_error.max(error);
                 }
