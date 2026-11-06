@@ -1,3 +1,5 @@
+import { useShallow } from 'zustand/react/shallow';
+import { selectVideoMaterialInputs } from './hooks/videoInputs';
 import {useMaskPreview} from './hooks/useMaskPreview';
 import { subscribePreviewMute } from '../../../stores/previewAudio';
 import type { SourceCrop } from '../../../utils/sourceCrop';
@@ -76,9 +78,8 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
   const maskedMaterial=useMaskPreview(texture,viewRef);
   const audioRefs = useRef<HTMLAudioElement[]>([]);
   const audioGraph = useRef<ReturnType<typeof createPreviewAudio> | null>(null);
-  const previewState = useEditorStore();
-  const { setCurrentTime, setDuration, duration, videoFilePath, hasMicrophone, hasSystemAudio, audioSettings } = previewState;
-  const sample = previewSample(previewState, previewState.currentTime);
+  const { setCurrentTime, setDuration, duration, videoFilePath, hasMicrophone, hasSystemAudio, audioSettings, gap } =
+    useEditorStore(useShallow(selectVideoMaterialInputs));
   const [alphaMask, setAlphaMask] = useState<THREE.Texture | null>(null);
   const [warmedTexture, setWarmedTexture] = useState<THREE.VideoTexture | null>(null);
   const videoWarmedUp = warmedTexture === texture;
@@ -405,8 +406,8 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
     return () => { cancelAnimationFrame(frame); videoElement.pause(); audioRefs.current.forEach(a => a.pause()); };
   }, [videoElement, videoWarmedUp, suppressTimeUpdates, videoFilePath, hasMicrophone, hasSystemAudio]);
 
-  const previewTexture = sample.sourceTime === null ? null : texture;
-  const previewColor = sample.sourceTime === null ? "black" : "white";
+  const previewTexture = gap ? null : texture;
+  const previewColor = gap ? "black" : "white";
   if (alphaMask) {
     return (
       <meshBasicMaterial

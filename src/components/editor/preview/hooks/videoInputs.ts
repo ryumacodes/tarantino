@@ -1,3 +1,4 @@
+import { previewSample } from '../../../../utils/timeline/previewTimeline';
 import type { EditorActions, EditorState } from '../../../../stores/editor/types';
 
 export function selectVideoInputs(state: EditorState & EditorActions) {
@@ -22,4 +23,14 @@ export function selectPreviewInputs(state: EditorState & EditorActions) {
 
 export function selectPlaybackSecond(state: Pick<EditorState, 'currentTime'>) {
   return Math.floor(state.currentTime / 1000);
+}
+
+export function selectVideoMaterialInputs(state: EditorState & EditorActions) {
+  return {
+    setCurrentTime: state.setCurrentTime, setDuration: state.setDuration,
+    duration: state.duration, videoFilePath: state.videoFilePath,
+    hasMicrophone: state.hasMicrophone, hasSystemAudio: state.hasSystemAudio,
+    audioSettings: state.audioSettings,
+    gap: previewSample(state, state.currentTime).sourceTime === null,
+  };
 }
