@@ -467,14 +467,14 @@ mod edited_tests {
                     "x":p["x"],"y":p["y"],"event_type":kind})
                 })
                 .collect::<Vec<_>>();
-            std::fs::write(&sidecar,serde_json::to_vec(&serde_json::json!({"display_width":1000,"display_height":600,"mouse_events":events})).unwrap()).unwrap();
+            std::fs::write(&sidecar,serde_json::to_vec(&serde_json::json!({"display_width":1000,"display_height":600,"mouse_events":events,"cursor_images":case["cursorImages"]})).unwrap()).unwrap();
             let spring = SpringConfig {
                 tension: case["spring"]["stiffness"].as_f64().unwrap(),
                 friction: case["spring"]["damping"].as_f64().unwrap(),
                 mass: case["spring"]["mass"].as_f64().unwrap(),
             };
             let mode = case["mode"].as_str().unwrap_or("directional");
-            let settings = serde_json::from_value(serde_json::json!({"rotate_while_moving":true,"rotation_mode":mode,"follow_hover":false,"loop_to_start":!case["loopDuration"].is_null(),"loop_duration_ms":case["loopDuration"]})).unwrap();
+            let settings = serde_json::from_value(serde_json::json!({"rotate_while_moving":true,"rotation_mode":mode,"follow_hover":false,"optimize_cursor_types":case["optimizeCursorTypes"].as_bool().unwrap_or(true),"loop_to_start":!case["loopDuration"].is_null(),"loop_duration_ms":case["loopDuration"]})).unwrap();
             let prepared = super::super::runtime::prepare(
                 &sidecar,
                 (1000, 600),
