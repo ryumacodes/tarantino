@@ -13,6 +13,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         true,
         Some("CmdOrCtrl+O"),
     )?;
+    let save = MenuItem::with_id(app, "file_save_project", "Save Project", true, Some("CmdOrCtrl+S"))?;
     let stop = MenuItem::with_id(app, "file_stop_recording", "Stop Recording", false, None::<&str>)?;
     let file = menu.items()?.into_iter().find_map(|item| {
         item.as_submenu()
@@ -21,9 +22,10 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
     });
     if let Some(file) = file {
         file.prepend(&open)?;
+        file.insert(&save, 1)?;
         file.append(&stop)?;
     } else {
-        menu.prepend(&Submenu::with_items(app, "File", true, &[&open, &stop])?)?;
+        menu.prepend(&Submenu::with_items(app, "File", true, &[&open, &save, &stop])?)?;
     }
     // Native undo: targets WebKit's text history, not the editor document.
     // Route these accelerators to the focused webview; it retains text undo.
@@ -61,6 +63,13 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
                     "if (window.dispatchEvent(new CustomEvent('tarantino-history', {{detail:'{action}',cancelable:true}}))) document.execCommand('{action}');"
                 );
                 if let Err(error) = window.eval(script) { eprintln!("Could not dispatch history action: {error}"); }
+            }
+        }
+        if event.id.as_ref() == "file_save_project" {
+            if let Some(window) = app.webview_windows().values().find(|w| w.is_focused().unwrap_or(false)) {
+                if let Err(error) = window.eval("window.dispatchEvent(new Event('tarantino-save'));") {
+                    eprintln!("Could not dispatch save action: {error}");
+                }
             }
         }
         if event.id.as_ref() == "file_open_projects" {

@@ -42,8 +42,14 @@ export default function ProjectControls({ disabled }: { disabled: boolean }) {
         event.preventDefault(); void save().catch(error => setStatus(String(error)));
       }
     };
+    const nativeSave = () => { void save().catch(error => setStatus(String(error))); };
     document.addEventListener('keydown', keydown);
-    return () => { clearInterval(timer); document.removeEventListener('keydown', keydown); };
+    window.addEventListener('tarantino-save', nativeSave);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('keydown', keydown);
+      window.removeEventListener('tarantino-save', nativeSave);
+    };
   }, [save]);
   useEffect(() => {
     let disposed = false;
