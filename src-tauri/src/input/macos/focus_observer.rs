@@ -45,6 +45,7 @@ struct Subscription {
 enum Watch {
     Visit(CFType, usize),
     Register(CFType, &'static str),
+    Children(CFType, usize, isize),
 }
 
 impl Drop for Subscription {
@@ -216,6 +217,7 @@ fn scan_chunk(session: SystemTime, pid: i32) {
                         );
                     }
                     Watch::Visit(element, depth) => visit(subscription, element, depth),
+                    Watch::Children(children, depth, index) => queue_child(&mut subscription.pending, children, depth, index),
                 }
             }
         }
@@ -284,22 +286,57 @@ unsafe fn visit(subscription: &mut Subscription, element: CFType, depth: usize) 
             if CFGetTypeID(children.as_CFTypeRef()) != CFArrayGetTypeID() {
                 return;
             }
-            let array = children.as_CFTypeRef() as CFArrayRef;
-            for index in 0..CFArrayGetCount(array) {
-                let child = CFArrayGetValueAtIndex(array, index);
-                if !child.is_null() && CFGetTypeID(child) == AXUIElementGetTypeID() {
-                    subscription
-                        .pending
-                        .push_back(Watch::Visit(CFType::wrap_under_get_rule(child), depth + 1));
-                }
-            }
+            subscription.pending.push_front(Watch::Children(children, depth + 1, 0));
         }
+    }
+}
+
+unsafe fn queue_child(pending: &mut VecDeque<Watch>, children: CFType, depth: usize, index: isize) {
+    let array = children.as_CFTypeRef() as CFArrayRef;
+    let count = CFArrayGetCount(array);
+    if index >= count { return; }
+    let child = CFArrayGetValueAtIndex(array, index);
+    if !child.is_null() && CFGetTypeID(child) == AXUIElementGetTypeID() {
+        pending.push_back(Watch::Visit(CFType::wrap_under_get_rule(child), depth));
+    }
+    if index + 1 < count {
+        pending.push_front(Watch::Children(children, depth, index + 1));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn child_expansion_resumes_without_losing_order_or_native_ownership() {
+        use core_foundation::array::CFArray;
+        unsafe {
+            let element = CFType::wrap_under_create_rule(AXUIElementCreateApplication(std::process::id() as i32).cast());
+            let elements = [element.clone(), CFString::new("not an element").as_CFType(), element.clone()];
+            let children = CFArray::from_CFTypes(&elements).as_CFType();
+            let mut pending = VecDeque::from([Watch::Register(element.clone(), "AXValueChanged")]);
+            queue_child(&mut pending, children, 3, 0);
+            assert_eq!(pending.len(), 3);
+            let Watch::Children(children, depth, index) = pending.pop_front().unwrap() else { panic!("missing continuation"); };
+            assert_eq!((depth, index), (3, 1));
+            queue_child(&mut pending, children, depth, index);
+            assert_eq!(pending.len(), 3);
+            let Watch::Children(children, depth, index) = pending.pop_front().unwrap() else { panic!("missing continuation"); };
+            queue_child(&mut pending, children, depth, index);
+            assert!(matches!(pending.pop_front(), Some(Watch::Register(_, "AXValueChanged"))));
+            let expected = element.as_CFTypeRef();
+            drop(elements);
+            drop(element);
+            for _ in 0..2 {
+                let Watch::Visit(child, depth) = pending.pop_front().unwrap() else { panic!("missing child"); };
+                assert_eq!(depth, 3);
+                assert_eq!(child.as_CFTypeRef(), expected);
+                assert_eq!(CFGetTypeID(child.as_CFTypeRef()), AXUIElementGetTypeID());
+            }
+            assert!(pending.is_empty());
+        }
+    }
+
     #[test]
     fn container_walk_stops_at_subscribed_and_excluded_subtrees() {
         for depth in [0, 9] {
