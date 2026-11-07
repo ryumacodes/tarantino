@@ -21,6 +21,7 @@ impl Nudger {
         let (sender, receiver) = mpsc::channel::<Request>();
         let sender = Arc::new(sender);
         let notifications = Arc::downgrade(&sender);
+        super::focus_activation::install(&tracker, &sender);
         std::thread::spawn(move || {
             let mut pending: VecDeque<Request> = VecDeque::new();
             loop {

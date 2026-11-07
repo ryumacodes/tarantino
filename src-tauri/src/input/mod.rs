@@ -7,6 +7,8 @@ pub mod cursor_images;
 pub mod focus_samples;
 #[cfg(target_os = "macos")]
 pub use macos::{install_cursor_images, install_focus_observer};
+#[cfg(target_os = "macos")]
+pub(crate) use macos::refresh_focus_attachment;
 mod modifier_state;
 use modifier_state::CommandModifiers;
 #[cfg(target_os = "macos")]

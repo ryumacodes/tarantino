@@ -39,6 +39,8 @@ impl UnifiedAppState {
             }
             LISTENER_STARTED.store(true, Ordering::Release);
         }
+        #[cfg(target_os = "macos")]
+        crate::input::refresh_focus_attachment();
         Ok(())
     }
 

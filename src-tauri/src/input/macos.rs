@@ -9,6 +9,8 @@ mod caret_range;
 mod focused_element;
 mod focus_capture;
 mod focus_application;
+mod focus_activation;
+pub(crate) use focus_activation::refresh as refresh_focus_attachment;
 mod application_thread;
 mod focus_observer;
 mod focus_target;

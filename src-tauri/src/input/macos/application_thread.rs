@@ -6,6 +6,10 @@ pub(super) fn install(app: &tauri::AppHandle) {
     let _ = APP.set(app.clone());
 }
 
+pub(super) fn schedule(operation: impl FnOnce() + Send + 'static) -> Option<()> {
+    APP.get()?.run_on_main_thread(operation).ok()
+}
+
 pub(super) fn query<T: Send + 'static>(pid: i32, operation: impl FnOnce() -> T + Send + 'static) -> Option<T> {
     if pid != std::process::id() as i32 || unsafe { pthread_main_np() != 0 } {
         return Some(operation());
