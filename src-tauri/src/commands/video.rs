@@ -559,11 +559,9 @@ pub async fn compute_cursor_trajectory(
         };
 
         // Project directly to compact arrays without allocating unused trail data.
-        let rotation_points = if edit.is_some() && rotate_while_moving.unwrap_or(false) {
-            crate::video_processing::export::load_rotation_points(path,shake_threshold.unwrap_or(0.0))
-        } else {Vec::new()};
         if let Some(request)=edit.as_ref() {
-            if let Some(result)=edited_cursor::prepare_with_input(request,&events,&rotation_points,&settings,&spring,duration_ms,fps,Some(&activity),
+            if let Some(result)=edited_cursor::prepare_with_input(request,&events,
+                || crate::video_processing::export::load_rotation_points(path,shake_threshold.unwrap_or(0.0)),&settings,&spring,duration_ms,fps,Some(&activity),
                 Some((path,(video_width,video_height),source_crop)))? {
                 return Ok(result);
             }
@@ -573,9 +571,9 @@ pub async fn compute_cursor_trajectory(
             duration_ms as f64,&settings,spring,None).map_err(|e|e.to_string())?;
         let rotation_keys = crate::cursor_renderer::rotation::prepared_or_retimed_targets(
             planned.as_ref(), &settings, duration_ms, || {
-                if edit.is_none() && rotate_while_moving.unwrap_or(false) {
+                if rotate_while_moving.unwrap_or(false) {
                     crate::video_processing::export::load_rotation_points(path,shake_threshold.unwrap_or(0.0))
-                } else { rotation_points }
+                } else { Vec::new() }
             });
         let position=|time|planned.as_ref().unwrap().at(time);
         let pressed=|time|planned.as_ref().unwrap().pressed_at_source(time,spring.mass!=0.0);

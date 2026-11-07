@@ -12,10 +12,10 @@ pub struct EditedCursorRequest {
 
 pub(super) fn prepare(request:&EditedCursorRequest,events:&[CursorEvent],physical:&[MotionPoint],
     settings:&CursorSettings,spring:&SpringConfig,duration:u64,fps:u32, activity: Option<&crate::cursor_renderer::typing_activity::TypingActivity>)->Result<Option<String>,String> {
-    prepare_with_input(request,events,physical,settings,spring,duration,fps,activity,None)
+    prepare_with_input(request,events,|| physical.to_vec(),settings,spring,duration,fps,activity,None)
 }
 
-pub(super) fn prepare_with_input(request:&EditedCursorRequest,events:&[CursorEvent],physical:&[MotionPoint],
+pub(super) fn prepare_with_input(request:&EditedCursorRequest,events:&[CursorEvent],physical:impl FnOnce() -> Vec<MotionPoint>,
     settings:&CursorSettings,spring:&SpringConfig,duration:u64,fps:u32,activity:Option<&crate::cursor_renderer::typing_activity::TypingActivity>,
     input:Option<(&std::path::Path,(u32,u32),Option<crate::video_processing::source_crop::SourceCrop>)>)->Result<Option<String>,String> {
     let export:ExportSettings=serde_json::from_value(serde_json::json!({
@@ -27,7 +27,11 @@ pub(super) fn prepare_with_input(request:&EditedCursorRequest,events:&[CursorEve
     let Some(plan)=plan else {return Ok(None);};
     let planned=input.map(|(path,size,crop)|crate::cursor_renderer::planner::runtime::prepare(path,size,crop,Some(&plan),
         std::path::Path::new(&request.recording_path),duration as f64,settings,*spring,None)).transpose().map_err(|e|e.to_string())?.flatten();
-    let frames=crate::cursor_renderer::edited_simulation::simulate_with_planned_path(events,physical,&plan,&request.recording_path,
+    let physical = if settings.rotate_while_moving.unwrap_or(false)
+        && planned.as_ref().and_then(|path| path.rotation_keys()).is_none() {
+        physical()
+    } else { Vec::new() };
+    let frames=crate::cursor_renderer::edited_simulation::simulate_with_planned_path(events,&physical,&plan,&request.recording_path,
         spring,settings,&None,fps as f64,activity,planned.as_ref(),60.0);
     let response = EditedTrajectory {
         frames: &frames,
@@ -86,6 +90,35 @@ mod tests {
         };
         let actual: serde_json::Value = serde_json::from_str(&serde_json::to_string(&response).unwrap()).unwrap();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn planned_rotation_does_not_load_a_second_source_path() {
+        let path = std::env::temp_dir().join(format!("cursor-plan-{}.json", uuid::Uuid::new_v4()));
+        let input = serde_json::json!({"display_width":100,"display_height":100,"mouse_events":[
+            {"timestamp":0,"x":10,"y":20,"event_type":"Move"},
+            {"timestamp":500,"x":80,"y":60,"event_type":"Move"}
+        ]});
+        std::fs::write(&path, input.to_string()).unwrap();
+        let request: EditedCursorRequest = serde_json::from_value(serde_json::json!({
+            "recordingPath":"recording.mp4","trimStart":0,"trimEnd":500,"clips":[
+                {"id":"fast","startTime":0,"duration":500,"sourceIn":0,"sourceOut":1000,
+                 "playbackRate":2,"trackOrder":0,"muted":false}
+            ]
+        })).unwrap();
+        let events = crate::video_processing::export::parse_filtered_cursor_events(&input,100,100,0.0);
+        for mode in ["horizontal", "directional"] {
+            let settings: CursorSettings = serde_json::from_value(serde_json::json!({
+                "rotate_while_moving":true,"rotation_mode":mode
+            })).unwrap();
+            let response = prepare_with_input(&request,&events,
+                || panic!("planned rotation must not re-read the sidecar"),
+                &settings,&SpringConfig{tension:470.0,friction:70.0,mass:3.0},1000,120,None,
+                Some((&path,(100,100),None))).unwrap().unwrap();
+            let value: serde_json::Value = serde_json::from_str(&response).unwrap();
+            assert_eq!(value["frames"].as_array().unwrap().len(),60);
+        }
+        std::fs::remove_file(path).unwrap();
     }
 
     #[tokio::test]
