@@ -1,5 +1,6 @@
 //! macOS Accessibility caret lookup.
 mod pointer;
+mod keyboard;
 mod cursor_images;
 pub use cursor_images::install as install_cursor_images;
 pub(super) mod shortcuts;

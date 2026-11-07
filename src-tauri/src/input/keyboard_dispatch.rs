@@ -1,8 +1,7 @@
 //! Keep the native event tap free of accessibility work and tracker locks.
-use rdev::{Event, EventType};
 use std::sync::mpsc::{self, Sender};
 
-fn worker<T: Send + 'static>(handle: impl Fn(T) + Send + 'static) -> Sender<T> {
+pub(super) fn worker<T: Send + 'static>(handle: impl Fn(T) + Send + 'static) -> Sender<T> {
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
         for event in receiver {
@@ -10,20 +9,6 @@ fn worker<T: Send + 'static>(handle: impl Fn(T) + Send + 'static) -> Sender<T> {
         }
     });
     sender
-}
-
-pub(super) fn off_thread(handle: impl Fn(Event) + Send + 'static) -> impl Fn(Event) {
-    let sender = worker(handle);
-    move |mut event| {
-        if matches!(
-            event.event_type,
-            EventType::KeyPress(_) | EventType::KeyRelease(_)
-        ) {
-            // Detection stores categories, never typed characters.
-            event.unicode = None;
-            let _ = sender.send(event);
-        }
-    }
 }
 
 #[cfg(test)]

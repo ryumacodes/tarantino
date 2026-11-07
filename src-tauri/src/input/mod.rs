@@ -11,7 +11,9 @@ mod modifier_state;
 use modifier_state::CommandModifiers;
 #[cfg(target_os = "macos")]
 mod keyboard_dispatch;
-use rdev::{Button, Event, EventType, Key, listen};
+use rdev::{Button, Key};
+#[cfg(target_os = "windows")]
+use rdev::{Event, EventType, listen};
 
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -415,8 +417,14 @@ impl MouseTracker {
 #[cfg(test)]
 mod tests;
 
+#[cfg(target_os = "macos")]
+pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
+    crate::permissions::validate_mouse_tracking_permissions()?;
+    macos::install_pointer_listener(tracker)
+}
+
 /// Global mouse listener function with permission validation
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "windows")]
 pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
     // Check permissions before starting the listener
     if let Err(permission_error) = crate::permissions::validate_mouse_tracking_permissions() {
@@ -426,15 +434,9 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
         ));
     }
 
-    #[cfg(target_os = "macos")]
-    macos::install_pointer_listener(tracker.clone())?;
-
     std::thread::spawn(move || {
         let listener_state = tracker.clone();
         let callback = move |event: Event| {
-            // Native pointer tap retains event coordinates and all drag variants.
-            #[cfg(target_os = "macos")]
-            if !matches!(event.event_type, EventType::KeyPress(_) | EventType::KeyRelease(_)) { return; }
             // Check if tracking is enabled FIRST to avoid unnecessary work
             let mut tracker_guard = tracker.lock();
 
@@ -576,10 +578,6 @@ pub fn create_mouse_listener(tracker: Arc<Mutex<MouseTracker>>) -> Result<()> {
             }
         };
 
-        // The native listener may dispatch on the application's main run loop.
-        // Never query accessibility or wait for tracker locks in that callback.
-        #[cfg(target_os = "macos")]
-        let callback = keyboard_dispatch::off_thread(callback);
         if let Err(error) = listen(callback) {
             listener_state.lock().is_tracking = false;
             eprintln!("🚨 Mouse tracking error: {:?}", error);

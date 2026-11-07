@@ -37,6 +37,7 @@ pub(in crate::input) fn install(tracker:Arc<Mutex<MouseTracker>>)->anyhow::Resul
         let port=Arc::new(AtomicUsize::new(0));
         let callback_port=port.clone();
         let shortcuts=Mutex::new(crate::capture_hotkeys::Chord::default());
+        let keyboard = super::keyboard::start(tracker.clone());
         let focus = Mutex::new(super::focus_capture::Nudger::start(tracker.clone()));
         let tap=CGEventTap::new(CGEventTapLocation::HID,CGEventTapPlacement::HeadInsertEventTap,
             CGEventTapOptions::ListenOnly,vec![MouseMoved,LeftMouseDragged,RightMouseDragged,OtherMouseDragged,
@@ -49,6 +50,8 @@ pub(in crate::input) fn install(tracker:Arc<Mutex<MouseTracker>>)->anyhow::Resul
                     if port!=0 { unsafe { CGEventTapEnable(port as *const std::ffi::c_void,true); } }
                     return CallbackResult::Keep;
                 }
+                let time = SystemTime::now();
+                let timestamp = time.duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
                 if matches!(kind,LeftMouseDown|RightMouseDown|OtherMouseDown|KeyDown|FlagsChanged) {
                     let state = tracker.lock();
                     if state.is_tracking {
@@ -59,23 +62,26 @@ pub(in crate::input) fn install(tracker:Arc<Mutex<MouseTracker>>)->anyhow::Resul
                                 FlagsChanged => FocusTrigger::Modifiers,
                                 _ => FocusTrigger::Pointer,
                             };
-                            let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
                             focus.lock().request(session, std::time::Instant::now(), timestamp, trigger);
                         }
                     }
                 }
                 if matches!(kind,KeyDown|KeyUp|FlagsChanged) {
                     shortcuts.lock().handle(kind,event);
-                    let timestamp=SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
                     let mut state=tracker.lock();
                     if state.is_tracking {
+                        if let Some(session) = state.recording_start_time {
+                            let pointer = *LAST_MOUSE_POSITION.lock();
+                            if let Some(input) = super::keyboard::capture(kind, event, time, timestamp, session, pointer) {
+                                let _ = keyboard.send(input);
+                            }
+                        }
                         if let Some(sample)=state.shortcuts.capture(kind,event,timestamp) {
                             state.add_key_event(sample);
                         }
                     }
                     return CallbackResult::Keep;
                 }
-                let timestamp=SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
                 if let Some(event)=pointer_event(kind,event,timestamp){
                     let state=tracker.lock();
                     if state.is_tracking {
