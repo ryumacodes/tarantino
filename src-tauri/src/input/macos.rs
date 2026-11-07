@@ -114,25 +114,17 @@ unsafe fn copy_attribute(element: AXUIElementRef, attribute: CFStringRef) -> Opt
     }
 }
 
-unsafe fn copy_focused_elements(
-    system: AXUIElementRef,
-    focused_app_attr: CFStringRef,
+unsafe fn caret_from_focused_element(
+    parent: AXUIElementRef,
     focused_element_attr: CFStringRef,
-) -> Vec<CFType> {
-    let mut elements = Vec::new();
-
-    if let Some(focused) = copy_attribute(system, focused_element_attr) {
-        elements.push(CFType::wrap_under_create_rule(focused));
-    }
-
-    if let Some(app) = copy_attribute(system, focused_app_attr) {
-        if let Some(focused) = copy_attribute(app as AXUIElementRef, focused_element_attr) {
-            elements.push(CFType::wrap_under_create_rule(focused));
-        }
-        CFRelease(app);
-    }
-
-    elements
+    attrs: &CaretAttributes,
+) -> Option<(f64, f64)> {
+    let focused = CFType::wrap_under_create_rule(copy_attribute(parent, focused_element_attr)?);
+    let element = focused.as_CFTypeRef() as AXUIElementRef;
+    let mut visited = 0;
+    caret_position_for_element(element, attrs)
+        .or_else(|| caret_position_from_related_elements(element, attrs))
+        .or_else(|| caret_position_from_descendants(element, attrs, &mut visited))
 }
 
 unsafe fn caret_position_from_cf_range(
@@ -338,26 +330,19 @@ pub fn focused_caret_position() -> Option<(f64, f64)> {
             return None;
         }
 
-        let focused_elements = copy_focused_elements(
-            system,
-            focused_app_attr.as_concrete_TypeRef(),
-            focused_attr.as_concrete_TypeRef(),
-        );
+        let caret = caret_from_focused_element(system, focused_attr.as_concrete_TypeRef(), &attrs)
+            .or_else(|| {
+                let app = CFType::wrap_under_create_rule(copy_attribute(
+                    system, focused_app_attr.as_concrete_TypeRef(),
+                )?);
+                caret_from_focused_element(
+                    app.as_CFTypeRef() as AXUIElementRef,
+                    focused_attr.as_concrete_TypeRef(),
+                    &attrs,
+                )
+            });
         CFRelease(system as CFTypeRef);
-
-        for focused in focused_elements {
-            let mut visited = 0;
-            let focused_element = focused.as_CFTypeRef() as AXUIElementRef;
-            let caret_position = caret_position_for_element(focused_element, &attrs)
-                .or_else(|| caret_position_from_related_elements(focused_element, &attrs))
-                .or_else(|| caret_position_from_descendants(focused_element, &attrs, &mut visited));
-
-            if caret_position.is_some() {
-                return caret_position;
-            }
-        }
-
-        None
+        caret
     }
 }
 
