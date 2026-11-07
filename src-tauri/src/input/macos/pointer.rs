@@ -37,6 +37,7 @@ pub(in crate::input) fn install(tracker:Arc<Mutex<MouseTracker>>)->anyhow::Resul
         let port=Arc::new(AtomicUsize::new(0));
         let callback_port=port.clone();
         let shortcuts=Mutex::new(crate::capture_hotkeys::Chord::default());
+        let focus = Mutex::new(super::focus_capture::Nudger::start(tracker.clone()));
         let tap=CGEventTap::new(CGEventTapLocation::HID,CGEventTapPlacement::HeadInsertEventTap,
             CGEventTapOptions::ListenOnly,vec![MouseMoved,LeftMouseDragged,RightMouseDragged,OtherMouseDragged,
                 LeftMouseDown,LeftMouseUp,RightMouseDown,RightMouseUp,OtherMouseDown,OtherMouseUp,ScrollWheel,KeyDown,KeyUp,FlagsChanged],
@@ -47,6 +48,14 @@ pub(in crate::input) fn install(tracker:Arc<Mutex<MouseTracker>>)->anyhow::Resul
                     let port=callback_port.load(Ordering::Acquire);
                     if port!=0 { unsafe { CGEventTapEnable(port as *const std::ffi::c_void,true); } }
                     return CallbackResult::Keep;
+                }
+                if matches!(kind,LeftMouseDown|RightMouseDown|OtherMouseDown|KeyDown|FlagsChanged) {
+                    let state = tracker.lock();
+                    if state.is_tracking {
+                        if let Some(session) = state.recording_start_time {
+                            focus.lock().request(session, std::time::Instant::now());
+                        }
+                    }
                 }
                 if matches!(kind,KeyDown|KeyUp|FlagsChanged) {
                     shortcuts.lock().handle(kind,event);

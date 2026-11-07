@@ -218,13 +218,21 @@ impl UnifiedAppState {
             "display"
         };
 
+        let (cursor_images, focus_samples) = {
+            let tracker = self.get_mouse_tracker();
+            let state = tracker.lock();
+            (state.cursor_images.normalized(start_time),
+                crate::input::focus_samples::normalized(&state.focus_samples, start_time))
+        };
+
         // Save zoom analysis and mouse events to sidecar files using persistence helper
         save_zoom_sidecar(
             video_path,
             &analysis,
             &session.mouse_events,
             &normalized_key_events,
-            &self.get_mouse_tracker().lock().cursor_images.normalized(start_time),
+            &focus_samples,
+            &cursor_images,
             (width, height, scale_factor, recording_area),
             capture_mode,
             screen_dims,

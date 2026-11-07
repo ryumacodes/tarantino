@@ -4,6 +4,7 @@ use anyhow::Result;
 use parking_lot::Mutex;
 mod caret_lookup;
 pub mod cursor_images;
+pub mod focus_samples;
 #[cfg(target_os = "macos")]
 pub use macos::install_cursor_images;
 mod modifier_state;
@@ -205,6 +206,7 @@ pub struct MouseTracker {
     /// Whether mouse tracking is currently active
     pub is_tracking: bool,
     pub cursor_images: cursor_images::CursorImages,
+    pub focus_samples: Vec<focus_samples::FocusSample>,
     /// Recorded mouse events buffer
     pub events: Arc<Mutex<VecDeque<MouseEvent>>>,
     /// Recorded key events buffer (for typing detection)
@@ -232,6 +234,7 @@ impl MouseTracker {
             shortcuts: macos::shortcuts::Recorder::default(),
             is_tracking: false,
             cursor_images: cursor_images::CursorImages::default(),
+            focus_samples: Vec::new(),
             events: Arc::new(Mutex::new(VecDeque::new())),
             key_events: Arc::new(Mutex::new(VecDeque::new())),
             event_sender,
@@ -264,6 +267,7 @@ impl MouseTracker {
         }
 
         self.cursor_images = cursor_images::CursorImages::default();
+        self.focus_samples.clear();
         self.is_tracking = true;
         self.recording_start_time = Some(SystemTime::now());
 

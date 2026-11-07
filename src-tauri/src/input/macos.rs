@@ -6,6 +6,7 @@ pub(super) mod shortcuts;
 mod query_budget;
 mod caret_range;
 mod focused_element;
+mod focus_capture;
 pub(super) use pointer::install as install_pointer_listener;
 
 use core_foundation::base::{CFGetTypeID, CFRelease, CFType, CFTypeID, CFTypeRef, TCFType};

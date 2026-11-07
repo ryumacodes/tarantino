@@ -49,6 +49,7 @@ pub fn save_zoom_sidecar(
     analysis: &crate::auto_zoom::ZoomAnalysis,
     mouse_events: &[crate::event_capture::EnhancedMouseEvent],
     key_events: &[crate::input::KeyEvent],
+    focus_samples: &[crate::input::focus_samples::FocusSample],
     cursor_images: &crate::input::cursor_images::CursorImages,
     display_info: (
         u32,
@@ -87,6 +88,7 @@ pub fn save_zoom_sidecar(
         })),
         "mouse_events": mouse_events,
         "key_events": key_events,
+        "focus_samples": focus_samples,
         "cursor_images": cursor_images,
     });
     let mouse_json = serde_json::to_string_pretty(&mouse_sidecar)?;
