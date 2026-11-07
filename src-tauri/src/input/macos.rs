@@ -5,9 +5,10 @@ pub use cursor_images::install as install_cursor_images;
 pub(super) mod shortcuts;
 mod query_budget;
 mod caret_range;
+mod focused_element;
 pub(super) use pointer::install as install_pointer_listener;
 
-use core_foundation::base::{CFRelease, CFType, CFTypeRef, TCFType};
+use core_foundation::base::{CFGetTypeID, CFRelease, CFType, CFTypeID, CFTypeRef, TCFType};
 use core_foundation::string::{CFString, CFStringRef};
 use core_graphics::geometry::{CGPoint, CGRect, CGSize};
 use std::ffi::c_void;
@@ -43,6 +44,7 @@ struct CFRange {
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
     fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+    fn AXUIElementGetTypeID() -> CFTypeID;
     fn AXUIElementSetMessagingTimeout(element: AXUIElementRef, timeout: f32) -> AXError;
     fn AXUIElementCopyAttributeValue(
         element: AXUIElementRef,
@@ -123,6 +125,15 @@ unsafe fn caret_from_focused_element(
     attrs: &CaretAttributes,
 ) -> Option<(f64, f64)> {
     let focused = CFType::wrap_under_create_rule(copy_attribute(parent, focused_element_attr)?);
+    let related = |element: &CFType, attribute: &CFString| {
+        let value = CFType::wrap_under_create_rule(copy_attribute(
+            element.as_CFTypeRef() as AXUIElementRef, attribute.as_concrete_TypeRef(),
+        )?);
+        (CFGetTypeID(value.as_CFTypeRef()) == AXUIElementGetTypeID()).then_some(value)
+    };
+    let focused = focused_element::resolve(focused,
+        |element| related(element, &attrs.active_element),
+        |element| related(element, &attrs.editable_ancestor));
     let element = focused.as_CFTypeRef() as AXUIElementRef;
     let mut visited = 0;
     caret_position_for_element(element, attrs)
