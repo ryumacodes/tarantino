@@ -53,7 +53,14 @@ pub(in crate::input) fn install(tracker:Arc<Mutex<MouseTracker>>)->anyhow::Resul
                     let state = tracker.lock();
                     if state.is_tracking {
                         if let Some(session) = state.recording_start_time {
-                            focus.lock().request(session, std::time::Instant::now());
+                            use crate::input::focus_samples::FocusTrigger;
+                            let trigger = match kind {
+                                KeyDown => FocusTrigger::Key,
+                                FlagsChanged => FocusTrigger::Modifiers,
+                                _ => FocusTrigger::Pointer,
+                            };
+                            let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+                            focus.lock().request(session, std::time::Instant::now(), timestamp, trigger);
                         }
                     }
                 }
