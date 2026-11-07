@@ -25,7 +25,10 @@ impl Nudger {
                     let due = request.due;
                     if Instant::now() >= due {
                         pending.pop_front();
-                        sample(&tracker, request, super::focused_caret_position);
+                        sample(&tracker, request, || {
+                            super::focus_application::prepare(request.session);
+                            super::focused_caret_position()
+                        });
                         continue;
                     }
                     match receiver.recv_timeout(due.saturating_duration_since(Instant::now())) {
