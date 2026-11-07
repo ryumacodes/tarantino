@@ -59,6 +59,7 @@ unsafe extern "C" {
     ) -> AXError;
     fn AXValueCreate(theType: i32, valuePtr: *const c_void) -> CFTypeRef;
     fn AXValueGetValue(value: CFTypeRef, theType: i32, valuePtr: *mut c_void) -> bool;
+    fn CFArrayGetTypeID() -> CFTypeID;
     fn CFArrayGetCount(theArray: CFArrayRef) -> CFIndex;
     fn CFArrayGetValueAtIndex(theArray: CFArrayRef, idx: CFIndex) -> *const c_void;
 }
@@ -131,14 +132,37 @@ unsafe fn caret_from_focused_element(
         )?);
         (CFGetTypeID(value.as_CFTypeRef()) == AXUIElementGetTypeID()).then_some(value)
     };
-    let focused = focused_element::resolve(focused,
+    let mut focused = focused_element::resolve(focused,
         |element| related(element, &attrs.active_element),
         |element| related(element, &attrs.editable_ancestor));
+    for _ in 0..MAX_CARET_DESCENDANTS {
+        let Some(child) = copy_selected_child(focused.as_CFTypeRef() as AXUIElementRef) else { break; };
+        focused = child;
+    }
     let element = focused.as_CFTypeRef() as AXUIElementRef;
     let mut visited = 0;
     caret_position_for_element(element, attrs)
         .or_else(|| caret_position_from_related_elements(element, attrs))
         .or_else(|| caret_position_from_descendants(element, attrs, &mut visited))
+}
+
+unsafe fn copy_selected_child(element: AXUIElementRef) -> Option<CFType> {
+    let role = CFType::wrap_under_create_rule(copy_attribute(
+        element, CFString::new("AXRole").as_concrete_TypeRef(),
+    )?);
+    if CFGetTypeID(role.as_CFTypeRef()) != CFString::type_id() { return None; }
+    let role = CFString::wrap_under_get_rule(role.as_CFTypeRef() as CFStringRef).to_string();
+    focused_element::selected_child(&role, |attribute| {
+        let selected = CFType::wrap_under_create_rule(copy_attribute(
+            element, CFString::new(attribute).as_concrete_TypeRef(),
+        )?);
+        if CFGetTypeID(selected.as_CFTypeRef()) != CFArrayGetTypeID() { return None; }
+        let count = CFArrayGetCount(selected.as_CFTypeRef() as CFArrayRef);
+        if count <= 0 { return None; }
+        let child = CFArrayGetValueAtIndex(selected.as_CFTypeRef() as CFArrayRef, count - 1);
+        if child.is_null() || CFGetTypeID(child) != AXUIElementGetTypeID() { return None; }
+        Some(CFType::wrap_under_get_rule(child))
+    })
 }
 
 unsafe fn caret_position_from_cf_range(

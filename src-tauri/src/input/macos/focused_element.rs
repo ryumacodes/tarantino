@@ -7,6 +7,14 @@ pub(super) fn resolve<T>(
     editable_ancestor(&active).unwrap_or(active)
 }
 
+pub(super) fn selected_child<T>(role: &str, mut last_selected: impl FnMut(&str) -> Option<T>) -> Option<T> {
+    if !matches!(role, "AXTable" | "AXOutline" | "AXList") {
+        return None;
+    }
+    ["AXSelectedRows", "AXSelectedCells", "AXSelectedColumns", "AXSelectedChildren"]
+        .into_iter().find_map(|attribute| last_selected(attribute))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -31,5 +39,29 @@ mod tests {
         }), 3);
         assert_eq!(resolve(1, |_| Some(2), |_| None), 2);
         assert_eq!(resolve(1, |_| None, |_| None), 1);
+    }
+
+    #[test]
+    fn selected_container_attributes_are_tried_in_priority_order() {
+        let attributes = ["AXSelectedRows", "AXSelectedCells", "AXSelectedColumns", "AXSelectedChildren"];
+        for role in ["AXTable", "AXOutline", "AXList"] {
+            for available in 0..attributes.len() {
+                let mut calls = Vec::new();
+                let child = selected_child(role, |attribute| {
+                    calls.push(attribute.to_owned());
+                    (attribute == attributes[available]).then_some(7)
+                });
+                assert_eq!(child, Some(7));
+                assert_eq!(calls, attributes[..=available]);
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_elements_do_not_query_selection_containers() {
+        for role in ["AXTextField", "AXGroup", "AXWindow", ""] {
+            assert_eq!(selected_child::<()>(role, |_| panic!("not a selection container")), None);
+        }
+        assert_eq!(selected_child::<()>("AXTable", |_| None), None);
     }
 }
