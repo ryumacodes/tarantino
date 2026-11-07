@@ -13,11 +13,11 @@ struct Attachment {
 }
 
 impl Attachment {
-    fn prepare(&mut self, session: SystemTime, pid: i32, enable: impl FnOnce()) -> bool {
+    fn prepare(&mut self, session: SystemTime, pid: i32, enable: impl FnOnce() -> bool) -> bool {
         if self.current == Some((session, pid)) {
             return false;
         }
-        enable();
+        if !enable() { return false; }
         self.current = Some((session, pid));
         true
     }
@@ -38,16 +38,20 @@ pub(super) fn refresh(pid: i32) {
     refresh_tree(pid, false);
 }
 
-fn refresh_tree(pid: i32, initialize: bool) {
+fn refresh_tree(pid: i32, initialize: bool) -> bool {
+    super::application_thread::query(pid, move || refresh_tree_on_application_thread(pid, initialize)).unwrap_or(false)
+}
+
+fn refresh_tree_on_application_thread(pid: i32, initialize: bool) -> bool {
     unsafe {
         let app = AXUIElementCreateApplication(pid);
         if app.is_null() {
-            return;
+            return false;
         }
         let app = CFType::wrap_under_create_rule(app.cast());
         let app_ref = app.as_CFTypeRef() as AXUIElementRef;
         if AXUIElementSetMessagingTimeout(app_ref, 0.02) != K_AX_ERROR_SUCCESS {
-            return;
+            return false;
         }
         // Unsupported provider attributes do not prevent ordinary caret lookup.
         if initialize {
@@ -68,6 +72,7 @@ fn refresh_tree(pid: i32, initialize: bool) {
             enhanced.as_concrete_TypeRef(),
             CFBoolean::true_value().as_CFTypeRef(),
         );
+        true
     }
 }
 
@@ -102,10 +107,18 @@ mod tests {
     };
 
     #[test]
+    fn failed_attachment_can_retry_the_same_app_and_session() {
+        let mut attachment = Attachment::default();
+        assert!(!attachment.prepare(UNIX_EPOCH, 10, || false));
+        assert!(attachment.prepare(UNIX_EPOCH, 10, || true));
+        assert!(!attachment.prepare(UNIX_EPOCH, 10, || panic!("already prepared")));
+    }
+
+    #[test]
     fn prepares_once_per_app_attachment_and_recording() {
         let mut attachment = Attachment::default();
         let attempts = Cell::new(0);
-        let enable = || attempts.set(attempts.get() + 1);
+        let enable = || { attempts.set(attempts.get() + 1); true };
         attachment.prepare(UNIX_EPOCH, 10, enable);
         attachment.prepare(UNIX_EPOCH, 10, enable);
         assert_eq!(attempts.get(), 1);

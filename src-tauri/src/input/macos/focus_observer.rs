@@ -21,6 +21,7 @@ static APP: once_cell::sync::OnceCell<tauri::AppHandle> = once_cell::sync::OnceC
 thread_local! { static CURRENT: RefCell<Option<Subscription>> = const { RefCell::new(None) }; }
 
 pub fn install(app: &tauri::AppHandle) {
+    super::application_thread::install(app);
     let _ = APP.set(app.clone());
 }
 

@@ -9,6 +9,7 @@ mod caret_range;
 mod focused_element;
 mod focus_capture;
 mod focus_application;
+mod application_thread;
 mod focus_observer;
 pub use focus_observer::install as install_focus_observer;
 pub(super) use focus_observer::detach as detach_focus_observer;
@@ -49,7 +50,6 @@ struct CFRange {
 
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
-    fn AXUIElementCreateSystemWide() -> AXUIElementRef;
     fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
     fn AXUIElementGetTypeID() -> CFTypeID;
     fn AXUIElementSetMessagingTimeout(element: AXUIElementRef, timeout: f32) -> AXError;
@@ -339,6 +339,10 @@ unsafe fn caret_position_from_descendants(
 }
 
 fn caret_position_in_application(pid: i32) -> Option<(f64, f64)> {
+    application_thread::query(pid, move || query_application_caret(pid)).flatten()
+}
+
+fn query_application_caret(pid: i32) -> Option<(f64, f64)> {
     let _budget = query_budget::LookupBudget::begin();
     unsafe {
         let app = AXUIElementCreateApplication(pid);
@@ -357,37 +361,9 @@ fn caret_position_in_application(pid: i32) -> Option<(f64, f64)> {
 }
 
 pub fn focused_caret_position() -> Option<(f64, f64)> {
-    let _budget = query_budget::LookupBudget::begin();
-    let focused_app_attr = CFString::new("AXFocusedApplication");
-    let focused_attr = CFString::new("AXFocusedUIElement");
-    let attrs = CaretAttributes::new();
-
-    unsafe {
-        let system = AXUIElementCreateSystemWide();
-        if system.is_null() {
-            return None;
-        }
-        // System-wide AX objects configure this process's messaging timeout.
-        // A slow application must not hold up subsequent keyboard events.
-        if AXUIElementSetMessagingTimeout(system, 0.02) != K_AX_ERROR_SUCCESS {
-            CFRelease(system as CFTypeRef);
-            return None;
-        }
-
-        let caret = caret_from_focused_element(system, focused_attr.as_concrete_TypeRef(), &attrs)
-            .or_else(|| {
-                let app = CFType::wrap_under_create_rule(copy_attribute(
-                    system, focused_app_attr.as_concrete_TypeRef(),
-                )?);
-                caret_from_focused_element(
-                    app.as_CFTypeRef() as AXUIElementRef,
-                    focused_attr.as_concrete_TypeRef(),
-                    &attrs,
-                )
-            });
-        CFRelease(system as CFTypeRef);
-        caret
-    }
+    let pid = focus_application::frontmost_pid()?;
+    let caret = caret_position_in_application(pid);
+    (focus_application::frontmost_pid() == Some(pid)).then_some(caret).flatten()
 }
 
 // Some accessibility providers return an empty rectangle when no caret bounds
