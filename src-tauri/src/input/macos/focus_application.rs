@@ -13,22 +13,21 @@ struct Attachment {
 }
 
 impl Attachment {
-    fn prepare(&mut self, session: SystemTime, pid: i32, enable: impl FnOnce()) {
+    fn prepare(&mut self, session: SystemTime, pid: i32, enable: impl FnOnce()) -> bool {
         if self.current == Some((session, pid)) {
-            return;
+            return false;
         }
         enable();
         self.current = Some((session, pid));
+        true
     }
 }
 
 thread_local! { static ATTACHMENT: RefCell<Attachment> = RefCell::new(Attachment::default()); }
 
-pub(super) fn prepare(session: SystemTime) {
-    let Some(pid) = frontmost_pid() else {
-        return;
-    };
-    ATTACHMENT.with(|attachment| {
+pub(super) fn prepare(session: SystemTime) -> Option<i32> {
+    let pid = frontmost_pid()?;
+    let changed = ATTACHMENT.with(|attachment| {
         attachment.borrow_mut().prepare(session, pid, || unsafe {
             let app = AXUIElementCreateApplication(pid);
             if app.is_null() {
@@ -47,10 +46,11 @@ pub(super) fn prepare(session: SystemTime) {
             );
         })
     });
+    changed.then_some(pid)
 }
 
 #[allow(unexpected_cfgs)]
-fn frontmost_pid() -> Option<i32> {
+pub(super) fn frontmost_pid() -> Option<i32> {
     objc::rc::autoreleasepool(|| unsafe {
         let workspace: *mut objc::runtime::Object = msg_send![class!(NSWorkspace), sharedWorkspace];
         let app: *mut objc::runtime::Object = msg_send![workspace, frontmostApplication];

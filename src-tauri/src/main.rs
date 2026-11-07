@@ -296,6 +296,8 @@ async fn run() {
             input::install_cursor_images(app.handle(), app.state::<Arc<UnifiedAppState>>().get_mouse_tracker());
             #[cfg(target_os = "macos")]
             capture_hotkeys::install(app.handle());
+            #[cfg(target_os = "macos")]
+            input::install_focus_observer(app.handle());
             if let Err(e) = setup_tray(app.handle()) {
                 eprintln!("Failed to setup system tray: {}", e);
             }

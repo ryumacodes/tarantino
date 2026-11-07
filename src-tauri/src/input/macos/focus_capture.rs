@@ -3,21 +3,24 @@ use parking_lot::Mutex;
 use std::{collections::VecDeque, sync::{mpsc, Arc}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Request {
-    session: SystemTime,
-    due: Instant,
-    trigger_timestamp: u64,
-    trigger: FocusTrigger,
+pub(super) struct Request {
+    pub(super) session: SystemTime,
+    pub(super) due: Instant,
+    pub(super) trigger_timestamp: u64,
+    pub(super) trigger: FocusTrigger,
+    pub(super) expected_pid: Option<i32>,
 }
 
 pub(super) struct Nudger {
-    sender: mpsc::Sender<Request>,
+    sender: Arc<mpsc::Sender<Request>>,
     last: Option<(SystemTime, Instant)>,
 }
 
 impl Nudger {
     pub(super) fn start(tracker: Arc<Mutex<MouseTracker>>) -> Self {
         let (sender, receiver) = mpsc::channel::<Request>();
+        let sender = Arc::new(sender);
+        let notifications = Arc::downgrade(&sender);
         std::thread::spawn(move || {
             let mut pending: VecDeque<Request> = VecDeque::new();
             loop {
@@ -25,20 +28,25 @@ impl Nudger {
                     let due = request.due;
                     if Instant::now() >= due {
                         pending.pop_front();
+                        if request.expected_pid.is_some_and(|pid| super::focus_application::frontmost_pid() != Some(pid)) { continue; }
                         sample(&tracker, request, || {
-                            super::focus_application::prepare(request.session);
+                            if let Some(pid) = super::focus_application::prepare(request.session) {
+                                if let Some(sender) = notifications.upgrade() {
+                                    super::focus_observer::attach(request.session, pid, sender.as_ref().clone(), tracker.clone());
+                                }
+                            }
                             super::focused_caret_position()
                         });
                         continue;
                     }
                     match receiver.recv_timeout(due.saturating_duration_since(Instant::now())) {
-                        Ok(request) => pending.push_back(request),
+                        Ok(request) => enqueue(&mut pending, request),
                         Err(mpsc::RecvTimeoutError::Timeout) => continue,
                         Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     }
                 } else {
                     match receiver.recv() {
-                        Ok(request) => pending.push_back(request),
+                        Ok(request) => enqueue(&mut pending, request),
                         Err(_) => break,
                     }
                 }
@@ -51,8 +59,13 @@ impl Nudger {
         if self.last.is_some_and(|(previous_session, previous)| previous_session == session
             && now.duration_since(previous) <= Duration::from_millis(50)) { return; }
         self.last = Some((session, now));
-        let _ = self.sender.send(Request { session, due: now + Duration::from_millis(100), trigger_timestamp, trigger });
+        let _ = self.sender.send(Request { session, due: now + Duration::from_millis(100), trigger_timestamp, trigger, expected_pid: None });
     }
+}
+
+fn enqueue(pending: &mut VecDeque<Request>, request: Request) {
+    let index = pending.partition_point(|queued| queued.due <= request.due);
+    pending.insert(index, request);
 }
 
 fn sample(tracker: &Mutex<MouseTracker>, request: Request, query: impl FnOnce() -> Option<(f64, f64)>) {
@@ -74,13 +87,13 @@ mod tests {
     use super::*;
 
     fn request() -> Request {
-        Request { session: UNIX_EPOCH, due: Instant::now(), trigger_timestamp: 123, trigger: FocusTrigger::Key }
+        Request { session: UNIX_EPOCH, due: Instant::now(), trigger_timestamp: 123, trigger: FocusTrigger::Key, expected_pid: None }
     }
 
     #[test]
     fn nudge_throttle_preserves_independent_delayed_samples_and_resets_per_session() {
         let (sender, receiver) = mpsc::channel();
-        let mut nudger = Nudger { sender, last: None };
+        let mut nudger = Nudger { sender: Arc::new(sender), last: None };
         let now = Instant::now();
         let session = UNIX_EPOCH;
         nudger.request(session, now, 1000, FocusTrigger::Key);
@@ -89,10 +102,26 @@ mod tests {
         nudger.request(session + Duration::from_secs(1), now + Duration::from_millis(52), 1052, FocusTrigger::Modifiers);
         let requests: Vec<_> = receiver.try_iter().collect();
         assert_eq!(requests, vec![
-            Request { session, due: now + Duration::from_millis(100), trigger_timestamp: 1000, trigger: FocusTrigger::Key },
-            Request { session, due: now + Duration::from_millis(151), trigger_timestamp: 1051, trigger: FocusTrigger::Pointer },
-            Request { session: session + Duration::from_secs(1), due: now + Duration::from_millis(152), trigger_timestamp: 1052, trigger: FocusTrigger::Modifiers },
+            Request { session, due: now + Duration::from_millis(100), trigger_timestamp: 1000, trigger: FocusTrigger::Key, expected_pid: None },
+            Request { session, due: now + Duration::from_millis(151), trigger_timestamp: 1051, trigger: FocusTrigger::Pointer, expected_pid: None },
+            Request { session: session + Duration::from_secs(1), due: now + Duration::from_millis(152), trigger_timestamp: 1052, trigger: FocusTrigger::Modifiers, expected_pid: None },
         ]);
+    }
+
+    #[test]
+    fn immediate_notifications_precede_pending_delayed_keys() {
+        let now = Instant::now();
+        let mut pending = VecDeque::new();
+        let mut key = request();
+        key.due = now + Duration::from_millis(100);
+        let mut notification = request();
+        notification.due = now;
+        notification.trigger = FocusTrigger::Accessibility;
+        notification.expected_pid = Some(10);
+        enqueue(&mut pending, key);
+        enqueue(&mut pending, notification);
+        assert_eq!(pending.pop_front(), Some(notification));
+        assert_eq!(pending.pop_front(), Some(key));
     }
 
     #[test]

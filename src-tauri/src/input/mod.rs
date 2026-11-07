@@ -6,7 +6,7 @@ mod caret_lookup;
 pub mod cursor_images;
 pub mod focus_samples;
 #[cfg(target_os = "macos")]
-pub use macos::install_cursor_images;
+pub use macos::{install_cursor_images, install_focus_observer};
 mod modifier_state;
 use modifier_state::CommandModifiers;
 #[cfg(target_os = "macos")]
@@ -311,6 +311,8 @@ impl MouseTracker {
         println!("   - was_tracking: {}", self.is_tracking);
         println!("   - events captured: {}", event_count);
 
+        #[cfg(target_os = "macos")]
+        macos::detach_focus_observer(self.recording_start_time);
         self.is_tracking = false;
         self.recording_start_time = None;
         println!("✅ [TRACKER] Mouse tracking STOPPED");

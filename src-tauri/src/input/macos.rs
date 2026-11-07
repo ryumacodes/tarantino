@@ -9,6 +9,9 @@ mod caret_range;
 mod focused_element;
 mod focus_capture;
 mod focus_application;
+mod focus_observer;
+pub use focus_observer::install as install_focus_observer;
+pub(super) use focus_observer::detach as detach_focus_observer;
 pub(super) use pointer::install as install_pointer_listener;
 
 use core_foundation::base::{CFGetTypeID, CFRelease, CFType, CFTypeID, CFTypeRef, TCFType};
