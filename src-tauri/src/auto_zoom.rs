@@ -3,10 +3,13 @@ use crate::input::KeyEvent;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 mod typing_zoom;
+mod typing_focus;
 mod drag_zoom;
 
 pub use typing_zoom::validate_zoom_blocks;
-use typing_zoom::{TypingZoomConfig, create_typing_zoom_blocks, detect_typing_sessions};
+use typing_zoom::{TypingZoomConfig, create_typing_zoom_blocks};
+#[cfg(test)]
+use typing_zoom::detect_typing_sessions;
 
 /// Click-based zoom configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +105,15 @@ impl ZoomProcessor {
         session: &CaptureSession,
         key_events: &[KeyEvent],
     ) -> Result<ZoomAnalysis> {
+        self.analyze_session_with_focus(session, key_events, &[])
+    }
+
+    pub fn analyze_session_with_focus(
+        &self,
+        session: &CaptureSession,
+        key_events: &[KeyEvent],
+        focus_samples: &[crate::input::focus_samples::FocusSample],
+    ) -> Result<ZoomAnalysis> {
         println!("🔍 [ZOOM] analyze_session called");
         println!("🔍 [ZOOM] Session ID: {}", session.session_id);
         println!(
@@ -157,11 +169,13 @@ impl ZoomProcessor {
 
         // Detect typing sessions and create additional zoom blocks
         let typing_config = TypingZoomConfig::default();
-        let typing_sessions = detect_typing_sessions(
+        let focus = typing_focus::associated(key_events, &session.mouse_events, focus_samples, session.end_time.unwrap_or(session.start_time));
+        let typing_sessions = typing_zoom::detect_typing_sessions_with_focus(
             key_events,
             &session.mouse_events,
             &session.metadata,
             &typing_config,
+            &focus,
         );
         if !typing_sessions.is_empty() {
             let session_duration =

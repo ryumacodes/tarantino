@@ -198,9 +198,16 @@ impl UnifiedAppState {
             normalized_key_events.len()
         );
 
+        let (cursor_images, focus_samples) = {
+            let tracker = self.get_mouse_tracker();
+            let state = tracker.lock();
+            (state.cursor_images.normalized(start_time),
+                crate::input::focus_samples::normalized(&state.focus_samples, start_time))
+        };
+
         // Run zoom analysis
         let processor = ZoomProcessor::with_default_config();
-        let analysis = processor.analyze_session(&session, &normalized_key_events)?;
+        let analysis = processor.analyze_session_with_focus(&session, &normalized_key_events, &focus_samples)?;
 
         println!(
             "=== ZOOM_ANALYSIS: {} clicks → {} zoom blocks ===",
@@ -216,13 +223,6 @@ impl UnifiedAppState {
             }
         } else {
             "display"
-        };
-
-        let (cursor_images, focus_samples) = {
-            let tracker = self.get_mouse_tracker();
-            let state = tracker.lock();
-            (state.cursor_images.normalized(start_time),
-                crate::input::focus_samples::normalized(&state.focus_samples, start_time))
         };
 
         // Save zoom analysis and mouse events to sidecar files using persistence helper

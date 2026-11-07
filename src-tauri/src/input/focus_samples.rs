@@ -21,6 +21,21 @@ pub fn normalized(samples: &[FocusSample], start: u64) -> Vec<FocusSample> {
     }).collect()
 }
 
+pub fn read(path: &std::path::Path) -> anyhow::Result<Vec<FocusSample>> {
+    #[derive(Deserialize)]
+    struct RecordedFocus {
+        #[serde(default)]
+        focus_samples: Vec<FocusSample>,
+    }
+    let file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    let recorded: RecordedFocus = serde_json::from_reader(std::io::BufReader::new(file))?;
+    Ok(recorded.focus_samples)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

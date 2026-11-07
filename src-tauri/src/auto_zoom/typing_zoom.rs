@@ -48,14 +48,26 @@ impl Default for TypingZoomConfig {
     }
 }
 
+#[cfg(test)]
 pub(super) fn detect_typing_sessions(
     key_events: &[KeyEvent],
     mouse_events: &[EnhancedMouseEvent],
     metadata: &crate::event_capture::SessionMetadata,
     config: &TypingZoomConfig,
 ) -> Vec<TypingSession> {
+    detect_typing_sessions_with_focus(key_events, mouse_events, metadata, config, &std::collections::HashMap::new())
+}
+
+pub(super) fn detect_typing_sessions_with_focus(
+    key_events: &[KeyEvent],
+    mouse_events: &[EnhancedMouseEvent],
+    metadata: &crate::event_capture::SessionMetadata,
+    config: &TypingZoomConfig,
+    focus: &std::collections::HashMap<u64, &crate::input::focus_samples::FocusSample>,
+) -> Vec<TypingSession> {
     // Filter to typing-only key events
-    let typing_keys: Vec<&KeyEvent> = key_events.iter().filter(|k| !k.is_release && k.is_typing && typing_target_in_capture(k, mouse_events, metadata)).collect();
+    let typing_keys: Vec<&KeyEvent> = key_events.iter().filter(|k| !k.is_release && k.is_typing && focus.get(&k.timestamp).and_then(|sample| sample.caret)
+        .map_or_else(|| typing_target_in_capture(k, mouse_events, metadata), |[x,y]| point_in_capture(x,y,metadata))).collect();
     if typing_keys.is_empty() {
         return vec![];
     }
@@ -82,7 +94,7 @@ pub(super) fn detect_typing_sessions(
         } else {
             // End current session, start new one
             if key_count >= config.min_typing_keys {
-                let centers = build_typing_block_centers(&session_keys, mouse_events, metadata);
+                let centers = build_typing_block_centers(&session_keys, mouse_events, metadata, focus);
                 let (cx, cy) = centers
                     .first()
                     .map(|center| (center.x, center.y))
@@ -108,7 +120,7 @@ pub(super) fn detect_typing_sessions(
 
     // Finalize last session
     if key_count >= config.min_typing_keys {
-        let centers = build_typing_block_centers(&session_keys, mouse_events, metadata);
+        let centers = build_typing_block_centers(&session_keys, mouse_events, metadata, focus);
         let (cx, cy) = centers
             .first()
             .map(|center| (center.x, center.y))
@@ -182,15 +194,28 @@ fn build_typing_block_centers(
     session_keys: &[&KeyEvent],
     mouse_events: &[EnhancedMouseEvent],
     metadata: &crate::event_capture::SessionMetadata,
+    focus: &std::collections::HashMap<u64, &crate::input::focus_samples::FocusSample>,
 ) -> Vec<ZoomCenter> {
     if session_keys.is_empty() {
         return vec![];
     }
 
-    let caret_centers: Vec<ZoomCenter> = session_keys
+    let mut caret_centers: Vec<ZoomCenter> = session_keys
         .iter()
         .filter_map(|key| typing_caret_center(key, metadata))
         .collect();
+
+    if !focus.is_empty() {
+        for key in session_keys {
+            if let Some(sample) = focus.get(&key.timestamp) {
+                if let Some([x, y]) = sample.caret {
+                    let (x, y) = normalize_coordinates(x, y, metadata);
+                    caret_centers.push(ZoomCenter { x, y, time: sample.timestamp });
+                }
+            }
+        }
+        caret_centers.sort_by_key(|center| center.time);
+    }
 
     // Recorded caret positions remain authoritative when stationary too (for
     // example, replacing a selection or typing into a horizontally scrolling
@@ -214,7 +239,7 @@ fn typing_caret_center(
     key: &KeyEvent,
     metadata: &crate::event_capture::SessionMetadata,
 ) -> Option<ZoomCenter> {
-    key.caret_x.zip(key.caret_y).map(|(x, y)| {
+    key.caret_x.zip(key.caret_y).filter(|&(x,y)| point_in_capture(x,y,metadata)).map(|(x, y)| {
         let (x, y) = normalize_coordinates(x, y, metadata);
         ZoomCenter {
             x,

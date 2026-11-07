@@ -42,7 +42,9 @@ fn analyze(data:&str,duration:u64,source:(u32,u32))->Result<ZoomAnalysis,String>
     let mut keys:Vec<KeyEvent>=serde_json::from_value(value.get("key_events").cloned().unwrap_or_else(||serde_json::json!([])))
         .map_err(|e|format!("Invalid keyboard events: {e}"))?;
     keys.sort_by_key(|e|e.timestamp);
-    ZoomProcessor::with_default_config().analyze_session(&session,&keys).map_err(|e|e.to_string())
+    let focus: Vec<crate::input::focus_samples::FocusSample> = serde_json::from_value(value.get("focus_samples").cloned().unwrap_or_else(||serde_json::json!([])))
+        .map_err(|e|format!("Invalid focus samples: {e}"))?;
+    ZoomProcessor::with_default_config().analyze_session_with_focus(&session,&keys,&focus).map_err(|e|e.to_string())
 }
 
 #[cfg(test)]
@@ -73,6 +75,23 @@ mod tests {
         assert_eq!(analysis.zoom_blocks[0].kind,"typing");
         assert!(analyze("{}",10000,(1000,500)).is_err());
     }
+    #[test]
+    fn delayed_typing_focus_keeps_observation_time_and_capture_geometry() {
+        let mut input=json!({"display_width":1000,"display_height":500,"mouse_events":[],
+            "recording_area":{"x":-100,"y":50,"width":1000,"height":500},
+            "key_events":[{"timestamp":2000,"is_typing":true,"is_modifier":false,"cursor_x":1500,"cursor_y":100}],
+            "focus_samples":[{"timestamp":2120,"trigger_timestamp":2000,"trigger":"key","caret":[100,150]}]});
+        let analysis=analyze(&input.to_string(),10000,(1000,500)).unwrap();
+        let block=&analysis.zoom_blocks[0];
+        assert_eq!(block.kind,"typing");
+        assert_eq!(block.centers.len(),1);
+        assert_eq!(block.centers[0].time,2120);
+        assert_eq!((block.centers[0].x,block.centers[0].y),(0.2,0.2));
+        input["key_events"][0]["cursor_x"]=json!(0);
+        input["focus_samples"][0]["caret"]=json!([1500,150]);
+        assert!(analyze(&input.to_string(),10000,(1000,500)).unwrap().zoom_blocks.is_empty());
+    }
+
     #[test]
     #[ignore = "requires external recorded-input range cases"]
     fn external_zoom_range_cases_match_recorded_input() {

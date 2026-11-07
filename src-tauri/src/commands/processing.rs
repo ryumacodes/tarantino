@@ -558,7 +558,9 @@ pub async fn process_recorded_file(
         );
 
         let processor = ZoomProcessor::with_default_config();
-        match processor.analyze_session(&session, &normalized_key_events) {
+        let focus_samples = crate::input::focus_samples::read(
+            &crate::recording::artifacts::RecordingArtifacts::new(&media_path).mouse())?;
+        match processor.analyze_session_with_focus(&session, &normalized_key_events, &focus_samples) {
             Ok(analysis) => {
                 println!("✅ [PROCESS] Zoom analysis complete:");
                 println!("   - Total clicks processed: {}", analysis.total_clicks);
