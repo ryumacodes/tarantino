@@ -9,7 +9,7 @@ pub(super) use pointer::install as install_pointer_listener;
 
 use core_foundation::base::{CFRelease, CFType, CFTypeRef, TCFType};
 use core_foundation::string::{CFString, CFStringRef};
-use core_graphics::geometry::CGRect;
+use core_graphics::geometry::{CGPoint, CGRect, CGSize};
 use std::ffi::c_void;
 
 /// Read Quartz desktop coordinates without waiting for a movement event.
@@ -27,6 +27,8 @@ type CFArrayRef = *const c_void;
 type CFIndex = isize;
 
 const K_AX_ERROR_SUCCESS: AXError = 0;
+const K_AX_VALUE_CG_POINT_TYPE: i32 = 1;
+const K_AX_VALUE_CG_SIZE_TYPE: i32 = 2;
 const K_AX_VALUE_CF_RANGE_TYPE: i32 = 4;
 const K_AX_VALUE_CG_RECT_TYPE: i32 = 3;
 const MAX_CARET_DESCENDANTS: usize = 64;
@@ -151,7 +153,24 @@ unsafe fn caret_position_from_cf_range(
         let bounds = copy_bounds_for_range(element, bounds_for_range_attr, parameter);
         CFRelease(parameter);
         bounds
-    })
+    }, || copy_element_bounds(element))
+}
+
+unsafe fn copy_element_bounds(element: AXUIElementRef) -> Option<CGRect> {
+    let position = CFType::wrap_under_create_rule(copy_attribute(
+        element, CFString::new("AXPosition").as_concrete_TypeRef(),
+    )?);
+    let size = CFType::wrap_under_create_rule(copy_attribute(
+        element, CFString::new("AXSize").as_concrete_TypeRef(),
+    )?);
+    let mut origin = CGPoint::default();
+    let mut dimensions = CGSize::default();
+    if !AXValueGetValue(position.as_CFTypeRef(), K_AX_VALUE_CG_POINT_TYPE, &mut origin as *mut _ as *mut c_void)
+        || !AXValueGetValue(size.as_CFTypeRef(), K_AX_VALUE_CG_SIZE_TYPE, &mut dimensions as *mut _ as *mut c_void) {
+        return None;
+    }
+    let bounds = CGRect::new(&origin, &dimensions);
+    usable_caret_bounds(bounds).then_some(bounds)
 }
 
 unsafe fn caret_position_from_text_marker(

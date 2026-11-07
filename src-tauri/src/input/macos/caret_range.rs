@@ -4,6 +4,7 @@ use core_graphics::geometry::CGRect;
 pub(super) fn position(
     selection: CFRange,
     mut bounds: impl FnMut(CFRange) -> Option<CGRect>,
+    element_bounds: impl FnOnce() -> Option<CGRect>,
 ) -> Option<(f64, f64)> {
     if selection.location < 0 || selection.length < 0 {
         return None;
@@ -22,7 +23,12 @@ pub(super) fn position(
         (None, Some(previous)) => Some((previous.origin.x + previous.size.width,
             previous.origin.y + previous.size.height / 2.0)),
         (None, None) => bounds(CFRange { location: end, length: 0 })
-            .map(|rect| (rect.origin.x, rect.origin.y + rect.size.height / 2.0)),
+            .map(|rect| {
+                let offset = if element_bounds().is_some_and(|element| rect.origin.y < element.origin.y) {
+                    rect.size.height
+                } else { 0.0 };
+                (rect.origin.x, rect.origin.y + offset + rect.size.height / 2.0)
+            }),
     }
 }
 
@@ -35,6 +41,10 @@ pub(super) fn text_marker_position(bounds: CGRect) -> (f64, f64) {
 mod tests {
     use super::*;
     use core_graphics::geometry::{CGPoint, CGSize};
+
+    fn position(selection: CFRange, bounds: impl FnMut(CFRange) -> Option<CGRect>) -> Option<(f64, f64)> {
+        super::position(selection, bounds, || None)
+    }
 
     fn rect(x: f64, y: f64, width: f64) -> CGRect {
         CGRect::new(&CGPoint::new(x, y), &CGSize::new(width, 16.0))
@@ -85,6 +95,23 @@ mod tests {
         });
         assert_eq!(result, Some((120.0, 48.0)));
         assert_eq!(requests, [(7, 1), (6, 1), (7, 0)]);
+    }
+
+    #[test]
+    fn collapsed_caret_above_its_element_moves_down_one_line_height() {
+        for (element_y, expected_y) in [(39.0, 48.0), (40.0, 48.0), (40.1, 64.0), (100.0, 64.0)] {
+            let result = super::position(CFRange { location: 5, length: 0 }, |range|
+                (range.length == 0).then(|| rect(120.0, 40.0, 0.0)),
+                || Some(rect(100.0, element_y, 400.0)));
+            assert_eq!(result, Some((120.0, expected_y)));
+        }
+    }
+
+    #[test]
+    fn character_bounds_do_not_request_element_geometry() {
+        let result = super::position(CFRange { location: 0, length: 0 },
+            |_| Some(rect(20.0, 40.0, 10.0)), || panic!("unneeded element query"));
+        assert_eq!(result, Some((20.0, 48.0)));
     }
 
     #[test]
