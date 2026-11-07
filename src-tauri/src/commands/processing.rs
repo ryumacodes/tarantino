@@ -275,7 +275,7 @@ pub fn spawn_background_recording_processing(
                 let _ = update_editor_status(&app, "Processing mouse events...").await;
 
                 println!("🖱️ [BG_PROCESS] Retrieving mouse events from tracker...");
-                let (mouse_events, key_events) = {
+                let (mouse_events, key_events, focus_samples) = {
                     let tracker = state.get_mouse_tracker();
                     let guard = tracker.lock();
                     let events = guard.get_events();
@@ -310,7 +310,7 @@ pub fn spawn_background_recording_processing(
                     println!("   - clicks (ButtonPress): {}", clicks);
                     println!("   - moves: {}", moves);
 
-                    (events, key_events)
+                    (events, key_events, guard.focus_samples.clone())
                 };
 
                 // Use the passed recording_start_time instead of reading from tracker
@@ -340,6 +340,7 @@ pub fn spawn_background_recording_processing(
                     &temp_path,
                     mouse_events,
                     key_events,
+                    focus_samples,
                     start_time,
                     zoom_geometry,
                 )
@@ -384,6 +385,7 @@ pub async fn process_recorded_file(
     temp_path: &str,
     mouse_events: Vec<crate::input::MouseEvent>,
     key_events: Vec<crate::input::KeyEvent>,
+    focus_samples: Vec<crate::input::focus_samples::FocusSample>,
     start_time: Option<std::time::SystemTime>,
     zoom_geometry: (u32, u32, Option<crate::recording::types::RecordingArea>),
 ) -> Result<String> {
@@ -558,8 +560,7 @@ pub async fn process_recorded_file(
         );
 
         let processor = ZoomProcessor::with_default_config();
-        let focus_samples = crate::input::focus_samples::read(
-            &crate::recording::artifacts::RecordingArtifacts::new(&media_path).mouse())?;
+        let focus_samples = crate::input::focus_samples::normalized(&focus_samples, start_ms);
         match processor.analyze_session_with_focus(&session, &normalized_key_events, &focus_samples) {
             Ok(analysis) => {
                 println!("✅ [PROCESS] Zoom analysis complete:");

@@ -49,6 +49,7 @@ async fn linux_editor_e2e_fixture() -> Result<()> {
         input.to_str().context("Invalid fixture path")?,
         events,
         vec![],
+        vec![],
         Some(start),
         (320, 240, None),
     )
