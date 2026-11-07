@@ -26,6 +26,11 @@ pub(super) fn position(
     }
 }
 
+pub(super) fn text_marker_position(bounds: CGRect) -> (f64, f64) {
+    let width = if bounds.size.width > 6.0 { 2.0 } else { bounds.size.width.max(2.0) };
+    (bounds.origin.x + width / 2.0, bounds.origin.y + bounds.size.height / 2.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,6 +85,14 @@ mod tests {
         });
         assert_eq!(result, Some((120.0, 48.0)));
         assert_eq!(requests, [(7, 1), (6, 1), (7, 0)]);
+    }
+
+    #[test]
+    fn text_marker_selections_use_a_caret_width_without_shifting_to_the_selection_center() {
+        for (width, x) in [(0.0, 101.0), (1.0, 101.0), (2.0, 101.0),
+            (4.0, 102.0), (6.0, 103.0), (6.01, 101.0), (400.0, 101.0)] {
+            assert_eq!(text_marker_position(rect(100.0, 40.0, width)), (x, 48.0));
+        }
     }
 
     #[test]

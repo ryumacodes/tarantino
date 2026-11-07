@@ -167,12 +167,7 @@ unsafe fn caret_position_from_text_marker(
     );
     CFRelease(range_value);
 
-    bounds.map(|bounds| {
-        (
-            bounds.origin.x + bounds.size.width / 2.0,
-            bounds.origin.y + bounds.size.height / 2.0,
-        )
-    })
+    bounds.map(caret_range::text_marker_position)
 }
 
 struct CaretAttributes {
