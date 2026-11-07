@@ -30,7 +30,16 @@ impl Nudger {
                         pending.pop_front();
                         if request.expected_pid.is_some_and(|pid| super::focus_application::frontmost_pid() != Some(pid)) { continue; }
                         sample(&tracker, request, || {
-                            if let Some(pid) = super::focus_application::prepare(request.session) {
+                            let attachment = if matches!(request.trigger, FocusTrigger::Application) {
+                                request.expected_pid.inspect(|&pid| super::focus_application::refresh(pid))
+                            } else {
+                                super::focus_application::prepare(request.session).inspect(|&pid| {
+                                    for retry in attachment_retries(request, pid, Instant::now()) {
+                                        enqueue(&mut pending, retry);
+                                    }
+                                })
+                            };
+                            if let Some(pid) = attachment {
                                 if let Some(sender) = notifications.upgrade() {
                                     super::focus_observer::attach(request.session, pid, sender.as_ref().clone(), tracker.clone());
                                 }
@@ -61,6 +70,16 @@ impl Nudger {
         self.last = Some((session, now));
         let _ = self.sender.send(Request { session, due: now + Duration::from_millis(100), trigger_timestamp, trigger, expected_pid: None });
     }
+}
+
+fn attachment_retries(initial: Request, pid: i32, now: Instant) -> [Request; 2] {
+    [300, 1000].map(|delay| Request {
+        session: initial.session,
+        due: now + Duration::from_millis(delay),
+        trigger_timestamp: initial.trigger_timestamp,
+        trigger: FocusTrigger::Application,
+        expected_pid: Some(pid),
+    })
 }
 
 fn enqueue(pending: &mut VecDeque<Request>, request: Request) {
@@ -106,6 +125,16 @@ mod tests {
             Request { session, due: now + Duration::from_millis(151), trigger_timestamp: 1051, trigger: FocusTrigger::Pointer, expected_pid: None },
             Request { session: session + Duration::from_secs(1), due: now + Duration::from_millis(152), trigger_timestamp: 1052, trigger: FocusTrigger::Modifiers, expected_pid: None },
         ]);
+    }
+
+    #[test]
+    fn attachment_retries_preserve_session_and_target_app() {
+        let initial = request();
+        let now = Instant::now();
+        let retries = attachment_retries(initial, 42, now);
+        assert_eq!(retries.map(|retry| retry.due.duration_since(now)), [Duration::from_millis(300), Duration::from_secs(1)]);
+        assert!(retries.iter().all(|retry| retry.session == initial.session
+            && retry.expected_pid == Some(42) && retry.trigger == FocusTrigger::Application));
     }
 
     #[test]

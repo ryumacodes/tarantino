@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum FocusTrigger { Key, Pointer, Modifiers, Accessibility }
+pub enum FocusTrigger { Key, Pointer, Modifiers, Accessibility, Application }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FocusSample {

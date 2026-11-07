@@ -28,25 +28,48 @@ thread_local! { static ATTACHMENT: RefCell<Attachment> = RefCell::new(Attachment
 pub(super) fn prepare(session: SystemTime) -> Option<i32> {
     let pid = frontmost_pid()?;
     let changed = ATTACHMENT.with(|attachment| {
-        attachment.borrow_mut().prepare(session, pid, || unsafe {
-            let app = AXUIElementCreateApplication(pid);
-            if app.is_null() {
-                return;
-            }
-            let app = CFType::wrap_under_create_rule(app.cast());
-            let app_ref = app.as_CFTypeRef() as AXUIElementRef;
-            if AXUIElementSetMessagingTimeout(app_ref, 0.02) != K_AX_ERROR_SUCCESS {
-                return;
-            }
-            // Providers without this attribute may reject it; caret lookup still proceeds.
+        attachment
+            .borrow_mut()
+            .prepare(session, pid, || refresh_tree(pid, true))
+    });
+    changed.then_some(pid)
+}
+
+pub(super) fn refresh(pid: i32) {
+    refresh_tree(pid, false);
+}
+
+fn refresh_tree(pid: i32, initialize: bool) {
+    unsafe {
+        let app = AXUIElementCreateApplication(pid);
+        if app.is_null() {
+            return;
+        }
+        let app = CFType::wrap_under_create_rule(app.cast());
+        let app_ref = app.as_CFTypeRef() as AXUIElementRef;
+        if AXUIElementSetMessagingTimeout(app_ref, 0.02) != K_AX_ERROR_SUCCESS {
+            return;
+        }
+        // Unsupported provider attributes do not prevent ordinary caret lookup.
+        if initialize {
             AXUIElementSetAttributeValue(
                 app_ref,
                 CFString::new("AXManualAccessibility").as_concrete_TypeRef(),
                 CFBoolean::true_value().as_CFTypeRef(),
             );
-        })
-    });
-    changed.then_some(pid)
+        }
+        let enhanced = CFString::new("AXEnhancedUserInterface");
+        AXUIElementSetAttributeValue(
+            app_ref,
+            enhanced.as_concrete_TypeRef(),
+            CFBoolean::false_value().as_CFTypeRef(),
+        );
+        AXUIElementSetAttributeValue(
+            app_ref,
+            enhanced.as_concrete_TypeRef(),
+            CFBoolean::true_value().as_CFTypeRef(),
+        );
+    }
 }
 
 #[allow(unexpected_cfgs)]
