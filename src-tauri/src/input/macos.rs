@@ -11,6 +11,7 @@ mod focus_capture;
 mod focus_application;
 mod application_thread;
 mod focus_observer;
+mod focus_target;
 pub use focus_observer::install as install_focus_observer;
 pub(super) use focus_observer::detach as detach_focus_observer;
 pub(super) use pointer::install as install_pointer_listener;
@@ -76,7 +77,7 @@ unsafe fn copy_rect_for_parameterized_attribute(
     attribute: CFStringRef,
     parameter: CFTypeRef,
 ) -> Option<CGRect> {
-    if !query_budget::available() { return None; }
+    if !query_budget::available() || AXUIElementSetMessagingTimeout(element, 0.02) != K_AX_ERROR_SUCCESS { return None; }
     let mut bounds_value: CFTypeRef = std::ptr::null();
     let bounds_status = AXUIElementCopyParameterizedAttributeValue(
         element,
@@ -117,7 +118,7 @@ unsafe fn create_range_value(range: CFRange) -> Option<CFTypeRef> {
 }
 
 unsafe fn copy_attribute(element: AXUIElementRef, attribute: CFStringRef) -> Option<CFTypeRef> {
-    if !query_budget::available() { return None; }
+    if !query_budget::available() || AXUIElementSetMessagingTimeout(element, 0.02) != K_AX_ERROR_SUCCESS { return None; }
     let mut value: CFTypeRef = std::ptr::null();
     let status = AXUIElementCopyAttributeValue(element, attribute, &mut value);
     if status != K_AX_ERROR_SUCCESS || value.is_null() {
@@ -133,6 +134,10 @@ unsafe fn caret_from_focused_element(
     attrs: &CaretAttributes,
 ) -> Option<(f64, f64)> {
     let focused = CFType::wrap_under_create_rule(copy_attribute(parent, focused_element_attr)?);
+    caret_from_raw_element(focused, attrs)
+}
+
+unsafe fn caret_from_raw_element(focused: CFType, attrs: &CaretAttributes) -> Option<(f64, f64)> {
     let related = |element: &CFType, attribute: &CFString| {
         let value = CFType::wrap_under_create_rule(copy_attribute(
             element.as_CFTypeRef() as AXUIElementRef, attribute.as_concrete_TypeRef(),
@@ -362,7 +367,7 @@ fn query_application_caret(pid: i32) -> Option<(f64, f64)> {
 
 pub fn focused_caret_position() -> Option<(f64, f64)> {
     let pid = focus_application::frontmost_pid()?;
-    let caret = caret_position_in_application(pid);
+    let caret = focus_observer::selected_caret(None, pid).unwrap_or_else(|| caret_position_in_application(pid));
     (focus_application::frontmost_pid() == Some(pid)).then_some(caret).flatten()
 }
 

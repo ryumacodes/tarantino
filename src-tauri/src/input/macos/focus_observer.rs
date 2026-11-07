@@ -13,10 +13,11 @@ use std::{
     cell::RefCell,
     collections::VecDeque,
     ffi::c_void,
-    sync::{Arc, mpsc::Sender},
+    sync::{Arc, mpsc::Sender, atomic::{AtomicBool, Ordering}},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+static HAS_SELECTION: AtomicBool = AtomicBool::new(false);
 static APP: once_cell::sync::OnceCell<tauri::AppHandle> = once_cell::sync::OnceCell::new();
 thread_local! { static CURRENT: RefCell<Option<Subscription>> = const { RefCell::new(None) }; }
 
@@ -30,6 +31,7 @@ struct Context {
     session: SystemTime,
     pid: i32,
     sender: Sender<Request>,
+    target: RefCell<super::focus_target::FocusTarget<CFType>>,
 }
 struct Subscription {
     observer: CFType,
@@ -47,6 +49,7 @@ enum Watch {
 
 impl Drop for Subscription {
     fn drop(&mut self) {
+        HAS_SELECTION.store(false, Ordering::Release);
         // Creation, callbacks and removal all run on the main run loop.
         CFRunLoop::get_main().remove_source(&self.source, unsafe { kCFRunLoopCommonModes });
     }
@@ -90,6 +93,7 @@ pub(super) fn attach(
                     session,
                     pid,
                     sender,
+                    target: RefCell::default(),
                 })
             };
             if let Some(subscription) = current.as_mut() {
@@ -317,19 +321,40 @@ mod tests {
 
 unsafe extern "C" fn callback(
     _observer: AXObserverRef,
-    _element: AXUIElementRef,
-    _notification: CFStringRef,
+    element: AXUIElementRef,
+    notification: CFStringRef,
     context: *mut c_void,
 ) {
     let context = &*(context as *const Context);
     let mut pid = 0;
-    if AXUIElementGetPid(_element, &mut pid) != 0 || pid != context.pid {
+    if AXUIElementGetPid(element, &mut pid) != 0 || pid != context.pid {
         return;
     }
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
+    let now = Instant::now();
+    let _budget = super::query_budget::LookupBudget::begin();
+    let name = CFString::wrap_under_get_rule(notification).to_string();
+    let notification = super::focus_target::Notification::from_name(&name);
+    let (text_role, selected_child) = match notification {
+        super::focus_target::Notification::Focus => {
+            let role = copy_attribute(element, CFString::new("AXRole").as_concrete_TypeRef());
+            let text_role = role.is_some_and(|role| {
+                let role = CFType::wrap_under_create_rule(role);
+                CFGetTypeID(role.as_CFTypeRef()) == CFString::type_id()
+                    && super::focus_target::is_text_role(&CFString::wrap_under_get_rule(role.as_CFTypeRef() as CFStringRef).to_string())
+            });
+            (text_role, false)
+        }
+        super::focus_target::Notification::Selection => (false, super::copy_selected_child(element).is_some()),
+        super::focus_target::Notification::Refresh => (false, false),
+    };
+    let mut target = context.target.borrow_mut();
+    target.notify(notification, CFType::wrap_under_get_rule(element.cast()), now, text_role, selected_child);
+    HAS_SELECTION.store(target.selected.is_some(), Ordering::Release);
+    drop(target);
     let _ = context.sender.send(Request {
         session: context.session,
         due: Instant::now(),
@@ -337,6 +362,23 @@ unsafe extern "C" fn callback(
         trigger: FocusTrigger::Accessibility,
         expected_pid: Some(context.pid),
     });
+}
+
+pub(super) fn selected_caret(session: Option<SystemTime>, pid: i32) -> Option<Option<(f64, f64)>> {
+    if !HAS_SELECTION.load(Ordering::Acquire) { return None; }
+    super::application_thread::main_query(move || {
+        let selected = CURRENT.with(|current| {
+            let current = current.borrow();
+            let subscription = current.as_ref().filter(|value| value.context.pid == pid
+                && session.is_none_or(|session| value.context.session == session))?;
+            let selected = subscription.context.target.borrow().selected.clone();
+            selected
+        });
+        selected.map(|source| {
+            let _budget = super::query_budget::LookupBudget::begin();
+            unsafe { super::caret_from_raw_element(source, &super::CaretAttributes::new()) }
+        })
+    }).unwrap_or(Some(None))
 }
 
 #[link(name = "ApplicationServices", kind = "framework")]

@@ -10,8 +10,13 @@ pub(super) fn query<T: Send + 'static>(pid: i32, operation: impl FnOnce() -> T +
     if pid != std::process::id() as i32 || unsafe { pthread_main_np() != 0 } {
         return Some(operation());
     }
-    let app = APP.get()?;
     // Self-app AX reads enter AppKit directly rather than messaging another process.
+    main_query(operation)
+}
+
+pub(super) fn main_query<T: Send + 'static>(operation: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    if unsafe { pthread_main_np() != 0 } { return Some(operation()); }
+    let app = APP.get()?;
     dispatch(Duration::from_millis(100), operation, |work| {
         app.run_on_main_thread(work).map_err(|_| ())
     })

@@ -45,7 +45,8 @@ impl Nudger {
                                     super::focus_observer::attach(request.session, pid, sender.as_ref().clone(), tracker.clone());
                                 }
                             }
-                            let caret = super::caret_position_in_application(pid);
+                            let caret = super::focus_observer::selected_caret(Some(request.session), pid)
+                                .unwrap_or_else(|| super::caret_position_in_application(pid));
                             (super::focus_application::frontmost_pid() == Some(pid)).then_some(caret).flatten()
                         });
                         continue;
