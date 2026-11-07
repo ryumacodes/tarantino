@@ -4,6 +4,7 @@ mod cursor_images;
 pub use cursor_images::install as install_cursor_images;
 pub(super) mod shortcuts;
 mod query_budget;
+mod caret_range;
 pub(super) use pointer::install as install_pointer_listener;
 
 use core_foundation::base::{CFRelease, CFType, CFTypeRef, TCFType};
@@ -144,44 +145,13 @@ unsafe fn caret_position_from_cf_range(
         return None;
     }
 
-    let selected_bounds = copy_bounds_for_range(element, bounds_for_range_attr, range_value);
-
     CFRelease(range_value);
-
-    if range.length == 0 && range.location > 0 {
-        selected_bounds
-            .map(|bounds| {
-                (
-                    bounds.origin.x + bounds.size.width / 2.0,
-                    bounds.origin.y + bounds.size.height / 2.0,
-                )
-            })
-            .or_else(|| {
-                let previous_char_range = CFRange {
-                    location: range.location - 1,
-                    length: 1,
-                };
-
-                create_range_value(previous_char_range).and_then(|previous_char_value| {
-                    let bounds =
-                        copy_bounds_for_range(element, bounds_for_range_attr, previous_char_value);
-                    CFRelease(previous_char_value);
-                    bounds.map(|bounds| {
-                        (
-                            bounds.origin.x + bounds.size.width,
-                            bounds.origin.y + bounds.size.height / 2.0,
-                        )
-                    })
-                })
-            })
-    } else {
-        selected_bounds.map(|bounds| {
-            (
-                bounds.origin.x + bounds.size.width / 2.0,
-                bounds.origin.y + bounds.size.height / 2.0,
-            )
-        })
-    }
+    caret_range::position(range, |range| {
+        let parameter = create_range_value(range)?;
+        let bounds = copy_bounds_for_range(element, bounds_for_range_attr, parameter);
+        CFRelease(parameter);
+        bounds
+    })
 }
 
 unsafe fn caret_position_from_text_marker(
