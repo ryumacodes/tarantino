@@ -25,8 +25,7 @@ impl Attachment {
 
 thread_local! { static ATTACHMENT: RefCell<Attachment> = RefCell::new(Attachment::default()); }
 
-pub(super) fn prepare(session: SystemTime) -> Option<i32> {
-    let pid = frontmost_pid()?;
+pub(super) fn prepare(session: SystemTime, pid: i32) -> Option<i32> {
     let changed = ATTACHMENT.with(|attachment| {
         attachment
             .borrow_mut()

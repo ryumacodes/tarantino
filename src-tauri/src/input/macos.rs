@@ -50,6 +50,7 @@ struct CFRange {
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
     fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+    fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
     fn AXUIElementGetTypeID() -> CFTypeID;
     fn AXUIElementSetMessagingTimeout(element: AXUIElementRef, timeout: f32) -> AXError;
     fn AXUIElementCopyAttributeValue(
@@ -335,6 +336,24 @@ unsafe fn caret_position_from_descendants(
 
     CFRelease(children);
     None
+}
+
+fn caret_position_in_application(pid: i32) -> Option<(f64, f64)> {
+    let _budget = query_budget::LookupBudget::begin();
+    unsafe {
+        let app = AXUIElementCreateApplication(pid);
+        if app.is_null() { return None; }
+        let app = CFType::wrap_under_create_rule(app.cast());
+        let element = app.as_CFTypeRef() as AXUIElementRef;
+        if AXUIElementSetMessagingTimeout(element, 0.02) != K_AX_ERROR_SUCCESS {
+            return None;
+        }
+        caret_from_focused_element(
+            element,
+            CFString::new("AXFocusedUIElement").as_concrete_TypeRef(),
+            &CaretAttributes::new(),
+        )
+    }
 }
 
 pub fn focused_caret_position() -> Option<(f64, f64)> {

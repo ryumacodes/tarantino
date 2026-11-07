@@ -28,12 +28,13 @@ impl Nudger {
                     let due = request.due;
                     if Instant::now() >= due {
                         pending.pop_front();
-                        if request.expected_pid.is_some_and(|pid| super::focus_application::frontmost_pid() != Some(pid)) { continue; }
+                        let Some(pid) = super::focus_application::frontmost_pid() else { continue; };
+                        if request.expected_pid.is_some_and(|expected| expected != pid) { continue; }
                         sample(&tracker, request, || {
                             let attachment = if matches!(request.trigger, FocusTrigger::Application) {
                                 request.expected_pid.inspect(|&pid| super::focus_application::refresh(pid))
                             } else {
-                                super::focus_application::prepare(request.session).inspect(|&pid| {
+                                super::focus_application::prepare(request.session, pid).inspect(|&pid| {
                                     for retry in attachment_retries(request, pid, Instant::now()) {
                                         enqueue(&mut pending, retry);
                                     }
@@ -44,7 +45,8 @@ impl Nudger {
                                     super::focus_observer::attach(request.session, pid, sender.as_ref().clone(), tracker.clone());
                                 }
                             }
-                            super::focused_caret_position()
+                            let caret = super::caret_position_in_application(pid);
+                            (super::focus_application::frontmost_pid() == Some(pid)).then_some(caret).flatten()
                         });
                         continue;
                     }
