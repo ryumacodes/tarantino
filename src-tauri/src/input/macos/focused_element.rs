@@ -15,9 +15,36 @@ pub(super) fn selected_child<T>(role: &str, mut last_selected: impl FnMut(&str) 
         .into_iter().find_map(|attribute| last_selected(attribute))
 }
 
+pub(super) fn caret<T>(
+    role: &str,
+    range: impl FnOnce() -> Option<T>,
+    marker: impl FnOnce() -> Option<T>,
+    geometry: impl FnOnce() -> Option<T>,
+) -> Option<T> {
+    if !super::focus_target::is_text_role(role) { return None; }
+    range().or_else(marker).or_else(geometry)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn focused_text_uses_only_the_first_available_caret_provider() {
+        use std::cell::RefCell;
+        for role in ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"] {
+            for available in 0..3 {
+                let calls = RefCell::new(Vec::new());
+                let provider = |index| { calls.borrow_mut().push(index); (index == available).then_some(index) };
+                assert_eq!(caret(role, || provider(0), || provider(1), || provider(2)), Some(available));
+                assert_eq!(*calls.borrow(), (0..=available).collect::<Vec<_>>());
+            }
+        }
+        assert_eq!(caret::<()>("AXTextArea", || None, || None, || None), None);
+        for role in ["AXGroup", "AXWindow", "AXStaticText", "AXWebArea", ""] {
+            assert_eq!(caret::<()>(role, || panic!("range on non-text"), || panic!("marker on non-text"), || panic!("geometry on non-text")), None);
+        }
+    }
 
     #[test]
     fn editable_ancestor_is_resolved_from_the_active_element() {

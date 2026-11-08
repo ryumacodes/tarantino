@@ -42,7 +42,7 @@ const K_AX_VALUE_CG_POINT_TYPE: i32 = 1;
 const K_AX_VALUE_CG_SIZE_TYPE: i32 = 2;
 const K_AX_VALUE_CF_RANGE_TYPE: i32 = 4;
 const K_AX_VALUE_CG_RECT_TYPE: i32 = 3;
-const MAX_CARET_DESCENDANTS: usize = 64;
+const MAX_FOCUS_SELECTION_DEPTH: usize = 64;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -156,22 +156,12 @@ unsafe fn caret_from_raw_element(focused: CFType, attrs: &CaretAttributes, estim
     let mut focused = focused_element::resolve(focused,
         |element| related(element, &attrs.active_element),
         |element| related(element, &attrs.editable_ancestor));
-    for _ in 0..MAX_CARET_DESCENDANTS {
+    for _ in 0..MAX_FOCUS_SELECTION_DEPTH {
         let Some(child) = copy_selected_child(focused.as_CFTypeRef() as AXUIElementRef) else { break; };
         focused = child;
     }
     let element = focused.as_CFTypeRef() as AXUIElementRef;
-    let mut visited = 0;
-    caret_position_for_element(element, attrs)
-        .or_else(|| caret_position_from_related_elements(element, attrs))
-        .or_else(|| caret_position_from_descendants(element, attrs, &mut visited))
-        .map(FocusPosition::Measured)
-        .or_else(|| {
-            if !estimate { return None; }
-            let role = copy_role(element)?;
-            if !focus_target::is_text_role(&role) { return None; }
-            caret_range::geometric_position(copy_element_bounds(element)?).map(FocusPosition::Estimated)
-        })
+    caret_position_for_element(element, attrs, estimate)
 }
 
 unsafe fn copy_role(element: AXUIElementRef) -> Option<String> {
@@ -263,9 +253,6 @@ struct CaretAttributes {
     bounds_for_text_marker_range: CFString,
     active_element: CFString,
     editable_ancestor: CFString,
-    highest_editable_ancestor: CFString,
-    focusable_ancestor: CFString,
-    children: CFString,
 }
 
 impl CaretAttributes {
@@ -277,9 +264,6 @@ impl CaretAttributes {
             bounds_for_text_marker_range: CFString::new("AXBoundsForTextMarkerRange"),
             active_element: CFString::new("AXActiveElement"),
             editable_ancestor: CFString::new("AXEditableAncestor"),
-            highest_editable_ancestor: CFString::new("AXHighestEditableAncestor"),
-            focusable_ancestor: CFString::new("AXFocusableAncestor"),
-            children: CFString::new("AXChildren"),
         }
     }
 }
@@ -287,81 +271,25 @@ impl CaretAttributes {
 unsafe fn caret_position_for_element(
     element: AXUIElementRef,
     attrs: &CaretAttributes,
-) -> Option<(f64, f64)> {
-    if !focus_target::is_text_role(&copy_role(element)?) { return None; }
-    caret_position_from_cf_range(
-        element,
-        attrs.selected_range.as_concrete_TypeRef(),
-        attrs.bounds_for_range.as_concrete_TypeRef(),
-    )
-    .or_else(|| {
+    estimate: bool,
+) -> Option<FocusPosition> {
+    let role = copy_role(element)?;
+    focused_element::caret(&role, || {
+        caret_position_from_cf_range(
+            element,
+            attrs.selected_range.as_concrete_TypeRef(),
+            attrs.bounds_for_range.as_concrete_TypeRef(),
+        ).map(FocusPosition::Measured)
+    }, || {
         caret_position_from_text_marker(
             element,
             attrs.selected_text_marker_range.as_concrete_TypeRef(),
             attrs.bounds_for_text_marker_range.as_concrete_TypeRef(),
-        )
+        ).map(FocusPosition::Measured)
+    }, || {
+        if !estimate { return None; }
+        caret_range::geometric_position(copy_element_bounds(element)?).map(FocusPosition::Estimated)
     })
-}
-
-unsafe fn caret_position_from_related_elements(
-    element: AXUIElementRef,
-    attrs: &CaretAttributes,
-) -> Option<(f64, f64)> {
-    let related_attrs = [
-        attrs.active_element.as_concrete_TypeRef(),
-        attrs.editable_ancestor.as_concrete_TypeRef(),
-        attrs.highest_editable_ancestor.as_concrete_TypeRef(),
-        attrs.focusable_ancestor.as_concrete_TypeRef(),
-    ];
-
-    for attr in related_attrs {
-        if let Some(related) = copy_attribute(element, attr) {
-            let caret = caret_position_for_element(related as AXUIElementRef, attrs);
-            CFRelease(related);
-            if caret.is_some() {
-                return caret;
-            }
-        }
-    }
-
-    None
-}
-
-unsafe fn caret_position_from_descendants(
-    element: AXUIElementRef,
-    attrs: &CaretAttributes,
-    visited: &mut usize,
-) -> Option<(f64, f64)> {
-    if *visited >= MAX_CARET_DESCENDANTS {
-        return None;
-    }
-
-    let children = copy_attribute(element, attrs.children.as_concrete_TypeRef())?;
-    let count = CFArrayGetCount(children as CFArrayRef).max(0) as usize;
-
-    for idx in 0..count {
-        if *visited >= MAX_CARET_DESCENDANTS {
-            break;
-        }
-
-        let child = CFArrayGetValueAtIndex(children as CFArrayRef, idx as CFIndex);
-        if child.is_null() {
-            continue;
-        }
-
-        *visited += 1;
-        let child_element = child as AXUIElementRef;
-        if let Some(caret) = caret_position_for_element(child_element, attrs)
-            .or_else(|| caret_position_from_related_elements(child_element, attrs))
-            .or_else(|| caret_position_from_descendants(child_element, attrs, visited))
-        {
-            CFRelease(children);
-            return Some(caret);
-        }
-    }
-
-    CFRelease(children);
-    None
 }
 
 fn caret_position_in_application(pid: i32, estimate: bool) -> Option<FocusPosition> {
