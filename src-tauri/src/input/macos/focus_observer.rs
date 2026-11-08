@@ -401,7 +401,7 @@ unsafe extern "C" fn callback(
     });
 }
 
-pub(super) fn selected_caret(session: Option<SystemTime>, pid: i32) -> Option<Option<(f64, f64)>> {
+pub(super) fn selected_caret(session: Option<SystemTime>, pid: i32) -> Option<Option<super::FocusPosition>> {
     if !HAS_SELECTION.load(Ordering::Acquire) { return None; }
     super::application_thread::main_query(move || {
         let selected = CURRENT.with(|current| {
@@ -413,7 +413,7 @@ pub(super) fn selected_caret(session: Option<SystemTime>, pid: i32) -> Option<Op
         });
         selected.map(|source| {
             let _budget = super::query_budget::LookupBudget::begin();
-            unsafe { super::caret_from_raw_element(source, &super::CaretAttributes::new()) }
+            unsafe { super::caret_from_raw_element(source, &super::CaretAttributes::new(), session.is_some()) }
         })
     }).unwrap_or(Some(None))
 }

@@ -64,6 +64,7 @@ mod tests {
     }
     fn sample(trigger: u64, observed: u64) -> FocusSample {
         FocusSample {
+            estimated_caret: None,
             timestamp: observed,
             trigger_timestamp: trigger,
             trigger: FocusTrigger::Key,
@@ -79,6 +80,13 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[&100].timestamp, 215);
     }
+    #[test]
+    fn estimated_focus_is_not_a_measured_typing_target() {
+        let mut focus = sample(100, 200);
+        focus.estimated_caret = focus.caret.take();
+        assert!(associated(&[key(100, true)], &[], &[focus], 1000).is_empty());
+    }
+
     #[test]
     fn intervening_navigation_or_click_cannot_retarget_typing() {
         let samples = [sample(100, 220)];

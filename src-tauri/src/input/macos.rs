@@ -130,16 +130,23 @@ unsafe fn copy_attribute(element: AXUIElementRef, attribute: CFStringRef) -> Opt
     }
 }
 
+#[derive(Clone, Copy)]
+enum FocusPosition {
+    Measured((f64, f64)),
+    Estimated((f64, f64)),
+}
+
 unsafe fn caret_from_focused_element(
     parent: AXUIElementRef,
     focused_element_attr: CFStringRef,
     attrs: &CaretAttributes,
-) -> Option<(f64, f64)> {
+    estimate: bool,
+) -> Option<FocusPosition> {
     let focused = CFType::wrap_under_create_rule(copy_attribute(parent, focused_element_attr)?);
-    caret_from_raw_element(focused, attrs)
+    caret_from_raw_element(focused, attrs, estimate)
 }
 
-unsafe fn caret_from_raw_element(focused: CFType, attrs: &CaretAttributes) -> Option<(f64, f64)> {
+unsafe fn caret_from_raw_element(focused: CFType, attrs: &CaretAttributes, estimate: bool) -> Option<FocusPosition> {
     let related = |element: &CFType, attribute: &CFString| {
         let value = CFType::wrap_under_create_rule(copy_attribute(
             element.as_CFTypeRef() as AXUIElementRef, attribute.as_concrete_TypeRef(),
@@ -158,6 +165,15 @@ unsafe fn caret_from_raw_element(focused: CFType, attrs: &CaretAttributes) -> Op
     caret_position_for_element(element, attrs)
         .or_else(|| caret_position_from_related_elements(element, attrs))
         .or_else(|| caret_position_from_descendants(element, attrs, &mut visited))
+        .map(FocusPosition::Measured)
+        .or_else(|| {
+            if !estimate { return None; }
+            let role = CFType::wrap_under_create_rule(copy_attribute(element, CFString::new("AXRole").as_concrete_TypeRef())?);
+            if CFGetTypeID(role.as_CFTypeRef()) != CFString::type_id() { return None; }
+            let role = CFString::wrap_under_get_rule(role.as_CFTypeRef() as CFStringRef).to_string();
+            if !focus_target::is_text_role(&role) { return None; }
+            caret_range::geometric_position(copy_element_bounds(element)?).map(FocusPosition::Estimated)
+        })
 }
 
 unsafe fn copy_selected_child(element: AXUIElementRef) -> Option<CFType> {
@@ -345,11 +361,11 @@ unsafe fn caret_position_from_descendants(
     None
 }
 
-fn caret_position_in_application(pid: i32) -> Option<(f64, f64)> {
-    application_thread::query(pid, move || query_application_caret(pid)).flatten()
+fn caret_position_in_application(pid: i32, estimate: bool) -> Option<FocusPosition> {
+    application_thread::query(pid, move || query_application_caret(pid, estimate)).flatten()
 }
 
-fn query_application_caret(pid: i32) -> Option<(f64, f64)> {
+fn query_application_caret(pid: i32, estimate: bool) -> Option<FocusPosition> {
     let _budget = query_budget::LookupBudget::begin();
     unsafe {
         let app = AXUIElementCreateApplication(pid);
@@ -363,14 +379,16 @@ fn query_application_caret(pid: i32) -> Option<(f64, f64)> {
             element,
             CFString::new("AXFocusedUIElement").as_concrete_TypeRef(),
             &CaretAttributes::new(),
+            estimate,
         )
     }
 }
 
 pub fn focused_caret_position() -> Option<(f64, f64)> {
     let pid = focus_application::frontmost_pid()?;
-    let caret = focus_observer::selected_caret(None, pid).unwrap_or_else(|| caret_position_in_application(pid));
-    (focus_application::frontmost_pid() == Some(pid)).then_some(caret).flatten()
+    let caret = focus_observer::selected_caret(None, pid).unwrap_or_else(|| caret_position_in_application(pid, false));
+    if focus_application::frontmost_pid() != Some(pid) { return None; }
+    match caret { Some(FocusPosition::Measured(point)) => Some(point), _ => None }
 }
 
 // Some accessibility providers return an empty rectangle when no caret bounds

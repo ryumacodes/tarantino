@@ -47,7 +47,7 @@ impl Nudger {
                                 }
                             }
                             let caret = super::focus_observer::selected_caret(Some(request.session), pid)
-                                .unwrap_or_else(|| super::caret_position_in_application(pid));
+                                .unwrap_or_else(|| super::caret_position_in_application(pid, true));
                             (super::focus_application::frontmost_pid() == Some(pid)).then_some(caret).flatten()
                         });
                         continue;
@@ -91,17 +91,21 @@ fn enqueue(pending: &mut VecDeque<Request>, request: Request) {
     pending.insert(index, request);
 }
 
-fn sample(tracker: &Mutex<MouseTracker>, request: Request, query: impl FnOnce() -> Option<(f64, f64)>) {
+fn sample(tracker: &Mutex<MouseTracker>, request: Request, query: impl FnOnce() -> Option<super::FocusPosition>) {
     let session = request.session;
     {
         let state = tracker.lock();
         if !state.is_tracking || state.recording_start_time != Some(session) { return; }
     }
-    let caret = query().map(|(x, y)| [x, y]);
+    let (caret, estimated_caret) = match query() {
+        Some(super::FocusPosition::Measured((x, y))) => (Some([x, y]), None),
+        Some(super::FocusPosition::Estimated((x, y))) => (None, Some([x, y])),
+        None => (None, None),
+    };
     let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
     let mut state = tracker.lock();
     if state.is_tracking && state.recording_start_time == Some(session) {
-        state.focus_samples.push(FocusSample { timestamp, caret, trigger_timestamp: request.trigger_timestamp, trigger: request.trigger });
+        state.focus_samples.push(FocusSample { timestamp, caret, estimated_caret, trigger_timestamp: request.trigger_timestamp, trigger: request.trigger });
     }
 }
 
@@ -167,7 +171,7 @@ mod tests {
         }
         sample(&tracker, request(), || {
             assert!(tracker.try_lock().is_some());
-            Some((10.0, 20.0))
+            Some(super::super::FocusPosition::Measured((10.0, 20.0)))
         });
         sample(&tracker, request(), || None);
         let state = tracker.lock();
@@ -193,7 +197,7 @@ mod tests {
                 let mut state = tracker.lock();
                 state.is_tracking = restart;
                 state.recording_start_time = restart.then_some(UNIX_EPOCH + Duration::from_secs(1));
-                Some((10.0, 20.0))
+                Some(super::super::FocusPosition::Measured((10.0, 20.0)))
             });
             assert!(tracker.lock().focus_samples.is_empty());
             sample(&tracker, request(), || panic!("expired session must not query"));

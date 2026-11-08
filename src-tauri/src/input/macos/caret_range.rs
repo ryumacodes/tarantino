@@ -37,6 +37,15 @@ pub(super) fn text_marker_position(bounds: CGRect) -> (f64, f64) {
     (bounds.origin.x + width / 2.0, bounds.origin.y + bounds.size.height / 2.0)
 }
 
+pub(super) fn geometric_position(bounds: CGRect) -> Option<(f64, f64)> {
+    let height = bounds.size.height;
+    if height <= 0.0 { return None; }
+    let inset_height = (height - 4.0).min(22.0);
+    let x = bounds.origin.x + 5.0;
+    let y = bounds.origin.y + (height - inset_height) / 2.0 + inset_height.max(8.0) / 2.0;
+    Some((x, y))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -48,6 +57,16 @@ mod tests {
 
     fn rect(x: f64, y: f64, width: f64) -> CGRect {
         CGRect::new(&CGPoint::new(x, y), &CGSize::new(width, 16.0))
+    }
+
+    #[test]
+    fn geometric_estimate_keeps_the_unclamped_vertical_inset() {
+        for (height, expected_y) in [(2.0, 46.0), (10.0, 46.0), (12.0, 46.0), (26.0, 53.0), (100.0, 90.0)] {
+            let bounds = CGRect::new(&CGPoint::new(-100.0, 40.0), &CGSize::new(300.0, height));
+            assert_eq!(geometric_position(bounds), Some((-95.0, expected_y)));
+        }
+        let empty = CGRect::new(&CGPoint::new(0.0, 0.0), &CGSize::new(100.0, 0.0));
+        assert_eq!(geometric_position(empty), None);
     }
 
     #[test]
