@@ -93,6 +93,8 @@ mod tests {
         notify(&mut target, "AXSelectedChildrenChanged", 2, now + Duration::from_millis(500));
         assert_eq!(target.selected, Some(2));
         for role in ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"] { assert!(is_text_role(role)); }
-        assert!(!is_text_role("AXStaticText"));
+        for role in ["AXStaticText", "AXWebArea", "AXWindow", "AXApplication", "AXRow", "AXButton", ""] {
+            assert!(!is_text_role(role));
+        }
     }
 }

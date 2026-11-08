@@ -251,16 +251,7 @@ unsafe fn visit(subscription: &mut Subscription, element: CFType, depth: usize) 
     if AXUIElementSetMessagingTimeout(element_ref, 0.02) != 0 {
         return;
     }
-    let role = copy_attribute(element_ref, CFString::new("AXRole").as_concrete_TypeRef())
-        .map(|value| {
-            let value = CFType::wrap_under_create_rule(value);
-            if CFGetTypeID(value.as_CFTypeRef()) == CFString::type_id() {
-                CFString::wrap_under_get_rule(value.as_CFTypeRef() as CFStringRef).to_string()
-            } else {
-                String::new()
-            }
-        })
-        .unwrap_or_default();
+    let role = super::copy_role(element_ref).unwrap_or_default();
     match walk(&role, depth) {
         Walk::Stop => {}
         Walk::Subscribe => {
@@ -377,12 +368,8 @@ unsafe extern "C" fn callback(
     let notification = super::focus_target::Notification::from_name(&name);
     let (text_role, selected_child) = match notification {
         super::focus_target::Notification::Focus => {
-            let role = copy_attribute(element, CFString::new("AXRole").as_concrete_TypeRef());
-            let text_role = role.is_some_and(|role| {
-                let role = CFType::wrap_under_create_rule(role);
-                CFGetTypeID(role.as_CFTypeRef()) == CFString::type_id()
-                    && super::focus_target::is_text_role(&CFString::wrap_under_get_rule(role.as_CFTypeRef() as CFStringRef).to_string())
-            });
+            let text_role = super::copy_role(element)
+                .is_some_and(|role| super::focus_target::is_text_role(&role));
             (text_role, false)
         }
         super::focus_target::Notification::Selection => (false, super::copy_selected_child(element).is_some()),

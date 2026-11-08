@@ -168,20 +168,22 @@ unsafe fn caret_from_raw_element(focused: CFType, attrs: &CaretAttributes, estim
         .map(FocusPosition::Measured)
         .or_else(|| {
             if !estimate { return None; }
-            let role = CFType::wrap_under_create_rule(copy_attribute(element, CFString::new("AXRole").as_concrete_TypeRef())?);
-            if CFGetTypeID(role.as_CFTypeRef()) != CFString::type_id() { return None; }
-            let role = CFString::wrap_under_get_rule(role.as_CFTypeRef() as CFStringRef).to_string();
+            let role = copy_role(element)?;
             if !focus_target::is_text_role(&role) { return None; }
             caret_range::geometric_position(copy_element_bounds(element)?).map(FocusPosition::Estimated)
         })
 }
 
-unsafe fn copy_selected_child(element: AXUIElementRef) -> Option<CFType> {
+unsafe fn copy_role(element: AXUIElementRef) -> Option<String> {
     let role = CFType::wrap_under_create_rule(copy_attribute(
         element, CFString::new("AXRole").as_concrete_TypeRef(),
     )?);
     if CFGetTypeID(role.as_CFTypeRef()) != CFString::type_id() { return None; }
-    let role = CFString::wrap_under_get_rule(role.as_CFTypeRef() as CFStringRef).to_string();
+    Some(CFString::wrap_under_get_rule(role.as_CFTypeRef() as CFStringRef).to_string())
+}
+
+unsafe fn copy_selected_child(element: AXUIElementRef) -> Option<CFType> {
+    let role = copy_role(element)?;
     focused_element::selected_child(&role, |attribute| {
         let selected = CFType::wrap_under_create_rule(copy_attribute(
             element, CFString::new(attribute).as_concrete_TypeRef(),
@@ -286,6 +288,7 @@ unsafe fn caret_position_for_element(
     element: AXUIElementRef,
     attrs: &CaretAttributes,
 ) -> Option<(f64, f64)> {
+    if !focus_target::is_text_role(&copy_role(element)?) { return None; }
     caret_position_from_cf_range(
         element,
         attrs.selected_range.as_concrete_TypeRef(),
