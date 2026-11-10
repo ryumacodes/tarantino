@@ -9,6 +9,7 @@ interface ZoomBlock extends SourceRangeView {
   endTime: number;
   zoomFactor: number;
   isManual: boolean;
+  canResize: { start: boolean; end: boolean };
 }
 
 interface ZoomTrackProps {
@@ -211,8 +212,7 @@ const ZoomTrack: React.FC<ZoomTrackProps> = ({
                   >
                     <span>{block.zoomFactor.toFixed(1)}x</span>
 
-                    {/* Left resize handle */}
-                    <div
+                    {block.canResize.start && <div
                       className="resize-handle resize-handle-left"
                       style={{
                         position: 'absolute',
@@ -228,10 +228,9 @@ const ZoomTrack: React.FC<ZoomTrackProps> = ({
                         transition: 'opacity 0.1s ease'
                       }}
                       onMouseDown={(e) => onResizeStart(e, block, 'start')}
-                    />
+                    />}
 
-                    {/* Right resize handle */}
-                    <div
+                    {block.canResize.end && <div
                       className="resize-handle resize-handle-right"
                       style={{
                         position: 'absolute',
@@ -247,7 +246,7 @@ const ZoomTrack: React.FC<ZoomTrackProps> = ({
                         transition: 'opacity 0.1s ease'
                       }}
                       onMouseDown={(e) => onResizeStart(e, block, 'end')}
-                    />
+                    />}
                   </div>
                 </div>
               );

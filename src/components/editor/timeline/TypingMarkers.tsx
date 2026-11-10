@@ -37,22 +37,23 @@ function TypingMarkers(props: Props) {
   }, [selected, !!active, props.isExporting]);
 
   return <>
-    {suggestions.map(item => {
+    {suggestions.length > 0 && <div className="typing-marker-lane">{suggestions.map(item => {
       const start = item.clip.startTime+(item.from-item.clip.sourceIn)/item.clip.playbackRate;
       const end = start+(item.to-item.from)/item.clip.playbackRate;
       const left = Math.max(start,props.trimStart)*props.pixelsPerMs;
       const right = Math.min(end,props.trimEnd)*props.pixelsPerMs;
       if (right <= left || right < props.viewportLeft || left > props.viewportRight) return null;
-      return <button key={key(item)} className="typing-marker" disabled={props.isExporting}
+      const compact = right-left < 24;
+      return <button key={key(item)} className={`typing-marker${compact ? ' compact' : ''}`} disabled={props.isExporting}
         style={{left, width: Math.max(2,right-left)}}
-        title={`Typing ${(start/1000).toFixed(1)}–${(end/1000).toFixed(1)}s`}
+        title={`Speed up typing · ${(start/1000).toFixed(1)}–${(end/1000).toFixed(1)}s`}
         aria-label={`Edit typing section at ${(start/1000).toFixed(1)} seconds`}
         aria-haspopup="dialog" aria-expanded={selected === key(item)}
         onMouseDown={event => event.stopPropagation()}
         onClick={event => { event.stopPropagation(); opener.current=event.currentTarget; setSelected(key(item)); }}>
-        <Keyboard size={13} /><span>Typing</span>
+        {!compact && <Keyboard size={13} aria-hidden="true" />}
       </button>;
-    })}
+    })}</div>}
     {active && !props.isExporting && createPortal(
       <div className="typing-popover-backdrop" onMouseDown={event => event.stopPropagation()}
         onClick={event => { event.stopPropagation(); if(event.target === event.currentTarget) close(); }}>

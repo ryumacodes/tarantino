@@ -1,3 +1,5 @@
+import { CursorPreviewJob } from '../../../utils/motion/cursorPreviewJob';
+import { loadCursorPreview } from '../../../utils/motion/cursorPreviewLoad';
 import { isMacRuntime } from '../../../utils/platform';
 import { LatestTaskQueue } from '../../../utils/latestTaskQueue';
 import {RecordedCursor} from './RecordedCursor';
@@ -165,6 +167,8 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
   visible,
   videoTransformRef,
 }) => {
+  const { gl, invalidate } = useThree();
+  useEffect(() => { invalidate(2); });
   const effect = useMemo(() => new CursorEffectImpl(), []);
   const alwaysUsePointer = useEditorStore(state => state.visualSettings.alwaysUsePointer);
   const cursorStyle = useEditorStore(state => state.visualSettings.cursorStyle);
@@ -174,15 +178,14 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     let cancelled=false;
     effect.setRecorded(null);
     if(sidecarPath)invoke<RecordedCursorData>('load_cursor_images',{mouseJsonPath:sidecarPath,optimizeCursorTypes,alwaysUsePointer,style:cursorStyle})
-      .then(data=>{if(!cancelled)effect.setRecorded(data);})
+      .then(data=>{if(!cancelled){effect.setRecorded(data);invalidate(2);}})
       .catch(error=>{if(!cancelled)console.warn('Could not load recorded cursor images',error);});
     return ()=>{cancelled=true;effect.setRecorded(null);};
-  },[effect,sidecarPath,optimizeCursorTypes,alwaysUsePointer,cursorStyle]);
+  },[effect,sidecarPath,optimizeCursorTypes,alwaysUsePointer,cursorStyle,invalidate]);
   useEffect(() => {
     if (effectRef) effectRef.current = effect;
     return () => { if (effectRef?.current === effect) effectRef.current = null; };
   }, [effect, effectRef]);
-  const { gl } = useThree();
   const drawingSize=useMemo(()=>new THREE.Vector2(),[]);
   const timelineClips=useEditorStore(state=>state.clips);
   const timelineTracks=useEditorStore(state=>state.tracks);
@@ -212,15 +215,19 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
   }), [sidecarPath, recordingPath, videoWidth, videoHeight, sourceCrop,
     timelineClips, timelineTracks, trimStart, trimEnd, trajectoryDuration]);
   const [trajectoryResult, setTrajectoryResult] = useState<{
-    context: typeof trajectoryContext; frames: number[][]; clock: TrajectoryClock;
+    context: typeof trajectoryContext; frames: number[][]; clock: TrajectoryClock; complete: boolean;
   } | null>(null);
   const trajectory = trajectoryResult?.context === trajectoryContext ? trajectoryResult.frames : null;
-  const trajectoryQueue = useMemo(() => new LatestTaskQueue<string>(), []);
+  const trajectoryQueue = useMemo(() => new LatestTaskQueue<void>(), []);
   const trailHistory = useRef<TrailPosition[]>([]);
   const priorTrajectory=useRef<number[][]|null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    const job = new CursorPreviewJob(
+      () => invoke<string>('begin_cursor_preview'),
+      jobId => invoke<void>('cancel_cursor_preview', {jobId}),
+    );
     const load = async () => {
       if (!sidecarPath) return;
 
@@ -234,7 +241,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
           recordingPath:store.videoFilePath,clips:timeline.timeline_clips,
           trimStart:timeline.trim_start,trimEnd:timeline.trim_end,
         }:null;
-        const result = await trajectoryQueue.run(() => invoke<string>('compute_cursor_trajectory', {
+        const request = {
           mouseJsonPath: sidecarPath,
           hover: recordingPath ? { recordingPath, enabled: isMacRuntime && followHover } : null,
           alwaysUsePointer,
@@ -255,29 +262,43 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
           springFriction: spring.friction,
           springMass: spring.mass,
           rotation:cursorRotation,rotateWhileMoving,rotationIntensity,rotationMode,edit,
+        };
+        const publish = (result: string, complete: boolean) => {
+          const parsed=JSON.parse(result) as number[][]|{frames:number[][];outputTime:boolean;originMs:number;segments?:number[][]};
+          const clock: TrajectoryClock = Array.isArray(parsed)?{outputTime:false,originMs:0}:parsed;
+          const frames=Array.isArray(parsed)?parsed:parsed.frames;
+          const spans=clock.segments??[[0,frames.length*1000/CAMERA_SIMULATION_FPS]];
+          clock.entryTimes=spans.map(([start,end])=>{
+            const last=Math.min(frames.length,Math.ceil(end*CAMERA_SIMULATION_FPS/1000));
+            for(let i=Math.ceil(start*CAMERA_SIMULATION_FPS/1000);i<last;i++) {
+              if(frames[i][2]>.01)return start+Math.floor((i*1000/CAMERA_SIMULATION_FPS-start)*CAMERA_SIMULATION_FPS/1000+1e-7)*1000/CAMERA_SIMULATION_FPS;
+            }
+            return Infinity;
+          });
+          setTrajectoryResult({context: trajectoryContext, frames, clock, complete});
+        };
+        await trajectoryQueue.run(() => job.run(previewJobId => {
+          const currentTime = () => {
+            const live = useEditorStore.getState();
+            return edit ? live.currentTime - edit.trimStart
+              : previewSample(live, live.currentTime).sourceTime ?? 0;
+          };
+          const outputDuration = edit ? edit.trimEnd - edit.trimStart : duration;
+          return loadCursorPreview(outputDuration, currentTime,
+            previewUntilMs => invoke<string>('compute_cursor_trajectory', {...request, previewUntilMs, previewJobId}),
+            publish, () => cancelled);
         }));
-
-        if (cancelled || result === undefined) return;
-
-        const parsed=JSON.parse(result) as number[][]|{frames:number[][];outputTime:boolean;originMs:number;segments?:number[][]};
-        const clock: TrajectoryClock = Array.isArray(parsed)?{outputTime:false,originMs:0}:parsed;
-        const frames=Array.isArray(parsed)?parsed:parsed.frames;
-        const spans=clock.segments??[[0,frames.length*1000/CAMERA_SIMULATION_FPS]];
-        clock.entryTimes=spans.map(([start,end])=>{
-          const last=Math.min(frames.length,Math.ceil(end*CAMERA_SIMULATION_FPS/1000));
-          for(let i=Math.ceil(start*CAMERA_SIMULATION_FPS/1000);i<last;i++) {
-            if(frames[i][2]>.01)return start+Math.floor((i*1000/CAMERA_SIMULATION_FPS-start)*CAMERA_SIMULATION_FPS/1000+1e-7)*1000/CAMERA_SIMULATION_FPS;
-          }
-          return Infinity;
-        });
-        setTrajectoryResult({context: trajectoryContext, frames, clock});
       } catch (error) {
         if (!cancelled) console.error('[CursorEffect] Failed to compute cursor trajectory:', error);
       }
     };
 
     load();
-    return () => { cancelled = true; trajectoryQueue.clearPending(); };
+    return () => {
+      cancelled = true;
+      trajectoryQueue.clearPending();
+      void job.cancel().catch(error => console.error('Could not cancel cursor preview', error));
+    };
   }, [
     sidecarPath,trajectoryDuration,timelineClips,timelineTracks,trimStart,trimEnd,recordingPath,
     videoWidth,
@@ -313,7 +334,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     const sample = previewSample(store, store.currentTime);
     const clock=trajectoryResult!.clock;
     const currentTime=clock.outputTime?store.currentTime-clock.originMs:sample.sourceTime;
-    if (currentTime===null || (clock.outputTime && (currentTime<0 || currentTime*CAMERA_SIMULATION_FPS/1000>=trajectory.length))
+    if (currentTime===null || ((clock.outputTime || !trajectoryResult!.complete) && (currentTime<0 || currentTime*CAMERA_SIMULATION_FPS/1000>=trajectory.length))
       || sample.sourceTime === null || sample.hideCursor || vs.hideCursor) {
       trailHistory.current=[];priorTrajectory.current=null;
       for (const name of ['uCursorOpacity', 'uRippleProgress', 'uCircleHlProgress', 'uTrailCount']) {

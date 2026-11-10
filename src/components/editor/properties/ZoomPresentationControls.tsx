@@ -1,3 +1,4 @@
+import { zoomPresentationUpdate } from '../../../utils/motion/zoomPresentation';
 import { useEditorStore } from '../../../stores/editor';
 import type { ZoomBlock } from '../../../stores/editor/types';
 import { manualZoomCenterUpdate } from '../../../utils/motion/zoomCenterBounds';
@@ -16,15 +17,10 @@ export function ZoomPresentationControls({ block, disabled }: { block: ZoomBlock
             ? 'editor-btn--primary' : 'editor-btn--ghost'}`}
           disabled={disabled}
           onClick={() => {
-            if (style === 'magnifier') {
-              // Preserve persisted optical settings when this mode is already selected.
-              updateZoomBlock(block.id, { loupe: block.loupe ?? {
-                radius: 0.35, glass: false, bevel: 0.2, chromatic_aberration: 0.5, shadow_alpha: 0.35,
-              } });
-            } else {
-              updateZoomBlock(block.id, { loupe: undefined,
-                ...manualZoomCenterUpdate(block, block.zoom_factor, captureMode) });
-            }
+            updateZoomBlock(block.id, {
+              ...zoomPresentationUpdate(block, style),
+              ...(style === 'screen' && manualZoomCenterUpdate(block, block.zoom_factor, captureMode)),
+            });
           }}>{style === 'screen' ? 'Screen zoom' : 'Magnifier'}</button>)}
       </div>
       <small className="setting-hint">Magnifier enlarges a circular area while keeping the rest of the frame in place.</small>

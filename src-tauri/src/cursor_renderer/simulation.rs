@@ -262,12 +262,57 @@ pub(crate) fn simulate_cursor_frames_from<T>(
     pressed: Option<(&dyn Fn(f64) -> bool, f64)>,
     project: impl Fn(&CursorFrameState) -> T,
 ) -> Vec<T> {
+    simulate_cursor_frames_until(events, spring_config, fps, duration_ms, zoom_trajectory,
+        cursor_settings, start_ms, zoom_fps, rotation_keys, typing, planned, pressed, None, project)
+}
+
+pub(crate) fn simulate_cursor_frames_until<T>(
+    events: &[CursorEvent],
+    spring_config: &SpringConfig,
+    fps: f64,
+    duration_ms: u64,
+    zoom_trajectory: &Option<Vec<ZoomFrameState>>,
+    cursor_settings: &CursorSettings,
+    start_ms: u64,
+    zoom_fps: f64,
+    rotation_keys: Option<&[super::rotation::RotationKey]>,
+    typing: Option<&dyn Fn(f64) -> bool>,
+    planned: Option<&dyn Fn(f64) -> [f64;2]>,
+    pressed: Option<(&dyn Fn(f64) -> bool, f64)>,
+    until_ms: Option<u64>,
+    project: impl Fn(&CursorFrameState) -> T,
+) -> Vec<T> {
+    simulate_cursor_frames_checked(events,spring_config,fps,duration_ms,zoom_trajectory,
+        cursor_settings,start_ms,zoom_fps,rotation_keys,typing,planned,pressed,until_ms,None,false,project)
+        .expect("Cursor simulation without cancellation cannot fail")
+}
+
+pub(crate) fn simulate_cursor_frames_checked<T>(
+    events: &[CursorEvent],
+    spring_config: &SpringConfig,
+    fps: f64,
+    duration_ms: u64,
+    zoom_trajectory: &Option<Vec<ZoomFrameState>>,
+    cursor_settings: &CursorSettings,
+    start_ms: u64,
+    zoom_fps: f64,
+    rotation_keys: Option<&[super::rotation::RotationKey]>,
+    typing: Option<&dyn Fn(f64) -> bool>,
+    planned: Option<&dyn Fn(f64) -> [f64;2]>,
+    pressed: Option<(&dyn Fn(f64) -> bool, f64)>,
+    until_ms: Option<u64>,
+    check: Option<&dyn Fn() -> anyhow::Result<()>>,
+    defer_visibility: bool,
+    project: impl Fn(&CursorFrameState) -> T,
+) -> anyhow::Result<Vec<T>> {
+    if let Some(check) = check { check()?; }
     if !fps.is_finite() || fps <= 0.0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
+    let output_end = until_ms.unwrap_or(duration_ms).min(duration_ms);
     let output_count =
-        ((duration_ms.saturating_sub(start_ms) as f64 * fps) / 1000.0).ceil() as usize;
-    let total_frames = ((duration_ms as f64 * CAMERA_SIMULATION_FPS) / 1000.0).ceil() as u64;
+        ((output_end.saturating_sub(start_ms) as f64 * fps) / 1000.0).ceil() as usize;
+    let total_frames = ((output_end as f64 * CAMERA_SIMULATION_FPS) / 1000.0).ceil() as u64;
     let dt = 1.0 / CAMERA_SIMULATION_FPS;
     let mut positions = Vec::with_capacity(output_count);
 
@@ -309,7 +354,7 @@ pub(crate) fn simulate_cursor_frames_from<T>(
         duration_ms
     };
     let press_animation=pressed.and_then(|(sample,rate)|super::press_animation::PressAnimation::build(
-        duration_ms as f64,rate,spring_config,|time|sample(time.min(freeze_time_ms as f64))));
+        output_end as f64,rate,spring_config,|time|sample(time.min(freeze_time_ms as f64))));
     let looped_events=loop_to_start.then(||super::loop_path::cursor_events(events,duration_ms,loop_duration_ms));
     let motion_events=looped_events.as_deref().unwrap_or(events);
     let loop_start_ms=motion_events.last().map_or(duration_ms,|event|event.timestamp_ms);
@@ -347,6 +392,9 @@ pub(crate) fn simulate_cursor_frames_from<T>(
     };
     let mut previous_sample: Option<CursorFrameState> = None;
     for frame_num in 0..=total_frames {
+        if frame_num % 256 == 0 {
+            if let Some(check) = check { check()?; }
+        }
         let time_ms = ((frame_num as f64 * 1000.0) / CAMERA_SIMULATION_FPS) as u64;
         let time_ms_f = frame_num as f64 * 1000.0 / CAMERA_SIMULATION_FPS;
 
@@ -379,7 +427,8 @@ pub(crate) fn simulate_cursor_frames_from<T>(
         let mut cursor_x = position[0];
         let mut cursor_y = position[1];
 
-        let [mut rendered_opacity, mut fade_blur_radius] = visibility.sample(time_ms_f, &visibility_targets);
+        let [mut rendered_opacity, mut fade_blur_radius] = if defer_visibility { [1.0, 0.0] }
+            else { visibility.sample(time_ms_f, &visibility_targets) };
         if latest_event.is_none() { rendered_opacity=0.0; fade_blur_radius=0.0; }
 
         // Rotation
@@ -570,10 +619,12 @@ pub(crate) fn simulate_cursor_frames_from<T>(
             } else {
                 previous_sample.as_ref().unwrap().interpolate(&state, (position - position.floor()) as f32)
             };
-            let [opacity, blur] = visibility.sample(sample_time, &visibility_targets);
-            let has_pointer = visibility_targets(sample_time).0;
-            sampled.opacity = if has_pointer { opacity as f32 } else { 0.0 };
-            sampled.fade_blur_radius = if has_pointer { blur as f32 } else { 0.0 };
+            if !defer_visibility {
+                let [opacity, blur] = visibility.sample(sample_time, &visibility_targets);
+                let has_pointer = visibility_targets(sample_time).0;
+                sampled.opacity = if has_pointer { opacity as f32 } else { 0.0 };
+                sampled.fade_blur_radius = if has_pointer { blur as f32 } else { 0.0 };
+            }
             sampled.press_amount = press_animation.as_ref().map_or(0.0, |animation| animation.at(sample_time) as f32);
             positions.push(project(&sampled));
         }
@@ -581,7 +632,8 @@ pub(crate) fn simulate_cursor_frames_from<T>(
 
     }
 
-    positions
+    if let Some(check) = check { check()?; }
+    Ok(positions)
 }
 
 fn lerp(a: f64, b: f64, t: f64) -> f64 {
@@ -615,3 +667,6 @@ fn find_target_at_time(events: &[CursorEvent], time_ms: u64) -> (f64, f64) {
 
 #[cfg(test)]
 mod cadence_tests;
+
+#[cfg(test)]
+mod cancellation_tests;

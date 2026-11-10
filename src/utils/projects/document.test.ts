@@ -1,3 +1,4 @@
+import { zoomPresentationUpdate } from '../motion/zoomPresentation';
 import { expect, it, vi } from 'vitest';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 import { useEditorStore } from '../../stores/editor';
@@ -153,4 +154,21 @@ it('saves native automatic zoom blocks with a null magnifier', () => {
     (document.state.zoomAnalysis!.zoom_blocks[0] as any).loupe = invalid;
     expect(() => parseProjectDocument(document)).toThrow('magnifier');
   }
+});
+
+
+it('round-trips dormant magnifier settings and validates them', () => {
+  const state=fixture();
+  const lens={radius:0.6,glass:true,bevel:0.4,chromatic_aberration:0.7,shadow_alpha:0.2};
+  state.zoomAnalysis={total_clicks:0,session_duration:1000,
+    config:{enabled:true,zoom_factor:2,zoom_duration:1000,min_click_spacing:100},
+    zoom_blocks:[{id:'zoom',start_time:0,end_time:1000,zoom_factor:2,
+      click_x:0.5,click_y:0.5,center_x:0.5,center_y:0.5,is_manual:true,loupe:null,inactive_loupe:lens}]};
+  const document=createProjectDocument(state);
+  const reopened=parseProjectDocument(JSON.parse(JSON.stringify(document)));
+  const block=reopened.state.zoomAnalysis!.zoom_blocks[0];
+  expect(block.loupe).toBeNull();
+  expect(zoomPresentationUpdate(block,'magnifier').loupe).toEqual(lens);
+  document.state.zoomAnalysis!.zoom_blocks[0].inactive_loupe!.radius=0;
+  expect(()=>parseProjectDocument(document)).toThrow('magnifier bounds');
 });

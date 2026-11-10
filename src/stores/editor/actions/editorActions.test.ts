@@ -3,6 +3,7 @@ import { useEditorStore } from '../store';
 import type { EditorState, EditorActions } from '../types';
 import { createClipsActions } from './clipsActions';
 import { createPlaybackActions } from './playbackActions';
+import { splitTimelineAtTime } from '../../../utils/timeline/splitTimeline';
 import { createZoomActions } from './zoomActions';
 
 const clip = (id: string, trackId = 'track-a') => ({
@@ -123,7 +124,6 @@ describe('timeline clip actions', () => {
   });
 });
 
-describe('zoom block actions', () => {
   const zoomBlock = {
     id: 'zoom-a',
     click_x: 0.5,
@@ -139,6 +139,9 @@ describe('zoom block actions', () => {
       { x: 0.6, y: 0.6, time: 3_000 },
     ],
   };
+
+describe('zoom block actions', () => {
+
 
   it('clamps block end time and marks manual center edits', () => {
     const state = { ...useEditorStore.getInitialState(),
@@ -176,7 +179,7 @@ describe('zoom block actions', () => {
     };
     const actions = harness(state, createZoomActions);
 
-    actions.splitZoomBlocksAtTime(2_000);
+    actions.splitZoomBlockAtTime('zoom-a', 2_000);
     expect(state.zoomAnalysis.zoom_blocks).toHaveLength(2);
     expect(state.zoomAnalysis.zoom_blocks[0]).toMatchObject({
       id: 'zoom-a',
@@ -235,5 +238,53 @@ describe('playback motion invalidation',()=>{
     expect(state.playbackRevision).toBe(3);
     actions.setIsPlaying(true);
     expect(state.playbackRevision).toBe(4);
+  });
+});
+
+
+describe('splitting the targeted timeline track', () => {
+  const setup = () => {
+    const video = { ...clip('video'), startTime: 0, duration: 2000,
+      sourceIn: 1000, sourceOut: 5000, playbackRate: 2 };
+    const videoTrack = { ...track('track-a'), clips: [video] };
+    const state = { ...useEditorStore.getInitialState(), duration: 5000,
+      clips: [video], tracks: [videoTrack], history: [], historyIndex: -1,
+      zoomAnalysis: { total_clicks: 0, session_duration: 5000,
+        config: { enabled: true, zoom_factor: 2, zoom_duration: 5000, min_click_spacing: 500 },
+        zoom_blocks: [structuredClone(zoomBlock), { ...structuredClone(zoomBlock), id: 'other' }] },
+    };
+    harness(state, createClipsActions);
+    harness(state, createZoomActions);
+    return state;
+  };
+
+  it('cuts video without changing a zoom spanning the cut', () => {
+    const state = setup();
+    const zooms = structuredClone(state.zoomAnalysis);
+    expect(splitTimelineAtTime(state, 500, null)).toEqual(['generated-id']);
+    expect(state.clips).toHaveLength(2);
+    expect(state.clips.map(c => [c.sourceIn, c.sourceOut])).toEqual([[1000, 2000], [2000, 5000]]);
+    expect(state.zoomAnalysis).toEqual(zooms);
+  });
+
+  it('splits only the selected zoom using edited source time', () => {
+    const state = setup();
+    const clips = structuredClone(state.clips);
+    const other = structuredClone(state.zoomAnalysis.zoom_blocks[1]);
+    expect(splitTimelineAtTime(state, 500, 'zoom-a')).toEqual([]);
+    expect(state.clips).toEqual(clips);
+    expect(state.zoomAnalysis.zoom_blocks).toHaveLength(3);
+    expect(state.zoomAnalysis.zoom_blocks.find(b => b.id === 'other')).toEqual(other);
+    expect(state.zoomAnalysis.zoom_blocks.find(b => b.id === 'zoom-a')?.end_time).toBe(2000);
+    expect(state.zoomAnalysis.zoom_blocks.find(b => b.id === 'generated-id')?.start_time).toBe(2000);
+  });
+
+  it('does not fall back to cutting video when outside the selected zoom', () => {
+    const state = setup();
+    const clips = structuredClone(state.clips);
+    const zooms = structuredClone(state.zoomAnalysis);
+    splitTimelineAtTime(state, 1750, 'zoom-a');
+    expect(state.clips).toEqual(clips);
+    expect(state.zoomAnalysis).toEqual(zooms);
   });
 });

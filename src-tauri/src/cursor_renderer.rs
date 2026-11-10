@@ -30,6 +30,8 @@ mod settling;
 pub(crate) mod planner;
 pub(crate) use settling::TargetTolerance;
 
+pub(crate) use simulation::simulate_cursor_frames_checked;
+
 pub use simulation::{
     CursorFrameState, TrailPoint, parse_cursor_events, simulate_cursor_frames,
     simulate_cursor_positions_for_range, simulate_cursor_frames_with_rotation,

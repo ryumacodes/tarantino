@@ -13,8 +13,8 @@ it('positions typing markers on the edited clock and excludes trimmed or offscre
   expect(markup).toContain('Edit typing section at 4.5 seconds');
   expect(markup).toContain('left:450px;width:150px');
   expect(renderToStaticMarkup(<TypingMarkers {...props} trimStart={5000}/>)).toContain('left:500px;width:100px');
-  expect(renderToStaticMarkup(<TypingMarkers {...props} viewportLeft={700}/>)).toBe('');
-  expect(renderToStaticMarkup(<TypingMarkers {...props} trimEnd={4000}/>)).toBe('');
+  expect(renderToStaticMarkup(<TypingMarkers {...props} viewportLeft={700}/>)).not.toContain('aria-haspopup');
+  expect(renderToStaticMarkup(<TypingMarkers {...props} trimEnd={4000}/>)).not.toContain('aria-haspopup');
   expect(renderToStaticMarkup(<TypingMarkers {...props} isExporting/>)).toContain('disabled=""');
   mocks.state.dismissedTypingRanges=[2000];
   expect(renderToStaticMarkup(<TypingMarkers {...props}/>)).toBe('');

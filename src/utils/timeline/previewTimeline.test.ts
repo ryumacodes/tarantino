@@ -154,3 +154,39 @@ it('invalidates the interval index after a timing edit and keeps legacy duration
   expect(timelineDuration({...legacy,duration:2000})).toBe(2000);
   expect(previewSample({...legacy,duration:2000},1500).sourceTime).toBe(1500);
 });
+
+it('honors explicit sub-tolerance seeks without seeking every playback tick', () => {
+  const video = media();
+  video.paused = false;
+  const sync = createMediaSynchronizer(video, vi.fn());
+  const sample = { sourceTime: 1000, rate: 1, clipId: 'take', muted: false };
+  sync(sample, true, false, 1);
+  video.currentTime = 1.01;
+  sync({ ...sample, sourceTime: 1020 }, true, false, 1);
+  expect(video.currentTime).toBe(1.01);
+  sync({ ...sample, sourceTime: 1040 }, true, false, 2);
+  expect(video.currentTime).toBe(1.04);
+  video.currentTime = 1.05;
+  sync({ ...sample, sourceTime: 1060 }, true, false, 2);
+  expect(video.currentTime).toBe(1.05);
+  sync({ ...sample, sourceTime: 1030 }, true, false, 3);
+  expect(video.currentTime).toBe(1.03);
+});
+
+it.each(['seeking', 'metadata'] as const)('retains an explicit seek while waiting for %s', waiting => {
+  const video = media();
+  video.paused = false;
+  const sync = createMediaSynchronizer(video, vi.fn());
+  const sample = { sourceTime: 1000, rate: 1, clipId: 'take', muted: false };
+  sync(sample, true, true, 1);
+  if (waiting === 'seeking') video.seeking = true;
+  else video.readyState = 0;
+  sync({ ...sample, sourceTime: 1020 }, true, true, 2);
+  expect(video.currentTime).toBe(1);
+  sync({ ...sample, sourceTime: 1040 }, true, true, 3);
+  expect(video.currentTime).toBe(1);
+  video.seeking = false;
+  video.readyState = 4;
+  sync({ ...sample, sourceTime: 1040 }, true, true, 3);
+  expect(video.currentTime).toBe(1.04);
+});

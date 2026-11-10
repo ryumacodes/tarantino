@@ -60,13 +60,26 @@ fn settling_time(spring: SpringConfig) -> f64 {
     time
 }
 
-pub(super) fn build(
+#[cfg(test)]
+fn build(
     mapped: &PlaybackInput,
     source: Option<&[Point]>,
     spring: SpringConfig,
     horizontal_ratio: Option<f64>,
     source_time: impl Fn(f64) -> Option<f64>,
     check: &dyn Fn() -> Result<()>,
+) -> Result<PlannedMotion> {
+    build_until(mapped, source, spring, horizontal_ratio, source_time, check, None)
+}
+
+pub(super) fn build_until(
+    mapped: &PlaybackInput,
+    source: Option<&[Point]>,
+    spring: SpringConfig,
+    horizontal_ratio: Option<f64>,
+    source_time: impl Fn(f64) -> Option<f64>,
+    check: &dyn Fn() -> Result<()>,
+    until: Option<f64>,
 ) -> Result<PlannedMotion> {
     let motion = |p: &Point| MotionPoint {
         time_ms: p.time_ms,
@@ -90,7 +103,7 @@ pub(super) fn build(
     let history_ms = settling_time(normalized) + LOOKAHEAD_MS;
     let mut chunks = Vec::new();
     let mut rotation = source.map(|_| Vec::new());
-    for index in 0..=(mapped.duration / CHUNK_MS).floor() as usize {
+    for index in 0..=(until.unwrap_or(mapped.duration).min(mapped.duration) / CHUNK_MS).floor() as usize {
         check()?;
         let origin = index as f64 * CHUNK_MS;
         let planned_from = origin - history_ms;

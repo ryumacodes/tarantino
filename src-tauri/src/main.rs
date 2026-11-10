@@ -172,6 +172,7 @@ async fn run() {
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 commands::export_jobs::cancel_for_window(window.label());
+                commands::cursor_preview_jobs::cancel_for_window(window.label());
             }
         })
         .manage(app_state)
@@ -257,6 +258,8 @@ async fn run() {
             commands::video::silence::detect_audio_silence,
             commands::video::read_sidecar_file,
             commands::video::compute_cursor_trajectory,
+            commands::cursor_preview_jobs::begin_cursor_preview,
+            commands::cursor_preview_jobs::cancel_cursor_preview,
             commands::video::cursor_images::load_cursor_images,
             commands::motion::compute_zoom_trajectory,
             commands::loupe::compute_loupe_trajectory,

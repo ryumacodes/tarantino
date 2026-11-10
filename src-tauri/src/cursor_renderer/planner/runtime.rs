@@ -59,7 +59,7 @@ pub fn prepare(
     if !sidecar.exists() {
         return Ok(None);
     }
-    let mut input = RecordingInput::load(
+    let input = RecordingInput::load(
         sidecar,
         size,
         settings.shake_threshold.unwrap_or(0.0),
@@ -67,6 +67,42 @@ pub fn prepare(
         !settings.always_use_pointer.unwrap_or(false),
         settings.optimize_cursor_types.unwrap_or(true),
     )?;
+    prepare_input(input, sidecar, size, timeline, recording, duration, settings, spring, Some(&check), None)
+}
+
+pub fn prepare_from_value(
+    value: &serde_json::Value,
+    sidecar: &Path,
+    size: (u32, u32),
+    crop: Option<SourceCrop>,
+    timeline: Option<&EditTimeline>,
+    recording: &Path,
+    duration: f64,
+    settings: &CursorSettings,
+    spring: SpringConfig,
+    until: Option<f64>,
+    check: Option<&dyn Fn() -> Result<()>>,
+) -> Result<Option<Prepared>> {
+    if let Some(check) = check { check()?; }
+    let input = RecordingInput::from_value(value, size, settings.shake_threshold.unwrap_or(0.0),
+        crop, !settings.always_use_pointer.unwrap_or(false), settings.optimize_cursor_types.unwrap_or(true))?;
+    prepare_input(input, sidecar, size, timeline, recording, duration, settings, spring, check, until)
+}
+
+fn prepare_input(
+    mut input: RecordingInput,
+    sidecar: &Path,
+    size: (u32, u32),
+    timeline: Option<&EditTimeline>,
+    recording: &Path,
+    duration: f64,
+    settings: &CursorSettings,
+    spring: SpringConfig,
+    check: Option<&dyn Fn() -> Result<()>>,
+    until: Option<f64>,
+) -> Result<Option<Prepared>> {
+    let check = || check.map_or(Ok(()), |check| check());
+    check()?;
     #[cfg(target_os = "macos")]
     if spring.mass > 0.0 && settings.follow_hover.unwrap_or(false) {
         let times = crate::cursor_renderer::hover::analysis::analyze_with_check(
@@ -186,7 +222,7 @@ pub fn prepare(
     if spring.mass == 0.0 {
         mapped.instant = vec![(f64::NEG_INFINITY, f64::INFINITY)];
     }
-    let motion = super::motion_chunks::build(
+    let motion = super::motion_chunks::build_until(
         &mapped,
         rotation_source.as_deref(),
         spring,
@@ -198,6 +234,7 @@ pub fn prepare(
             })
         },
         &check,
+        until.map(|time| time + 1000.0 / 60.0),
     )?;
     Ok(Some(Prepared {
         motion,
@@ -210,6 +247,58 @@ pub fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn borrowed_input_planning_stops_at_the_next_chunk_checkpoint() {
+        let value = serde_json::json!({"mouse_events":[
+            {"timestamp":0,"x":20,"y":30,"event_type":"Move"},
+            {"timestamp":30000,"x":80,"y":70,"event_type":"Move"}
+        ]});
+        let calls = std::cell::Cell::new(0);
+        let check = || {
+            calls.set(calls.get()+1);
+            anyhow::ensure!(calls.get()<4,"obsolete request");
+            Ok(())
+        };
+        let settings = serde_json::from_value(serde_json::json!({"follow_hover":false})).unwrap();
+        let result = prepare_from_value(&value,Path::new("unused.json"),(100,100),None,None,
+            Path::new("unused.mp4"),30000.0,&settings,
+            SpringConfig{tension:470.0,friction:70.0,mass:3.0},None,Some(&check));
+        assert_eq!(result.err().unwrap().to_string(),"obsolete request");
+        assert_eq!(calls.get(),4);
+    }
+
+    #[test]
+    #[ignore = "opt-in cursor planning startup profile"]
+    fn cursor_planning_startup_profile() {
+        let path = std::env::var("TARANTINO_CURSOR_PROFILE_INPUT").unwrap();
+        let duration: f64 = std::env::var("TARANTINO_CURSOR_PROFILE_DURATION").unwrap().parse().unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let size = (value["display_width"].as_u64().unwrap() as u32,
+            value["display_height"].as_u64().unwrap() as u32);
+        let settings: CursorSettings = serde_json::from_value(serde_json::json!({
+            "rotate_while_moving":true,"rotation_mode":"horizontal",
+            "rotation_intensity":30,"follow_hover":false,"optimize_cursor_types":false
+        })).unwrap();
+        let spring = SpringConfig { tension:470.0, friction:70.0, mass:3.0 };
+        for run in 0..3 {
+            let start = std::time::Instant::now();
+            let input = RecordingInput::from_value(&value,size,0.0,None,true,false).unwrap();
+            let parsed_ms = start.elapsed().as_secs_f64()*1000.0;
+            let checkpoints = std::cell::RefCell::new(Vec::new());
+            let check = || { checkpoints.borrow_mut().push(start.elapsed()); Ok(()) };
+            let planned = prepare_input(input,Path::new(&path),size,None,Path::new(&path),duration,
+                &settings,spring,Some(&check),None).unwrap().unwrap();
+            let total_ms = start.elapsed().as_secs_f64()*1000.0;
+            let checkpoints = checkpoints.into_inner();
+            assert_eq!(checkpoints.len(),(duration/10_000.0).floor() as usize+1);
+            let first_ready_ms = checkpoints.get(1).map_or(total_ms,|time|time.as_secs_f64()*1000.0);
+            assert!(planned.at(0.0).iter().chain(planned.at(duration).iter()).all(|value|value.is_finite()));
+            println!("CURSOR_STARTUP run={run} input_bytes={} parse_ms={parsed_ms:.3} first_chunk_ready_ms={first_ready_ms:.3} full_plan_ms={total_ms:.3} chunks={}",
+                bytes.len(),checkpoints.len());
+        }
+    }
+
     #[test]
     fn trimmed_opening_uses_in_range_sample_without_discarding_reordered_clips() {
         use crate::video_processing::timeline::EditTimeline;

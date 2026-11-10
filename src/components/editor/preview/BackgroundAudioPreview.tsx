@@ -21,7 +21,7 @@ export default function BackgroundAudioPreview() {
     const sync=(retry=false)=>{
       const state=useEditorStore.getState();
       const settings=state.audioSettings.backgroundAudio;
-      if(settings?.path===path)player.sync(state.currentTime,state.isPlaying,{...settings,muted:settings.muted || usePreviewAudioStore.getState().muted},retry);
+      if(settings?.path===path)player.sync(state.currentTime,state.isPlaying,{...settings,muted:settings.muted || usePreviewAudioStore.getState().muted},retry,state.playbackRevision);
     };
     retry.current=()=>{player.retry();sync(true);};
     const ready=()=>sync();

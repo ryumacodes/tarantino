@@ -1,3 +1,4 @@
+import { PreviewRedraw } from './PreviewRedraw';
 import {CaptionPreviewOverlay} from "./CaptionPreviewOverlay";
 import {ShortcutPreviewOverlay} from "./ShortcutPreviewOverlay";
 import {CameraPreviewSource} from './CameraPreviewSource';
@@ -144,6 +145,7 @@ export const VideoPreviewPanel = React.memo(function VideoPreviewPanel({
       <div className="video-canvas-container" ref={canvasContainerRef}>
         <div className="video-canvas-frame" style={frameStyle}>
           <Canvas
+            frameloop={isPlaying ? 'always' : 'demand'}
             camera={{ position: [0, 0, 5], fov: 50 }}
             dpr={[1, 2]}
             gl={{ antialias: true, powerPreference: 'high-performance', alpha: true }}
@@ -153,6 +155,7 @@ export const VideoPreviewPanel = React.memo(function VideoPreviewPanel({
               height: '100%',
             }}
           >
+            <PreviewRedraw />
             <ambientLight intensity={0.5} />
             <pointLight position={[10, 10, 10]} />
             <VideoViewer

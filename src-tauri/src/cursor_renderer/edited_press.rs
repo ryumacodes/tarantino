@@ -9,6 +9,7 @@ pub fn build(
     fps: f64,
     spring: &SpringConfig,
     settings: &CursorSettings,
+    output_end_ms: f64,
     pressed: impl Fn(f64) -> bool,
 ) -> Option<PressAnimation> {
     let canonical = std::fs::canonicalize(recording).ok();
@@ -31,7 +32,7 @@ pub fn build(
     } else {
         timeline.duration_ms
     };
-    PressAnimation::build_with_config(timeline.duration_ms, fps, |time| {
+    PressAnimation::build_with_config(output_end_ms, fps, |time| {
         let time = time.min(cutoff);
         let index = timeline
             .segments
@@ -86,7 +87,7 @@ mod tests {
         )
         .unwrap();
         for fps in [24.0, 30.0, 60.0, 120.0] {
-            let edited = build(&timeline, "video.mp4", fps, &spring, &settings, |t| {
+            let edited = build(&timeline, "video.mp4", fps, &spring, &settings, timeline.duration_ms, |t| {
                 (103.0..607.0).contains(&t)
             })
             .unwrap();
@@ -117,11 +118,43 @@ mod tests {
             600.0,
         )
         .unwrap();
-        let edited = build(&timeline, "video.mp4", 60.0, &spring, &settings, |t| {
+        let edited = build(&timeline, "video.mp4", 60.0, &spring, &settings, timeline.duration_ms, |t| {
             t < 700.0
         })
         .unwrap();
         assert_eq!(edited.at(450.0), 0.1);
         assert_eq!(edited.at(550.0), 0.0);
     }
+
+    #[test]
+    fn bounded_press_animation_keeps_global_cutoff_and_only_samples_needed_frames() {
+        let spring = SpringConfig { tension:470.0, friction:70.0, mass:3.0 };
+        let timeline = EditTimeline::build(&[
+            clip(0.0,337.25,0.0,1.0,false),
+            clip(337.25,500.5,1000.0,2.0,true),
+            clip(900.0,1100.0,300.0,0.5,false),
+        ],0.0,2000.0).unwrap();
+        for freeze in [0,700,1900] {
+            let settings = serde_json::from_value(serde_json::json!({
+                "stop_at_end":true,"stop_duration_ms":freeze
+            })).unwrap();
+            for fps in [24.0,60.0,120.0] {
+                let pressed = |t| (100.0..400.0).contains(&t) || (1200.0..1500.0).contains(&t);
+                let full = build(&timeline,"video.mp4",fps,&spring,&settings,timeline.duration_ms,pressed).unwrap();
+                for end in [100.25,337.25,800.5,999.9,1500.0] {
+                    let calls = std::cell::Cell::new(0);
+                    let prefix = build(&timeline,"video.mp4",fps,&spring,&settings,end,|time| {
+                        calls.set(calls.get()+1);
+                        pressed(time)
+                    }).unwrap();
+                    assert!(calls.get() <= (end*fps/1000.0).ceil() as usize+2);
+                    for sample in 0..=1000 {
+                        let time = end*sample as f64/1000.0;
+                        assert_eq!(prefix.at(time),full.at(time),"end={end} time={time} fps={fps} freeze={freeze}");
+                    }
+                }
+            }
+        }
+    }
+
 }

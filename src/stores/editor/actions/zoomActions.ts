@@ -1,3 +1,5 @@
+import { rememberEditedZoomStyle } from '../../../utils/motion/zoomStylePreference';
+import { MIN_ZOOM_DURATION_MS } from '../../../utils/timeline/zoomTiming';
 import { shortcutsFromSidecar } from "../../../utils/shortcuts/sidecar";
 import { typingRanges } from "../../../utils/timeline/typingRanges";
 import { createRecordingLoadGuard } from '../recordingLoadGuard';
@@ -112,28 +114,32 @@ export const createZoomActions = (set: SetFn, get: GetFn) => {
     }
   },
 
-  updateZoomBlock: (blockId: string, updates: Partial<ZoomBlock>) => edit(set, (state) => {
-    if (!state.zoomAnalysis) return;
+  updateZoomBlock: (blockId: string, updates: Partial<ZoomBlock>) => {
+    const original = get().zoomAnalysis?.zoom_blocks.find(block => block.id === blockId);
+    if (!original) return;
+    const before = { ...original, loupe: original.loupe ? { ...original.loupe } : null };
+    edit(set, (state) => {
+      const block = state.zoomAnalysis!.zoom_blocks.find(block => block.id === blockId)!;
 
-    const blockIndex = state.zoomAnalysis.zoom_blocks.findIndex(block => block.id === blockId);
-    if (blockIndex === -1) return;
+      const clampedUpdates = {
+        ...updates,
+        ...(updates.end_time !== undefined && {
+          end_time: Math.min(updates.end_time, state.duration),
+        }),
+      };
+      Object.assign(block, clampedUpdates);
 
-    const clampedUpdates = {
-      ...updates,
-      ...(updates.end_time !== undefined && {
-        end_time: Math.min(updates.end_time, state.duration),
-      }),
-    };
-    Object.assign(state.zoomAnalysis.zoom_blocks[blockIndex], clampedUpdates);
+      if (updates.start_time !== undefined || updates.end_time !== undefined) {
+        block.timing_adjusted = true;
+      }
 
-    if (updates.start_time !== undefined || updates.end_time !== undefined) {
-      state.zoomAnalysis.zoom_blocks[blockIndex].timing_adjusted = true;
-    }
-
-    if (updates.is_manual === undefined && (updates.center_x !== undefined || updates.center_y !== undefined)) {
-      state.zoomAnalysis.zoom_blocks[blockIndex].is_manual = true;
-    }
-  }),
+      if (updates.is_manual === undefined && (updates.center_x !== undefined || updates.center_y !== undefined)) {
+        block.is_manual = true;
+      }
+    });
+    const after = get().zoomAnalysis!.zoom_blocks.find(block => block.id === blockId)!;
+    rememberEditedZoomStyle(before, after);
+  },
 
   deleteZoomBlock: (blockId: string) => edit(set, (state) => {
     if (!state.zoomAnalysis) return;
@@ -170,31 +176,25 @@ export const createZoomActions = (set: SetFn, get: GetFn) => {
     state.zoomAnalysis.zoom_blocks.push(clampedBlock);
   }),
 
-  splitZoomBlocksAtTime: (time: number) => edit(set, (state) => {
+  splitZoomBlockAtTime: (blockId: string, time: number) => edit(set, (state) => {
     if (!state.zoomAnalysis) return;
 
-    const blocksToSplit = state.zoomAnalysis.zoom_blocks.filter(
-      block => time > block.start_time && time < block.end_time
-    );
-    if (blocksToSplit.length === 0) return;
+    const block = state.zoomAnalysis.zoom_blocks.find(block => block.id === blockId);
+    if (!block || time - block.start_time < MIN_ZOOM_DURATION_MS
+      || block.end_time - time < MIN_ZOOM_DURATION_MS) return;
 
-    blocksToSplit.forEach((block) => {
-      const originalEnd = block.end_time;
-      const originalCenters = block.centers ?? [];
-      const secondBlock = {
-        ...block,
-        id: crypto.randomUUID(),
-        start_time: time,
-        end_time: originalEnd,
-        centers: originalCenters.filter(center => center.time >= time),
-        timing_adjusted: true,
-      };
-
-      block.end_time = time;
-      block.centers = originalCenters.filter(center => center.time < time);
-      block.timing_adjusted = true;
-      state.zoomAnalysis!.zoom_blocks.push(secondBlock);
-    });
+    const originalCenters = block.centers ?? [];
+    const secondBlock = {
+      ...block,
+      id: crypto.randomUUID(),
+      start_time: time,
+      centers: originalCenters.filter(center => center.time >= time),
+      timing_adjusted: true,
+    };
+    block.end_time = time;
+    block.centers = originalCenters.filter(center => center.time < time);
+    block.timing_adjusted = true;
+    state.zoomAnalysis.zoom_blocks.push(secondBlock);
 
     state.zoomAnalysis.zoom_blocks.sort((a, b) => a.start_time - b.start_time);
   }),

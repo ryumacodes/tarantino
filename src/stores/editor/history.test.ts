@@ -1,5 +1,7 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { readZoomStyle } from '../../utils/motion/zoomStylePreference';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+import { splitTimelineAtTime } from '../../utils/timeline/splitTimeline';
 import { previewSample } from '../../utils/timeline/previewTimeline';
 import { exportTimeline } from '../../utils/timeline/exportTimeline';
 import { useEditorStore } from './store';
@@ -504,4 +506,63 @@ it('updates the playback clock without traversing frozen project data', () => {
   expect(after.playbackRevision).toBe(before.playbackRevision + 2);
   expect(after.clips).toBe(before.clips);
   expect(after.history).toBe(before.history);
+});
+
+
+it.each([null, 'zoom'])('undoes and redoes a targeted split (%s) in one step', (target) => {
+  const analysis = { total_clicks: 0, session_duration: 2000,
+    config: { enabled: true, zoom_factor: 2, zoom_duration: 2000, min_click_spacing: 500 },
+    zoom_blocks: [{ id: 'zoom', start_time: 200, end_time: 1800, zoom_factor: 2,
+      click_x: 0.5, click_y: 0.5, center_x: 0.5, center_y: 0.5, is_manual: true }],
+  };
+  useEditorStore.setState({ zoomAnalysis: analysis });
+  const before = useEditorStore.getState();
+  splitTimelineAtTime(before, 1000, target);
+  const after = useEditorStore.getState();
+  expect(after.clips).toHaveLength(target === null ? 2 : 1);
+  expect(after.zoomAnalysis?.zoom_blocks).toHaveLength(target === null ? 1 : 2);
+  after.undo();
+  const undone = useEditorStore.getState();
+  expect(undone.clips).toEqual(before.clips);
+  expect(undone.zoomAnalysis).toEqual(before.zoomAnalysis);
+  expect(undone.canUndo).toBe(false);
+  undone.redo();
+  const redone = useEditorStore.getState();
+  expect(redone.clips).toEqual(after.clips);
+  expect(redone.zoomAnalysis).toEqual(after.zoomAnalysis);
+});
+
+
+it.each([99,100,1900,1901])('enforces the zoom split minimum at source time %s without no-op history', (time) => {
+  useEditorStore.setState({ zoomAnalysis: { total_clicks: 0, session_duration: 2000,
+    config: { enabled: true, zoom_factor: 2, zoom_duration: 2000, min_click_spacing: 500 },
+    zoom_blocks: [{ id: 'zoom', start_time: 0, end_time: 2000, zoom_factor: 2,
+      click_x: 0.5, click_y: 0.5, center_x: 0.5, center_y: 0.5, is_manual: true }],
+  }});
+  splitTimelineAtTime(useEditorStore.getState(), time, 'zoom');
+  const state = useEditorStore.getState();
+  const allowed = time === 100 || time === 1900;
+  expect(state.zoomAnalysis?.zoom_blocks).toHaveLength(allowed ? 2 : 1);
+  expect(state.canUndo).toBe(allowed);
+  if (allowed) expect(state.zoomAnalysis?.zoom_blocks.map(b => b.end_time-b.start_time).sort((a,b)=>a-b)).toEqual([100,1900]);
+});
+
+
+afterEach(() => vi.unstubAllGlobals());
+it('keeps the last edited zoom style across undo without remembering position edits', () => {
+  let saved: string | null = null;
+  vi.stubGlobal('localStorage',{getItem:()=>saved,setItem:(_:string,value:string)=>{saved=value;}});
+  useEditorStore.setState({ zoomAnalysis: { total_clicks: 0, session_duration: 2000,
+    config: { enabled: true, zoom_factor: 2, zoom_duration: 2000, min_click_spacing: 500 },
+    zoom_blocks: [{ id:'zoom', start_time:0, end_time:2000, zoom_factor:2,
+      click_x:0.5, click_y:0.5, center_x:0.5, center_y:0.5, is_manual:true }],
+  }});
+  const actions=useEditorStore.getState();
+  actions.updateZoomBlock('zoom',{zoom_factor:3,instant_animation:true});
+  expect(readZoomStyle()).toEqual({zoom_factor:3,instant_animation:true,loupe:null});
+  actions.undo();
+  expect(useEditorStore.getState().zoomAnalysis?.zoom_blocks[0].zoom_factor).toBe(2);
+  expect(readZoomStyle().zoom_factor).toBe(3);
+  actions.updateZoomBlock('zoom',{center_x:0.7,start_time:100});
+  expect(readZoomStyle()).toEqual({zoom_factor:3,instant_animation:true,loupe:null});
 });

@@ -2,9 +2,11 @@ import { useCameraSilence } from '../../../hooks/useCameraSilence';
 import { useEditGesture } from '../../../hooks/useEditGesture';
 import { snapWebcam } from '../../../utils/camera/snapWebcam';
 import { containWebcam } from '../../../utils/camera/containWebcam';
-import { sampleWebcam } from '../../../utils/camera/webcamTimeline';
+import { useShallow } from 'zustand/react/shallow';
+import { selectWebcamInputs } from './hooks/webcamInputs';
 import { previewSample } from '../../../utils/timeline/previewTimeline';
 import { createMediaSynchronizer } from '../../../utils/timeline/syncMedia';
+import { startPreviewMediaSync } from './previewMediaLoop';
 import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../../stores/editor';
@@ -35,17 +37,13 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
   shape: _shape,
 }) => {
   const gesture = useEditGesture();
-  const state = useEditorStore();
-  const source = previewSample(state, state.currentTime);
   const silence=useCameraSilence();
-  const camera = sampleWebcam(state.visualSettings, state.webcamKeyframes, source.sourceTime ?? 0, silence.ranges);
-  const {x,y,size,shape,layout} = camera;
+  const camera = useEditorStore(useShallow(state => selectWebcamInputs(state, silence.ranges)));
+  const {x,y,size,shape,layout,gap,mirrored,updateVisualSettings,updateWebcamKeyframe} = camera;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hasSource, setHasSource] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const updateVisualSettings = useEditorStore((state) => state.updateVisualSettings);
-  const gap = useEditorStore(state => previewSample(state, state.currentTime).sourceTime === null);
 
   const webcamSrcs = useMemo(() => {
     if (!videoFilePath) return [];
@@ -72,18 +70,12 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
     if (!videoRef.current || !hasSource) return;
     const vid = videoRef.current;
 
-    let rafId: number;
-
     const syncMedia = createMediaSynchronizer(vid, error => console.error('Webcam preview failed:', error));
     const sync = () => {
       const state = useEditorStore.getState();
-      syncMedia(previewSample(state, state.currentTime), state.isPlaying);
-
-      rafId = requestAnimationFrame(sync);
+      syncMedia(previewSample(state, state.currentTime), state.isPlaying, false, state.playbackRevision);
     };
-
-    rafId = requestAnimationFrame(sync);
-    return () => cancelAnimationFrame(rafId);
+    return startPreviewMediaSync(sync, [vid]);
   }, [hasSource]);
 
 
@@ -132,7 +124,7 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
     nextY = snapped.y;
 
     if (camera.keyframeId) {
-      state.updateWebcamKeyframe(camera.keyframeId, {x:nextX,y:nextY});
+      updateWebcamKeyframe(camera.keyframeId, {x:nextX,y:nextY});
       return;
     }
     updateVisualSettings({
@@ -224,7 +216,7 @@ export const WebcamPreviewOverlay: React.FC<WebcamPreviewOverlayProps> = ({
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            transform: state.visualSettings.webcamMirrored ? 'scaleX(-1)' : undefined,
+            transform: mirrored ? 'scaleX(-1)' : undefined,
           }}
         />
       </div>

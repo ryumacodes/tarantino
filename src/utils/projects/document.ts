@@ -98,8 +98,8 @@ export function parseProjectDocument(value: unknown): ProjectDocument {
       check(object(block) && typeof block.id === 'string', 'zoom block');
       check(block.is_disabled === undefined || typeof block.is_disabled === 'boolean', 'zoom enabled state');
       // Native Option values serialize to null when no magnifier is enabled.
-      if (block.loupe != null) {
-        const lens = block.loupe;
+      for (const lens of [block.loupe, block.inactive_loupe]) {
+        if (lens == null) continue;
         check(object(lens) && typeof lens.glass === 'boolean', 'magnifier style');
         for (const key of ['radius', 'bevel', 'chromatic_aberration', 'shadow_alpha'])
           check(finite(lens[key]) && lens[key] >= 0, `magnifier ${key}`);

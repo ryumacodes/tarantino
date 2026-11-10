@@ -40,6 +40,19 @@ mod tests {
     use crate::cursor_renderer::{CursorEvent, SpringConfig, simulate_cursor_frames_with_activity,
         simulate_cursor_range_with_activity};
     use crate::video_processing::export_range::ExportRange;
+    #[test]
+    #[ignore = "requires external keyboard visibility fixtures"]
+    fn keyboard_visibility_matches_external_samples() {
+        let path = std::env::var("TARANTINO_TYPING_VISIBILITY_FIXTURES").unwrap();
+        let cases: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        for (index, case) in cases.as_array().unwrap().iter().enumerate() {
+            let activity = TypingActivity::from_value(&case["input"]);
+            for sample in case["samples"].as_array().unwrap() {
+                let time = sample["time"].as_f64().unwrap();
+                assert_eq!(activity.active(time), sample["active"].as_bool().unwrap(), "case {index}, time {time}");
+            }
+        }
+    }
     fn recording() -> serde_json::Value {
         serde_json::json!({"display_width":100,"display_height":100,
             "mouse_events":[{"timestamp":0,"x":20,"y":20}, {"timestamp":1000,"x":30,"y":20}],
@@ -111,7 +124,7 @@ mod tests {
         for fps in [24,30,60,120] {
             let response = crate::commands::video::compute_cursor_trajectory(
                 path.to_string_lossy().into_owned(),2500,fps,100,100,1.0,false,2000,false,0,
-                false,None,None,None,None,None,None,None,None, None,None,None,Some(false), None).await.unwrap();
+                false,None,None,None,None,None,None,None,None, None,None,None,Some(false), None, None, None).await.unwrap();
             let preview: Vec<[f32;10]> = serde_json::from_str(&response).unwrap();
             let range = ExportRange{start_ms:500,end_ms:2500};
             let export = simulate_cursor_range_with_activity(&events,&spring,fps as f64,range,&None,

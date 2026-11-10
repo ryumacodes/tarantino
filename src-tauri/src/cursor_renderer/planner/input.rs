@@ -29,8 +29,19 @@ impl RecordingInput {
     ) -> Result<Self> {
         let bytes = std::fs::read(path).context("Cannot read cursor input")?;
         let value = serde_json::from_slice(&bytes).context("Invalid cursor input JSON")?;
-        let mut input = Self::parse(&value, source_size, shake_threshold, crop)?;
-        if include_shape_constraints { input.add_image_sync(&value,optimize_shapes); }
+        Self::from_value(&value, source_size, shake_threshold, crop, include_shape_constraints, optimize_shapes)
+    }
+
+    pub fn from_value(
+        value: &Value,
+        source_size: (u32, u32),
+        shake_threshold: f64,
+        crop: Option<SourceCrop>,
+        include_shape_constraints: bool,
+        optimize_shapes: bool,
+    ) -> Result<Self> {
+        let mut input = Self::parse(value, source_size, shake_threshold, crop)?;
+        if include_shape_constraints { input.add_image_sync(value,optimize_shapes); }
         Ok(input)
     }
 
@@ -227,6 +238,16 @@ mod tests {
         std::fs::remove_file(path).unwrap();
         assert_eq!(fixed.sync,vec![SyncPoint{time_ms:100.0,tolerance:2.0}]);
         assert_eq!(shapes.sync,input.sync);
+        for include_shapes in [false, true] {
+            let borrowed = RecordingInput::from_value(&value,(100,100),0.0,None,include_shapes,false).unwrap();
+            let expected = if include_shapes { &shapes } else { &fixed };
+            assert!(borrowed.points.iter().map(|p| (p.time_ms,p.x,p.y))
+                .eq(expected.points.iter().map(|p| (p.time_ms,p.x,p.y))));
+            assert_eq!(borrowed.sync,expected.sync);
+            assert!(borrowed.press_events.iter().map(|e| (e.time,e.kind))
+                .eq(expected.press_events.iter().map(|e| (e.time,e.kind))));
+            assert_eq!((borrowed.width,borrowed.height),(expected.width,expected.height));
+        }
     }
 
     #[test]

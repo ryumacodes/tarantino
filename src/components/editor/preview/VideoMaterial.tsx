@@ -1,3 +1,6 @@
+import { useThree } from '@react-three/fiber';
+import { observeDecodedFrame } from './previewRedrawEvents';
+import { startPreviewMediaSync } from './previewMediaLoop';
 import { useShallow } from 'zustand/react/shallow';
 import { selectVideoMaterialInputs } from './hooks/videoInputs';
 import {useMaskPreview} from './hooks/useMaskPreview';
@@ -64,6 +67,7 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
   suppressTimeUpdates = false,
   viewRef,
 }) => {
+  const invalidate = useThree(state => state.invalidate);
   const texture = useVideoTexture(videoUrl, {
     unsuspend: 'loadedmetadata',
     muted: true,
@@ -195,14 +199,11 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
   useEffect(() => {
     // A paused seek can finish after the previous texture upload. Refresh from
     // the decoded frame, including the initial seek back to the first frame.
-    const refreshTexture = () => { texture.needsUpdate = true; };
-    videoElement.addEventListener('loadeddata', refreshTexture);
-    videoElement.addEventListener('seeked', refreshTexture);
-    return () => {
-      videoElement.removeEventListener('loadeddata', refreshTexture);
-      videoElement.removeEventListener('seeked', refreshTexture);
-    };
-  }, [texture, videoElement]);
+    return observeDecodedFrame(videoElement, () => {
+      texture.needsUpdate = true;
+      invalidate(2);
+    });
+  }, [texture, videoElement, invalidate]);
 
   useEffect(() => {
     if (!isLinuxRuntime || !videoElement) return;
@@ -386,24 +387,22 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
     if (!videoElement || !videoWarmedUp) return;
     const syncVideo = createMediaSynchronizer(videoElement, error => console.error('Preview playback failed:', error));
     const audioSync = new Map<HTMLAudioElement, ReturnType<typeof createMediaSynchronizer>>();
-    let frame = 0;
     const sync = () => {
       const state = useEditorStore.getState();
       const mapped = previewSample(state, state.currentTime);
       audioGraph.current?.setClipVolumes(mapped.micVolume, mapped.systemVolume);
-      syncVideo(mapped, state.isPlaying);
+      syncVideo(mapped, state.isPlaying, false, state.playbackRevision);
       for (const audio of audioRefs.current) {
         let controller = audioSync.get(audio);
         if (!controller) {
           controller = createMediaSynchronizer(audio, error => console.error('Audio preview failed:', error));
           audioSync.set(audio, controller);
         }
-        controller(mapped, state.isPlaying, true);
+        controller(mapped, state.isPlaying, true, state.playbackRevision);
       }
-      frame = requestAnimationFrame(sync);
     };
-    sync();
-    return () => { cancelAnimationFrame(frame); videoElement.pause(); audioRefs.current.forEach(a => a.pause()); };
+    const stop = startPreviewMediaSync(sync, [videoElement, ...audioRefs.current]);
+    return () => { stop(); videoElement.pause(); audioRefs.current.forEach(a => a.pause()); };
   }, [videoElement, videoWarmedUp, suppressTimeUpdates, videoFilePath, hasMicrophone, hasSystemAudio]);
 
   const previewTexture = gap ? null : texture;
@@ -436,6 +435,7 @@ export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = (
   onEnabledChange,
   viewRef,
 }) => {
+  const invalidate = useThree(state => state.invalidate);
   const {
     currentTime,
     duration,
@@ -538,6 +538,7 @@ export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = (
           setCanvasTexture(texture);
         }
         texture.needsUpdate = true;
+        invalidate(2);
       };
       image.src = dataUrl;
     };
@@ -622,7 +623,7 @@ export const LinuxNativeVideoOverlay: React.FC<LinuxNativeVideoOverlayProps> = (
       texture?.dispose();
       setCanvasTexture(null);
     };
-  }, [enabled, videoFilePath, duration, setCurrentTime, setIsPlaying]);
+  }, [enabled, videoFilePath, duration, setCurrentTime, setIsPlaying, invalidate]);
 
   const gap = useEditorStore(state => previewSample(state, state.currentTime).sourceTime === null);
   if (!enabled || !canvasTexture || gap) return null;

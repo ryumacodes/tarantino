@@ -257,6 +257,7 @@ export interface ZoomBlock {
   instant_animation?: boolean;
   is_disabled?: boolean;
   loupe?: LoupeStyle | null;
+  inactive_loupe?: LoupeStyle;
   timing_adjusted?: boolean;
 }
 
@@ -397,7 +398,7 @@ export interface EditorActions {
   updateZoomBlock: (blockId: string, updates: Partial<ZoomBlock>) => void;
   deleteZoomBlock: (blockId: string) => void;
   addZoomBlock: (block: ZoomBlock) => void;
-  splitZoomBlocksAtTime: (time: number) => void;
+  splitZoomBlockAtTime: (blockId: string, time: number) => void;
   saveZoomData: () => Promise<void>;
   setSelectedBlockId: (id: string | null) => void;
   // Preview zoom actions

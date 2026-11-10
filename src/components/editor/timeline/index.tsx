@@ -1,9 +1,11 @@
+import { sourceTimeResolver } from '../../../utils/timeline/sourceTimeResolver';
+import { readZoomStyle } from '../../../utils/motion/zoomStylePreference';
 import { useShallow } from 'zustand/react/shallow';
 import { timelineStructureState } from './structureState';
 import { TimelineTime, CollapsedPlayhead } from './TimelineClock';
 import MusicTrack from './MusicTrack';
-import { projectSourceRange, newSourceZoomRange } from '../../../utils/timeline/sourceRanges';
-import { previewSample } from '../../../utils/timeline/previewTimeline';
+import { projectSourceRange, newSourceZoomRange, indexZoomRangeLimits, zoomResizeAvailability } from '../../../utils/timeline/sourceRanges';
+import { splitTimelineAtTime } from '../../../utils/timeline/splitTimeline';
 import { timelineDuration } from '../../../utils/timeline/previewTimeline';
 import React, { useRef, useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { Maximize2 } from 'lucide-react';
@@ -131,21 +133,15 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
     return Math.max(0, Math.min(duration, x / pixelsPerMs));
   }, [duration, pixelsPerMs]);
 
-  const splitAtTime = useCallback((time: number) => {
+  const splitAtTime = useCallback((time: number, zoomId: string | null = selectedBlockId) => {
     if (isExporting) return;
-    store.beginHistoryGroup();
-    try {
-    const newClipIds = store.cutClipsAtTime(time);
-    const sourceTime = previewSample(store, time).sourceTime;
-    if (sourceTime !== null) store.splitZoomBlocksAtTime(Math.round(sourceTime));
+    const newClipIds = splitTimelineAtTime(useEditorStore.getState(), time, zoomId);
     if (newClipIds.length > 0) {
       store.selectClips(newClipIds);
       setCurrentTool('select');
     }
-    } finally { store.endHistoryGroup(); }
-    setCurrentTime(time);
     seekVideo(time);
-  }, [isExporting, seekVideo, setCurrentTime, setCurrentTool, store]);
+  }, [isExporting, seekVideo, selectedBlockId, setCurrentTool, store]);
 
   const setVideoPlaying = useCallback((playing: boolean) => {
     const playFunction = window.__TARANTINO_SET_PLAYING;
@@ -171,10 +167,17 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
 
   // Get zoom blocks
   const hasValidZoomData = zoomAnalysis && zoomAnalysis.zoom_blocks && zoomAnalysis.zoom_blocks.length > 0;
-  const zoomBlocks = useMemo(() => hasValidZoomData ? zoomAnalysis!.zoom_blocks.flatMap(block =>
-    projectSourceRange(store, block.start_time, block.end_time).map(range => ({
-      ...range, id:block.id, zoomFactor:block.zoom_factor, isManual:block.is_manual,
-    }))) : [], [zoomAnalysis, store.clips, store.tracks]);
+  const zoomBlocks = useMemo(() => {
+    if (!hasValidZoomData) return [];
+    const blocks = zoomAnalysis!.zoom_blocks;
+    const limits = indexZoomRangeLimits(blocks, store.duration);
+    return blocks.flatMap(block =>
+      projectSourceRange(store, block.start_time, block.end_time).map(range => ({
+        ...range, id:block.id, zoomFactor:block.zoom_factor, isManual:block.is_manual,
+        canResize: zoomResizeAvailability(range, limits.get(block.id)!,
+          sourceTimeResolver(store, range.startTime)),
+      })));
+  }, [zoomAnalysis, store.clips, store.tracks, store.duration]);
   const mappedZoomKeyframes = useMemo(() => zoomKeyframes.flatMap(kf => projectSourceRange(store,kf.time,kf.time+kf.duration)
     .map(range => ({...kf,id:`${kf.id}:${range.occurrenceId}`,time:range.startTime,duration:range.endTime-range.startTime}))), [zoomKeyframes, store.clips, store.tracks]);
   const mappedPreviewZoom = useMemo(() => previewZoomAnalysis && {...previewZoomAnalysis, indicators:previewZoomAnalysis.indicators.flatMap(indicator =>
@@ -285,7 +288,7 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
     }
 
     if (currentTool === 'scissors' && !isExporting) {
-      splitAtTime(time);
+      splitAtTime(time, null);
     } else {
       clearSelection();
       setCurrentTime(time);
@@ -301,7 +304,7 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
 
     const time = getTimeFromClientX(event.clientX);
     if (currentTool === 'scissors') {
-      splitAtTime(time);
+      splitAtTime(time, null);
       return;
     }
 
@@ -316,6 +319,11 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
   const handleBlockClick = (blockId: string, event: React.MouseEvent) => {
     if (isExporting) return;
     event.stopPropagation();
+    if (currentTool === 'scissors') {
+      splitAtTime(getTimeFromClientX(event.clientX), blockId);
+      return;
+    }
+    clearSelection();
     setSelectedBlockId(blockId);
   };
 
@@ -329,6 +337,14 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
     if (isExporting) return;
     const range = newSourceZoomRange(store, useEditorStore.getState().currentTime);
     if (!range) return;
+    if (range.splitBlockId) {
+      store.splitZoomBlockAtTime(range.splitBlockId, range.start_time);
+      const inserted = useEditorStore.getState().zoomAnalysis?.zoom_blocks.find(
+        block => block.start_time === range.start_time && block.end_time === range.end_time);
+      if (inserted) setSelectedBlockId(inserted.id);
+      clearSelection();
+      return;
+    }
     const id = crypto.randomUUID();
     store.addZoomBlock({
       id,
@@ -336,10 +352,13 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
       click_y: 0.5,
       center_x: 0.5,
       center_y: 0.5,
-      ...range,
-      zoom_factor: 2.0,
+      start_time: range.start_time,
+      end_time: range.end_time,
+      ...readZoomStyle(),
       is_manual: true
     });
+    clearSelection();
+    setSelectedBlockId(id);
   };
 
   const fitTimeline = () => setTimelineZoom(fitTimelineZoom(duration,availableTimelineWidth));
@@ -441,6 +460,8 @@ const ProfessionalTimeline: React.FC<ProfessionalTimelineProps> = ({
               onBlockClick={handleBlockClick}
               onBlockDoubleClick={handleBlockDoubleClick}
               onDragStart={(e, block) => {
+                if (currentTool === 'scissors') return;
+                clearSelection();
                 handleDragStart(e, block);
                 setSelectedBlockId(block.id);
               }}

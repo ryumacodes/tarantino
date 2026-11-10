@@ -1,22 +1,55 @@
+.timeline-track:has(.typing-marker-lane) { height: 68px; }
+.track-content:has(.typing-marker-lane) { height: 100%; }
+.track-content:has(.typing-marker-lane) > .clip-region { bottom: 30px; }
+.track-content:has(.typing-marker-lane) > .trim-handle { bottom: 28px; }
+.track-content:has(.typing-marker-lane) > .clip-boundary { height: 40px; }
+.track-content:has(.typing-marker-lane) > .video-thumbnails { height: 40px; min-height: 40px; overflow: hidden; }
+.typing-marker-lane {
+  position: absolute;
+  inset: auto 0 0;
+  height: 28px;
+  z-index: 12;
+  background: var(--editor-bg-secondary);
+  border-top: 1px solid var(--editor-border);
+  pointer-events: none;
+}
 .typing-marker {
   position: absolute;
-  bottom: 5px;
-  height: 23px;
+  bottom: 4px;
+  height: 20px;
+  box-sizing: border-box;
+  min-width: 0;
+  pointer-events: auto;
   z-index: 12;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 0;
   overflow: hidden;
-  border: 1px solid var(--editor-text-secondary);
+  border: 1px solid var(--editor-border);
   border-radius: 5px;
   background: var(--editor-bg-secondary);
   color: var(--editor-text-primary);
   font: inherit;
   font-size: 11px;
-  padding: 0 3px;
+  padding: 0;
   cursor: pointer;
 }
+.typing-marker.compact {
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+}
+.typing-marker.compact::before {
+  content: '';
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--editor-text-secondary);
+}
+.typing-marker.compact:hover::before,
+.typing-marker.compact:focus-visible::before { background: var(--accent-primary); }
+.typing-marker:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
 .typing-marker svg { flex-shrink: 0; }
 .typing-marker:hover, .typing-marker:focus-visible { border-color: var(--accent-primary); }
 .typing-marker:disabled { opacity: .5; cursor: not-allowed; }

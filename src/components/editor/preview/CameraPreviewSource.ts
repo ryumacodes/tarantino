@@ -1,3 +1,5 @@
+import { invalidate } from '@react-three/fiber';
+import { observeDecodedFrame } from './previewRedrawEvents';
 import { VideoTexture, LinearFilter } from 'three';
 import { useEditorStore } from '../../../stores/editor';
 import { previewSample } from '../../../utils/timeline/previewTimeline';
@@ -11,13 +13,19 @@ import type { CameraOpacityFrame } from './hooks/useCameraTrajectory';
 export class CameraPreviewSource {
   private video:HTMLVideoElement|null=null;
   private texture:VideoTexture|null=null;
+  private stopObserving:(()=>void)|null=null;
   ready=false;
   opacity:readonly CameraOpacityFrame[]=[];
   silence:readonly SilenceRange[]=[];
   setVideo=(video:HTMLVideoElement|null)=>{
     if(video===this.video)return;
+    this.stopObserving?.();this.stopObserving=null;
     this.texture?.dispose();this.texture=null;this.video=video;
-    if(video){this.texture=new VideoTexture(video);this.texture.minFilter=this.texture.magFilter=LinearFilter;this.texture.needsUpdate=true;}
+    if(video){this.texture=new VideoTexture(video);this.texture.minFilter=this.texture.magFilter=LinearFilter;this.texture.needsUpdate=true;
+      const texture=this.texture;
+      this.stopObserving=observeDecodedFrame(video,()=>{texture.needsUpdate=true;invalidate();});
+    }
+    invalidate();
   };
   frame(width:number,height:number,lens=false):CameraLayerFrame|null {
     if(!this.ready || !this.video || !this.texture || this.video.readyState<2)return null;

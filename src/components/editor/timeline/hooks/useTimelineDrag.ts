@@ -1,6 +1,7 @@
+import { sourceTimeResolver, type SourceTimeResolver } from '../../../../utils/timeline/sourceTimeResolver';
 import { useEditGesture } from '../../../../hooks/useEditGesture';
 import { useEditorStore } from '../../../../stores/editor';
-import { editSourceRange, type SourceRangeView } from '../../../../utils/timeline/sourceRanges';
+import { editSourceRange, zoomRangeLimits, type SourceRangeView } from '../../../../utils/timeline/sourceRanges';
 import { useState, useEffect, useCallback, RefObject } from 'react';
 
 export type DragType = 'playhead' | 'trim-start' | 'trim-end' | null;
@@ -125,13 +126,15 @@ interface UseZoomBlockDragOptions {
 }
 export function useZoomBlockDrag({ pixelsPerMs, duration, updateZoomBlock, isExporting }: UseZoomBlockDragOptions) {
   const gesture = useEditGesture();
-  const [edit, setEdit] = useState<{ block: ZoomBlock; startX:number; type:'move'|'start'|'end' } | null>(null);
+  const [edit, setEdit] = useState<{ block: ZoomBlock; startX:number; type:'move'|'start'|'end'; limits:{start:number;end:number}; resolver:SourceTimeResolver | null } | null>(null);
   const begin = useCallback((event:React.MouseEvent, block:ZoomBlock, type:'move'|'start'|'end') => {
     if (isExporting) return;
     event.stopPropagation(); event.preventDefault();
     gesture.begin();
-    setEdit({block,startX:event.clientX,type});
-  },[isExporting,gesture.begin]);
+    const blocks = useEditorStore.getState().zoomAnalysis?.zoom_blocks ?? [];
+    setEdit({block,startX:event.clientX,type,limits:zoomRangeLimits(block.id,blocks,duration),
+      resolver:sourceTimeResolver(useEditorStore.getState(),block.startTime)});
+  },[isExporting,gesture.begin,duration]);
   const handleDragStart=useCallback((event:React.MouseEvent,block:ZoomBlock) => {
     if ((event.target as HTMLElement).classList.contains('resize-handle')) return;
     begin(event,block,'move');
@@ -140,7 +143,7 @@ export function useZoomBlockDrag({ pixelsPerMs, duration, updateZoomBlock, isExp
   useEffect(() => {
     if (!edit) return;
     const move=(event:MouseEvent) => updateZoomBlock(edit.block.id,
-      editSourceRange(edit.block,(event.clientX-edit.startX)/pixelsPerMs,edit.type,duration));
+      editSourceRange(edit.block,(event.clientX-edit.startX)/pixelsPerMs,edit.type,duration,edit.limits,edit.resolver));
     const stop=() => { gesture.end(); setEdit(null); };
     document.addEventListener('mousemove',move); document.addEventListener('mouseup',stop); window.addEventListener('blur',stop);
     return () => { document.removeEventListener('mousemove',move); document.removeEventListener('mouseup',stop); window.removeEventListener('blur',stop); };

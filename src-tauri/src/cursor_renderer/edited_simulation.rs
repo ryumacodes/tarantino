@@ -23,15 +23,38 @@ pub(crate) fn simulate_with_planned_path(
     spring:&SpringConfig,settings:&CursorSettings,source_zoom:&Option<Vec<ZoomFrameState>>,fps:f64,
     activity:Option<&super::typing_activity::TypingActivity>,planned:Option<&super::planner::runtime::Prepared>,animation_fps:f64,
 )->Vec<CursorFrameState> {
+    simulate_with_planned_path_until(events, physical, timeline, recording, spring, settings,
+        source_zoom, fps, activity, planned, animation_fps, None)
+}
+
+pub(crate) fn simulate_with_planned_path_until(
+    events:&[CursorEvent],physical:&[MotionPoint],timeline:&EditTimeline,recording:&str,
+    spring:&SpringConfig,settings:&CursorSettings,source_zoom:&Option<Vec<ZoomFrameState>>,fps:f64,
+    activity:Option<&super::typing_activity::TypingActivity>,planned:Option<&super::planner::runtime::Prepared>,animation_fps:f64,
+    until_ms:Option<u64>,
+)->Vec<CursorFrameState> {
+    simulate_with_planned_path_checked(events,physical,timeline,recording,spring,settings,
+        source_zoom,fps,activity,planned,animation_fps,until_ms,None)
+        .expect("Edited cursor simulation without cancellation cannot fail")
+}
+
+pub(crate) fn simulate_with_planned_path_checked(
+    events:&[CursorEvent],physical:&[MotionPoint],timeline:&EditTimeline,recording:&str,
+    spring:&SpringConfig,settings:&CursorSettings,source_zoom:&Option<Vec<ZoomFrameState>>,fps:f64,
+    activity:Option<&super::typing_activity::TypingActivity>,planned:Option<&super::planner::runtime::Prepared>,animation_fps:f64,
+    until_ms:Option<u64>,check:Option<&dyn Fn()->anyhow::Result<()>>,
+)->anyhow::Result<Vec<CursorFrameState>> {
+    if let Some(check)=check {check()?;}
+    let output_end=until_ms.map_or(timeline.duration_ms, |end| (end as f64).min(timeline.duration_ms));
     let press_animation=planned.and_then(|p|super::edited_press::build(timeline,recording,animation_fps,
-        spring,settings,|source|p.pressed_at_source(source,spring.mass!=0.0)));
+        spring,settings,output_end,|source|p.pressed_at_source(source,spring.mass!=0.0)));
     let mut motion_timeline=timeline.clone();
     for segment in &mut motion_timeline.segments {segment.hide_cursor=false;}
     let segments=map_cursor(events,&motion_timeline,recording);
     let physical_segments = if planned.and_then(|plan| plan.rotation_keys()).is_some() {
         Vec::new()
     } else { map_recording(physical,&motion_timeline,recording) };
-    let count=(timeline.duration_ms*fps/1000.0).ceil() as usize;
+    let count=(output_end*fps/1000.0).ceil() as usize;
     let mut output=vec![CursorFrameState::default();count];
     let opening=segments.first().and_then(|segment|segment.motion.points.first()).copied();
     let mut rotation=super::edited_rotation::EditedRotation::new(physical,&physical_segments,planned,settings,timeline.duration_ms);
@@ -56,9 +79,11 @@ pub(crate) fn simulate_with_planned_path(
     };
     let mut visibility=super::simulation::visibility::VisibilityTimeline::new();
     for segment in &segments {
+        if let Some(check)=check {check()?;}
         let motion=&segment.motion;
         if timeline.source_at(motion.output_start_ms).is_some_and(|(segment,_)|segment.hide_cursor) {continue;}
         let start=motion.output_start_ms;
+        if start>=output_end {break;}
         let end=motion.output_end_ms;
         let duration=(end-start).ceil() as u64;
         let mut local=settings.clone();
@@ -103,12 +128,16 @@ pub(crate) fn simulate_with_planned_path(
         }
         let typing = |time| activity.is_some_and(|a| a.active(motion.source_start_ms + time * motion.rate));
         let position=|time|planned.unwrap().at(start+time);
-        let frames=super::simulate_cursor_frames_from(&local_events,&local_spring,CAMERA_SIMULATION_FPS,duration,
+        let local_end=until_ms.map(|_| ((output_end-start).max(0.0)+1000.0/CAMERA_SIMULATION_FPS).ceil() as u64);
+        let frames=super::simulation::simulate_cursor_frames_checked(&local_events,&local_spring,CAMERA_SIMULATION_FPS,duration,
             &local_zoom,&local,0,CAMERA_SIMULATION_FPS,None,activity.map(|_| &typing as &dyn Fn(f64)->bool),
-            planned.map(|_|&position as &dyn Fn(f64)->[f64;2]),None,Clone::clone);
+            planned.map(|_|&position as &dyn Fn(f64)->[f64;2]),None,local_end,check,true,Clone::clone)?;
         let first=(start*fps/1000.0-1e-7).ceil().max(0.0) as usize;
         let last=(end*fps/1000.0-1e-7).ceil().max(0.0) as usize;
         for index in first..last.min(output.len()) {
+            if index % 256 == 0 {
+                if let Some(check)=check {check()?;}
+            }
             let local_time=index as f64*1000.0/fps-start;
             let position = (local_time * CAMERA_SIMULATION_FPS / 1000.0).max(0.0);
             let position = if (position-position.round()).abs()<1e-7 {position.round()} else {position};
@@ -139,7 +168,8 @@ pub(crate) fn simulate_with_planned_path(
             }
         }
     }
-    output
+    if let Some(check)=check {check()?;}
+    Ok(output)
 }
 
 #[cfg(test)]

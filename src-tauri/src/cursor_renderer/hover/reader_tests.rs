@@ -261,7 +261,8 @@ async fn preview_and_shared_planner_use_detected_hover_constraints() {
         Some(false),
         Some(false),
         Some(hover),
-    )
+        None,
+     None)
     .await
     .unwrap();
     let frames: Vec<Vec<f64>> = serde_json::from_str(&response).unwrap();

@@ -12,12 +12,12 @@ pub struct EditedCursorRequest {
 
 pub(super) fn prepare(request:&EditedCursorRequest,events:&[CursorEvent],physical:&[MotionPoint],
     settings:&CursorSettings,spring:&SpringConfig,duration:u64,fps:u32, activity: Option<&crate::cursor_renderer::typing_activity::TypingActivity>)->Result<Option<String>,String> {
-    prepare_with_input(request,events,|| physical.to_vec(),settings,spring,duration,fps,activity,None)
+    prepare_with_input(request,events,|| physical.to_vec(),settings,spring,duration,fps,activity,None,None,None)
 }
 
 pub(super) fn prepare_with_input(request:&EditedCursorRequest,events:&[CursorEvent],physical:impl FnOnce() -> Vec<MotionPoint>,
     settings:&CursorSettings,spring:&SpringConfig,duration:u64,fps:u32,activity:Option<&crate::cursor_renderer::typing_activity::TypingActivity>,
-    input:Option<(&std::path::Path,(u32,u32),Option<crate::video_processing::source_crop::SourceCrop>)>)->Result<Option<String>,String> {
+    input:Option<(&std::path::Path,(u32,u32),Option<crate::video_processing::source_crop::SourceCrop>,&serde_json::Value)>,until_ms:Option<u64>,check:Option<&dyn Fn()->anyhow::Result<()>>)->Result<Option<String>,String> {
     let export:ExportSettings=serde_json::from_value(serde_json::json!({
         "timeline_clips":request.clips,"trim_start":request.trim_start,"trim_end":request.trim_end,"cursor_settings":settings
     })).map_err(|error|error.to_string())?;
@@ -25,21 +25,21 @@ pub(super) fn prepare_with_input(request:&EditedCursorRequest,events:&[CursorEve
         std::path::Path::new(&request.recording_path),duration).map_err(|error|error.to_string())?;
     let plan=crate::video_processing::export::timeline_support::cursor_plan(&export,plan.as_ref()).map_err(|error|error.to_string())?;
     let Some(plan)=plan else {return Ok(None);};
-    let planned=input.map(|(path,size,crop)|crate::cursor_renderer::planner::runtime::prepare(path,size,crop,Some(&plan),
-        std::path::Path::new(&request.recording_path),duration as f64,settings,*spring,None)).transpose().map_err(|e|e.to_string())?.flatten();
+    let planned=input.map(|(path,size,crop,value)|crate::cursor_renderer::planner::runtime::prepare_from_value(value,path,size,crop,Some(&plan),
+        std::path::Path::new(&request.recording_path),duration as f64,settings,*spring,until_ms.map(|end|end as f64),check)).transpose().map_err(|e|e.to_string())?.flatten();
     let physical = if settings.rotate_while_moving.unwrap_or(false)
         && planned.as_ref().and_then(|path| path.rotation_keys()).is_none() {
         physical()
     } else { Vec::new() };
-    let frames=crate::cursor_renderer::edited_simulation::simulate_with_planned_path(events,&physical,&plan,&request.recording_path,
-        spring,settings,&None,fps as f64,activity,planned.as_ref(),60.0);
+    let frames=crate::cursor_renderer::edited_simulation::simulate_with_planned_path_checked(events,&physical,&plan,&request.recording_path,
+        spring,settings,&None,fps as f64,activity,planned.as_ref(),60.0,until_ms,check).map_err(|error|error.to_string())?;
     let response = EditedTrajectory {
         frames: &frames,
         origin_ms: request.trim_start,
         output_time: true,
         segments: plan.segments.iter().map(|segment| [segment.output_start_ms, segment.output_end_ms]).collect(),
     };
-    serde_json::to_string(&response).map(Some).map_err(|error| error.to_string())
+    super::preview_response::serialize(&response, check).map(Some)
 }
 
 #[derive(serde::Serialize)]
@@ -107,6 +107,7 @@ mod tests {
             ]
         })).unwrap();
         let events = crate::video_processing::export::parse_filtered_cursor_events(&input,100,100,0.0);
+        std::fs::remove_file(&path).unwrap();
         for mode in ["horizontal", "directional"] {
             let settings: CursorSettings = serde_json::from_value(serde_json::json!({
                 "rotate_while_moving":true,"rotation_mode":mode
@@ -114,11 +115,10 @@ mod tests {
             let response = prepare_with_input(&request,&events,
                 || panic!("planned rotation must not re-read the sidecar"),
                 &settings,&SpringConfig{tension:470.0,friction:70.0,mass:3.0},1000,120,None,
-                Some((&path,(100,100),None))).unwrap().unwrap();
+                Some((&path,(100,100),None,&input)),None,None).unwrap().unwrap();
             let value: serde_json::Value = serde_json::from_str(&response).unwrap();
             assert_eq!(value["frames"].as_array().unwrap().len(),60);
         }
-        std::fs::remove_file(path).unwrap();
     }
 
     #[tokio::test]
@@ -132,7 +132,7 @@ mod tests {
         let start = std::time::Instant::now();
         let result = super::super::compute_cursor_trajectory(path, duration, 120, width, height,
             1.0, false, 2000, false, 0, false, None, None, Some(470.0), Some(70.0), Some(3.0),
-            Some(0.0), Some(true), Some(30.0), Some("horizontal".into()), None, None, Some(false), None)
+            Some(0.0), Some(true), Some(30.0), Some("horizontal".into()), None, None, Some(false), None, None, None)
             .await.unwrap();
         let command_ms = start.elapsed().as_secs_f64() * 1000.0;
         let frames: Vec<[f64; 10]> = serde_json::from_str(&result).unwrap();
@@ -157,7 +157,7 @@ mod tests {
         for size in [1.0,5.0] {
             results.push(super::super::compute_cursor_trajectory(path.to_string_lossy().into_owned(),1000,120,100,100,
                 size,false,2000,false,0,false,None,None,Some(470.0),Some(70.0),Some(3.0),Some(0.0),Some(true),Some(30.0),
-                Some("directional".into()),None,None,Some(false),None).await.unwrap());
+                Some("directional".into()),None,None,Some(false),None, None, None).await.unwrap());
         }
         assert_eq!(results[0],results[1]);
         let frames:Vec<[f64;10]>=serde_json::from_str(&results[0]).unwrap();
@@ -180,7 +180,7 @@ mod tests {
             ]
         })).unwrap();
         let result=super::super::compute_cursor_trajectory(path.to_string_lossy().into_owned(),1000,120,100,100,
-            1.0,false,2000,false,0,false,None,None,Some(170.0),Some(30.0),Some(0.0),Some(0.0),Some(false),Some(100.0), None,Some(request),None,Some(false), None).await.unwrap();
+            1.0,false,2000,false,0,false,None,None,Some(170.0),Some(30.0),Some(0.0),Some(0.0),Some(false),Some(100.0), None,Some(request),None,Some(false), None, None, None).await.unwrap();
         let value:serde_json::Value=serde_json::from_str(&result).unwrap();
         assert_eq!(value["outputTime"],true);
         assert_eq!(value["originMs"],0);

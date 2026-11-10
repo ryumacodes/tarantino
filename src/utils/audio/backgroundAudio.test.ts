@@ -52,3 +52,32 @@ it('reports media failures, reloads on explicit retry, and removes listeners on 
  expect(audio.removeEventListener).toHaveBeenCalledWith('playing',listeners.get('playing'));
  const calls=report.mock.calls.length;listeners.get('error')!();expect(report).toHaveBeenCalledTimes(calls);
 });
+
+it('honors small explicit seeks across music loops without chasing normal drift',()=>{
+ const audio=media(),player=createBackgroundAudioPlayer(audio,vi.fn());
+ Object.assign(audio,{paused:false});
+ player.sync(1990,true,settings,false,1);
+ expect(audio.currentTime).toBe(1.99);
+ player.sync(2010,true,settings,false,1);
+ expect(audio.currentTime).toBe(1.99);
+ player.sync(2020,true,settings,false,2);
+ expect(audio.currentTime).toBeCloseTo(.02);
+ audio.currentTime=.03;
+ player.sync(2040,true,settings,false,2);
+ expect(audio.currentTime).toBe(.03);
+ player.sync(1990,true,settings,false,3);
+ expect(audio.currentTime).toBe(1.99);
+});
+
+it.each(['metadata','seeking'])('retains the latest music seek while waiting for %s',waiting=>{
+ const audio=media(),player=createBackgroundAudioPlayer(audio,vi.fn());
+ Object.assign(audio,{paused:false});
+ player.sync(1000,true,settings,false,1);
+ Object.assign(audio,waiting==='metadata'?{duration:NaN}:{seeking:true});
+ player.sync(1020,true,settings,false,2);
+ player.sync(1040,true,settings,false,3);
+ expect(audio.currentTime).toBe(1);
+ Object.assign(audio,{duration:2,seeking:false});
+ player.sync(1040,true,settings,false,3);
+ expect(audio.currentTime).toBe(1.04);
+});

@@ -46,3 +46,6 @@ pub mod export_jobs;
 pub mod loupe;
 
 pub mod camera_opacity;
+
+pub mod cursor_preview_jobs;
+mod cursor_preview_input;

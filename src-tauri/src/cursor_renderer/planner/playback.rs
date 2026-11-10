@@ -43,7 +43,7 @@ pub fn map(input: &RecordingInput, timeline: &EditTimeline, recording: &Path) ->
         let start = segment.output_start_ms;
         let end = segment.output_end_ms;
         let source_end = source_start + (end - start) * segment.rate;
-        if previous.is_some_and(|(output, source)| output != start || source != source_start)
+        if previous.is_some_and(|(output, source)| (output - start).abs() > 1e-7 || (source - source_start).abs() > 1e-7)
             || (previous.is_none() && start > 0.0)
         {
             cuts.push(start);
@@ -140,7 +140,11 @@ mod tests {
                 }
             }
             let sync: Vec<SyncPoint> = serde_json::from_value(expected["sync"].clone()).unwrap();
-            assert_eq!(output.sync, sync);
+            assert_eq!(output.sync.len(), sync.len());
+            for (actual, expected) in output.sync.iter().zip(sync) {
+                assert!((actual.time_ms - expected.time_ms).abs() < 1e-9);
+                assert_eq!(actual.tolerance, expected.tolerance);
+            }
             assert_eq!(
                 output.cuts,
                 serde_json::from_value::<Vec<f64>>(expected["cuts"].clone()).unwrap()
@@ -214,6 +218,21 @@ mod tests {
             output.sync.iter().any(|p| p.time_ms == 175.0),
             "hidden cursor still plans its source motion"
         );
+    }
+    #[test]
+    fn fractional_speed_boundary_preserves_continuity() {
+        let mut first = clip(0.0, 1000.1, 1000.2, 1.0);
+        first.source_out = 2000.3;
+        let next = clip(1000.2, 2000.3, 500.0, 2.0);
+        let timeline = EditTimeline::build(&[first.clone(), next.clone()], 0.0, 1500.2).unwrap();
+        assert!(map(&recording(), &timeline, Path::new("recording.mp4")).cuts.is_empty());
+        for offset in [-0.01, 0.01] {
+            let mut jumped = next.clone();
+            jumped.source_in += offset;
+            jumped.source_out += offset;
+            let timeline = EditTimeline::build(&[first.clone(), jumped], 0.0, 1500.2).unwrap();
+            assert_eq!(map(&recording(), &timeline, Path::new("recording.mp4")).cuts, vec![1000.2]);
+        }
     }
     #[test]
     fn source_jump_marks_cut_and_other_recording_is_excluded() {
