@@ -42,7 +42,7 @@ pub async fn extract_timeline_thumbnail_samples(
             "-v", "error", "-hwaccel", "none", "-ss", &format!("{:.6}", time / 1000.0),
             "-i", &video_path, "-an", "-sn", "-frames:v", "1", "-vf",
             &format!("scale={}:-2:flags=fast_bilinear", thumbnail_width.clamp(32, 640)),
-            "-c:v", "mjpeg", "-q:v", "3", "-f", "image2pipe", "pipe:1",
+            "-c:v", "mjpeg", "-pix_fmt", "yuvj420p", "-q:v", "3", "-f", "image2pipe", "pipe:1",
         ]);
         let output = tokio::time::timeout(Duration::from_secs(15), command.output()).await
             .map_err(|_| "Thumbnail decoding timed out".to_string())?
@@ -50,12 +50,20 @@ pub async fn extract_timeline_thumbnail_samples(
         if !output.status.success() {
             return Err(format!("Thumbnail decoding failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
         }
-        if !output.stdout.starts_with(&[0xff, 0xd8]) || !output.stdout.ends_with(&[0xff, 0xd9]) {
+        let bytes = output.stdout;
+        #[cfg(target_os = "macos")]
+        let bytes = if bytes.is_empty() {
+            let path = video_path.clone();
+            tokio::task::spawn_blocking(move ||
+                super::native_frame::extract(&path, time, thumbnail_width.clamp(32, 640), false))
+                .await.map_err(|error| error.to_string())??
+        } else { bytes };
+        if !bytes.starts_with(&[0xff, 0xd8]) || !bytes.ends_with(&[0xff, 0xd9]) {
             return Err(format!("No thumbnail frame at source time {time} ms"));
         }
         samples.push(ThumbnailSample {
             source_time_ms: time,
-            image: format!("data:image/jpeg;base64,{}", STANDARD.encode(output.stdout)),
+            image: format!("data:image/jpeg;base64,{}", STANDARD.encode(bytes)),
         });
     }
     Ok(samples)
@@ -64,6 +72,24 @@ pub async fn extract_timeline_thumbnail_samples(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    #[ignore = "requires an existing recording with a held final sample and host decoder access"]
+    async fn recovers_thumbnails_inside_a_held_final_sample() {
+        let path = std::env::var("TARANTINO_HELD_FRAME_INPUT").unwrap();
+        let times: Vec<f64> = std::env::var("TARANTINO_HELD_FRAME_TIMES").unwrap()
+            .split(',').map(|time| time.parse().unwrap()).collect();
+        let samples = extract_timeline_thumbnail_samples(path, times.clone(), 96).await.unwrap();
+        assert_eq!(samples.len(), times.len());
+        let images: Vec<_> = samples.iter().map(|sample| {
+            let bytes = STANDARD.decode(sample.image.split_once(',').unwrap().1).unwrap();
+            image::load_from_memory(&bytes).unwrap().to_rgb8()
+        }).collect();
+        assert!(images.iter().all(|image| image.width() == 96 && image.height() > 0));
+        assert!(images.windows(2).all(|pair| pair[0] == pair[1]));
+        for (sample, time) in samples.iter().zip(times) { assert_eq!(sample.source_time_ms, time); }
+    }
+
     #[test]
     fn rejects_unbounded_or_invalid_sample_requests() {
         for values in [vec![], vec![0.0;65], vec![f64::NAN], vec![f64::INFINITY], vec![-1.0]] {

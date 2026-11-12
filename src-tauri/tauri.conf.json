@@ -33,7 +33,7 @@
         "editor",
         "webcam"
       ],
-      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:2703; media-src 'self' asset: http://asset.localhost; img-src 'self' asset: http://asset.localhost data:; font-src 'self' data:",
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:2703; media-src 'self' asset: http://asset.localhost; img-src 'self' asset: http://asset.localhost data: blob:; font-src 'self' data:",
       "assetProtocol": {
         "enable": true,
         "scope": [

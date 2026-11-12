@@ -7,6 +7,9 @@ pub mod silence;
 mod edited_cursor;
 mod preview_response;
 pub mod thumbnail_samples;
+pub mod paused_frame;
+#[cfg(target_os = "macos")]
+mod native_frame;
 
 use crate::state::UnifiedAppState;
 use crate::video_processing::{ExportSettings, ProcessingProgress, VideoInfo, VideoProcessor};

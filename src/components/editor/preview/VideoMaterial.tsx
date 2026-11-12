@@ -7,6 +7,7 @@ import {useMaskPreview} from './hooks/useMaskPreview';
 import { subscribePreviewMute } from '../../../stores/previewAudio';
 import type { SourceCrop } from '../../../utils/sourceCrop';
 import { useSourceCropTexture } from './hooks/useSourceCropTexture';
+import { usePausedFrameRecovery } from './hooks/usePausedFrameRecovery';
 import { resolveSourceCrop } from '../../../utils/sourceCrop';
 import React, { useEffect, useRef, useState } from 'react';
 import { useVideoTexture } from '@react-three/drei';
@@ -78,8 +79,10 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
     start: false,
   });
 
-  const cropRect = useSourceCropTexture(texture,viewRef);
-  const maskedMaterial=useMaskPreview(texture,viewRef);
+  const recoveredFrame = usePausedFrameRecovery(texture.image as HTMLVideoElement);
+  const sourceTexture = recoveredFrame ?? texture;
+  const cropRect = useSourceCropTexture(sourceTexture,viewRef);
+  const maskedMaterial=useMaskPreview(sourceTexture,viewRef);
   const audioRefs = useRef<HTMLAudioElement[]>([]);
   const audioGraph = useRef<ReturnType<typeof createPreviewAudio> | null>(null);
   const { setCurrentTime, setDuration, duration, videoFilePath, hasMicrophone, hasSystemAudio, audioSettings, gap } =
@@ -405,7 +408,7 @@ export const VideoMaterial: React.FC<VideoMaterialProps> = ({
     return () => { stop(); videoElement.pause(); audioRefs.current.forEach(a => a.pause()); };
   }, [videoElement, videoWarmedUp, suppressTimeUpdates, videoFilePath, hasMicrophone, hasSystemAudio]);
 
-  const previewTexture = gap ? null : texture;
+  const previewTexture = gap ? null : sourceTexture;
   const previewColor = gap ? "black" : "white";
   if (alphaMask) {
     return (

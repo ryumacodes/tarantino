@@ -15,10 +15,10 @@ export const createPlaybackActions = (set: SetFn, get: GetFn) => ({
   },
 
   setDuration: (duration: number) => set((state) => {
-    state.duration = duration;
     if (state.trimEnd === state.duration || state.trimEnd === 0) {
       state.trimEnd = duration;
     }
+    state.duration = duration;
   }),
 
   setProjectTitle: (title: string) => edit(set, (state) => {

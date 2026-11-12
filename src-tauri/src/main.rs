@@ -249,6 +249,7 @@ async fn run() {
             commands::video::get_video_metadata,
             commands::video::extract_video_thumbnails,
             commands::video::thumbnail_samples::extract_timeline_thumbnail_samples,
+            commands::video::paused_frame::extract_paused_video_frame,
             commands::video::extract_video_preview_frames,
             commands::video::linux_native_preview_required,
             commands::video::export_video,

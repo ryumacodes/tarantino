@@ -91,6 +91,16 @@ fn build_macos_backend() {
         .compile("hover_reader");
 
     // Link macOS frameworks
+    println!("cargo:rerun-if-changed=src/commands/video/native_frame.mm");
+    cc::Build::new()
+        .file("src/commands/video/native_frame.mm")
+        .flag("-std=c++17")
+        .flag("-ObjC++")
+        .flag("-fobjc-arc")
+        .flag("-mmacosx-version-min=12.3")
+        .cpp(true)
+        .compile("video_frame");
+
     println!("cargo:rustc-link-lib=framework=AVFoundation");
     println!("cargo:rustc-link-lib=framework=ScreenCaptureKit");
     println!("cargo:rustc-link-lib=framework=VideoToolbox");
