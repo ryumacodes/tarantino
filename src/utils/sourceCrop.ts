@@ -9,12 +9,9 @@ export function resolveSourceCrop(crop: SourceCrop, sourceWidth: number, sourceH
       || crop.x + crop.width > 1 + 1e-9 || crop.y + crop.height > 1 + 1e-9) {
     throw new Error('Crop must be a nonempty rectangle inside the source video');
   }
-  const x = Math.round(crop.x * sourceWidth);
-  const y = Math.round(crop.y * sourceHeight);
-  const right = Math.min(sourceWidth, Math.round((crop.x + crop.width) * sourceWidth));
-  const bottom = Math.min(sourceHeight, Math.round((crop.y + crop.height) * sourceHeight));
-  if (right <= x || bottom <= y) throw new Error('Crop must contain at least one source pixel');
-  return { x, y, width: right - x, height: bottom - y, sourceWidth, sourceHeight };
+  if (crop.x >= 1 || crop.y >= 1) throw new Error('Crop must intersect the source video');
+  return { x: crop.x * sourceWidth, y: crop.y * sourceHeight,
+    width: crop.width * sourceWidth, height: crop.height * sourceHeight, sourceWidth, sourceHeight };
 }
 
 export function normalizedCrop(crop: PixelCrop): SourceCrop {

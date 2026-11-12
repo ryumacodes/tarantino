@@ -8,6 +8,92 @@ fn sampled_level(source:[f32;2],before:[f32;4],now:[f32;4]) -> u32 {
     footprint.log2().max(0.0).floor() as u32 + 1
 }
 
+impl GpuCompositorConfig {
+    pub(crate) fn crop_sampling(&self, crop:crate::video_processing::source_crop::SourceCrop,
+        source:[u32;2], cameras:&[ZoomFrameState], has_source_masks:bool,
+    ) -> Result<crate::video_processing::source_crop::CropSampling> {
+        if has_source_masks {
+            return crop.sampling(source[0],source[1],u32::MAX);
+        }
+        let logical=crop.geometry(source[0],source[1])?;
+        let mut minimum=[self.input_width as f32,self.input_height as f32];
+        let mut maximum=minimum;
+        for camera in cameras {
+            let rect=motion::window_rect(camera,self);
+            for axis in 0..2 {
+                minimum[axis]=minimum[axis].min(rect[axis+2]);
+                maximum[axis]=maximum[axis].max(rect[axis+2]);
+            }
+        }
+        // Shutter extrapolation can shrink the plane below either endpoint.
+        // Global bounds also cover retimed and backward source-time cuts.
+        let strength=if self.motion_blur_enabled {
+            self.motion_blur_zoom_intensity*self.frame_rate as f32/60.0
+        } else {0.0};
+        for axis in 0..2 {
+            minimum[axis]=(minimum[axis]-(maximum[axis]-minimum[axis])*(strength-1.0).max(0.0)).max(0.001);
+        }
+        let rect=[0.0,0.0,minimum[0],minimum[1]];
+        let last_level=sampled_level([logical.width as f32,logical.height as f32],rect,rect);
+        crop.sampling_for_mips(source[0],source[1],last_level)
+    }
+}
+
+#[test]
+fn export_crop_plan_preserves_mask_filtering_and_shutter_bounds() {
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":128,"height":128},
+        "visual_settings":{"padding":0,"motion_blur_enabled":true,"motion_blur_zoom_intensity":1.5}
+    })).unwrap();
+    let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+    config.window_mode=true;
+    let crop=crate::video_processing::source_crop::SourceCrop{x:0.25,y:0.25,width:0.5,height:0.5};
+    let cameras=[ZoomFrameState{rect:Some([0.0,0.0,0.9,0.8]),scale:0.9,center_x:0.5,center_y:0.5},
+        ZoomFrameState{rect:Some([0.0,0.0,2.1,1.1]),scale:2.1,center_x:0.5,center_y:0.5}];
+    let plan=config.crop_sampling(crop,[512,512],&cameras,false).unwrap();
+    assert!(plan.decode.width*plan.decode.height<512*512/2);
+    assert_eq!(plan.decode.x%8,0);
+    for (source,masks) in [([511,509],false),([512,512],true)] {
+        let full=config.crop_sampling(crop,source,&cameras,masks).unwrap();
+        assert_eq!([full.decode.width,full.decode.height],source);
+    }
+}
+
+#[test]
+#[ignore = "requires native GPU; export-selected decode envelope under camera motion"]
+fn export_crop_plan_matches_full_source_during_zoom_and_shutter_extrapolation() {
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":128,"height":128},
+        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false,
+            "motion_blur_enabled":true,"motion_blur_zoom_intensity":1.5}
+    })).unwrap();
+    let crop=crate::video_processing::source_crop::SourceCrop{x:0.2513,y:0.2471,width:0.5,height:0.5};
+    let cameras:Vec<_>=[1.0,2.1,0.9,1.4,1.0].into_iter().map(|scale|
+        ZoomFrameState{rect:None,scale,center_x:0.45,center_y:0.55}).collect();
+    for window in [false,true] {
+        let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+        config.window_mode=window;
+        let bounded=config.crop_sampling(crop,[512,512],&cameras,false).unwrap();
+        assert!(bounded.decode.width*bounded.decode.height<512*512/2);
+        let render=|plan:crate::video_processing::source_crop::CropSampling| {
+            let raster=plan.decode;
+            let source:Vec<_>=(raster.y..raster.y+raster.height).flat_map(|y|
+                (raster.x..raster.x+raster.width).flat_map(move |x|
+                    [((x*73+y*29)%256) as u8,((x*17+y*103)%256) as u8,((x^y)%256) as u8,255])).collect();
+            let mut config=config.clone();
+            config.source_size=[raster.width,raster.height];config.source_uv=plan.view.map(|v|v as f32);
+            let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
+            cameras.iter().map(|camera|compositor.composite_frame(&source,camera,None).unwrap()).collect::<Vec<_>>()
+        };
+        let full=render(crop.sampling(512,512,u32::MAX).unwrap());
+        for (frame,(actual,expected)) in render(bounded).iter().zip(&full).enumerate() {
+            for (byte,(&a,&b)) in actual.iter().zip(expected).enumerate() {
+                assert!(a.abs_diff(b)<=2,"window={window}, frame={frame}, byte={byte}: {a} != {b}");
+            }
+        }
+    }
+}
+
 impl GpuCompositor {
     pub(super) fn encode_source_filter(&self,encoder:&mut wgpu::CommandEncoder,before:[f32;4],now:[f32;4]) {
         if let Some(pyramid)=&self.source_pyramid {

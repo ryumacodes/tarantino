@@ -31,15 +31,13 @@ pub async fn compute_zoom_trajectory(
         let activity=export::load_camera_activity(&mouse_path,path,
             (settings.source_width.unwrap_or(1920),settings.source_height.unwrap_or(1080)),
             &settings,duration_ms).map_err(|e|e.to_string())?;
-        let crop = settings.source_crop.map(|rect| rect.resolve(settings.source_width.unwrap_or(1920),
+        let crop = settings.source_crop.map(|rect| rect.geometry(settings.source_width.unwrap_or(1920),
             settings.source_height.unwrap_or(1080))).transpose().map_err(|error| error.to_string())?;
         let mut blocks = settings.zoom_blocks.clone().unwrap_or_default();
         crate::video_processing::source_crop::remap_motion(crop, &mut [], &mut blocks);
-        let source = crop.map(|c| (c.width,c.height)).unwrap_or((settings.source_width.unwrap_or(1920),settings.source_height.unwrap_or(1080)));
+        let source = crop.map(|c| (c.width,c.height)).unwrap_or((settings.source_width.unwrap_or(1920) as f64,settings.source_height.unwrap_or(1080) as f64));
         if let Some(crop) = crop {
-            let rect = crop.normalized();
-            settings.window_width = settings.window_width.map(|w| (w as f64 * rect.width).round().max(1.0) as u32);
-            settings.window_height = settings.window_height.map(|h| (h as f64 * rect.height).round().max(1.0) as u32);
+            crop.apply_window_dimensions(&mut settings);
         }
         let viewport = zoom_trajectory::CameraViewport::from_settings(&settings, source);
         let frames = zoom_trajectory::simulate_zoom_trajectory_in_viewport(

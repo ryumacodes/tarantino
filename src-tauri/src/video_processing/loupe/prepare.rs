@@ -16,10 +16,9 @@ pub fn trajectory_with_settings(
     duration_ms: u64, fps: f64, spring: SpringConfig, settings: &ExportSettings,
     prepared_activity: Option<&crate::video_processing::camera_activity::Tracks>,
 ) -> Result<Vec<LoupeTarget>> {
-    let crop = settings.source_crop.map(|crop| crop.resolve(source.0, source.1)).transpose()?;
-    let cropped = crop.map(|crop| (crop.width, crop.height)).unwrap_or(source);
+    let viewport = CameraViewport::from_source_settings(settings, source)?;
     trajectory_in_viewport(blocks, events, source, settings.source_crop, duration_ms, fps,
-        spring, CameraViewport::from_settings(settings, cropped),Some(targets::CameraActivity {
+        spring, viewport,Some(targets::CameraActivity {
             events,prepared:prepared_activity,smooth:crate::video_processing::export::get_cursor_spring_config(settings).mass>0.0 }))
 }
 
@@ -41,12 +40,11 @@ pub fn target_and_animated_trajectories(
     duration_ms: u64, spring: SpringConfig, settings: &ExportSettings,
     prepared_activity: Option<&crate::video_processing::camera_activity::Tracks>,
 ) -> Result<(Vec<LoupeTarget>, Vec<LoupeTarget>)> {
-    let crop = settings.source_crop.map(|crop| crop.resolve(source.0, source.1)).transpose()?;
-    let cropped = crop.map(|crop| (crop.width, crop.height)).unwrap_or(source);
+    let viewport = CameraViewport::from_source_settings(settings, source)?;
     let mut frames = trajectories_in_viewport(blocks, events, source, settings.source_crop,
         duration_ms, animation::SIMULATION_FPS,
         &[SpringConfig { mass: 0.0, ..spring }, spring],
-        CameraViewport::from_settings(settings, cropped),Some(targets::CameraActivity {
+        viewport,Some(targets::CameraActivity {
             events,prepared:prepared_activity,smooth:crate::video_processing::export::get_cursor_spring_config(settings).mass>0.0 }))?;
     let animated = frames.pop().unwrap();
     let targets = frames.pop().unwrap();
@@ -75,7 +73,7 @@ fn trajectories_in_viewport(
         width: 1.0,
         height: 1.0,
     });
-    let resolved = crop.resolve(source.0, source.1)?;
+    let resolved = crop.geometry(source.0, source.1)?;
     let mut blocks = blocks.to_vec();
     let mut events = events.to_vec();
     events.sort_by_key(|event| event.timestamp_ms);
@@ -139,6 +137,37 @@ fn trajectories_in_viewport(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cropped_proportional_window_uses_the_visible_plane_for_lens_activity() {
+        use super::*;
+        let settings: ExportSettings = serde_json::from_value(serde_json::json!({
+            "capture_mode":"window", "resolution":{"width":1000,"height":1000},
+            "screen_width":1000,"screen_height":1000,"window_width":1000,"window_height":1000,
+            "visual_settings":{"window_layout_mode":"desktop"},
+            "source_crop":{"x":0.5,"y":0.0,"width":0.5,"height":1.0}
+        })).unwrap();
+        let blocks: Vec<ZoomBlock> = serde_json::from_value(serde_json::json!([{
+            "start_time_ms":0,"end_time_ms":1000,"zoom_level":2,"center_x":0.55,"center_y":0.5,
+            "instant_animation":true,"loupe":{"radius":0.25,"glass":false,"bevel":0,
+                "chromatic_aberration":0,"shadow_alpha":0}
+        }])).unwrap();
+        let events = [
+            CursorEvent { timestamp_ms:0,x:0.55,y:0.5,is_click:true,is_release:false },
+            CursorEvent { timestamp_ms:100,x:0.75,y:0.5,is_click:true,is_release:false },
+        ];
+        let spring = SpringConfig { tension:170.0,friction:50.0,mass:0.0 };
+        let mut cropped_settings = settings.clone();
+        cropped_settings.window_width = Some(500);
+        let expected = trajectory_in_viewport(&blocks,&events,(1000,1000),settings.source_crop,
+            1000,120.0,spring,CameraViewport::from_settings(&cropped_settings,(500,1000)),
+            Some(targets::CameraActivity { events:&events,prepared:None,smooth:true })).unwrap();
+        let actual = trajectory_with_settings(&blocks,&events,(1000,1000),1000,120.0,spring,&settings,None).unwrap();
+        assert_eq!(actual,expected);
+        let (targets,animated) = target_and_animated_trajectories(&blocks,&events,(1000,1000),
+            1000,spring,&settings,None).unwrap();
+        assert_eq!(targets,expected);
+        assert_eq!(animated,expected);
+    }
     use super::*;
     #[test]
     #[ignore = "local preparation timing workload"]

@@ -41,14 +41,14 @@ it('keeps off-stage centers outside and converts vertical origin once',()=>{
   expect(topLeft.y).toBeCloseTo(0);
 });
 
-it('uses resolved pixel crop edges for odd source dimensions',()=>{
+it('preserves fractional crop edges for odd source dimensions',()=>{
   const oddSource = {width:1919,height:1079};
   const oddCrop = {x:0.25,y:0.1,width:0.5,height:0.8};
-  const anchor = {...frame,center_x:480/1919,center_y:108/1079};
+  const anchor = {...frame,center_x:479.75/1919,center_y:107.9/1079};
   const projected = pixels(projectLoupeToPreview(anchor,oddSource,oddCrop,transform));
   expect(projected.x).toBeCloseTo(20);
   expect(projected.y).toBeCloseTo(40);
-  expect(projected.radius).toBeCloseTo(anchor.radius*1919/959*200);
+  expect(projected.radius).toBeCloseTo(anchor.radius*1919/959.5*200);
 });
 
 it('projects shadow reach through crop and camera while preserving source lighting',()=>{

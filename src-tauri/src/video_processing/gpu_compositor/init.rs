@@ -187,8 +187,6 @@ impl GpuCompositor {
         let corner_mask_texture = Self::create_corner_mask_texture(
             &device,
             &queue,
-            config.input_width,
-            config.input_height,
             config.window_mask.as_ref(),
         );
 

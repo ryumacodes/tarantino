@@ -531,7 +531,7 @@ pub async fn compute_cursor_trajectory(
         let activity = crate::cursor_renderer::typing_activity::TypingActivity::from_value(&input);
         let mut events = parse_filtered_cursor_events(&input, video_width, video_height, shake_threshold.unwrap_or(0.0));
         let typing = |time| activity.active(time);
-        let crop = source_crop.map(|rect| rect.resolve(video_width,video_height)).transpose().map_err(|error| error.to_string())?;
+        let crop = source_crop.map(|rect| rect.geometry(video_width,video_height)).transpose().map_err(|error| error.to_string())?;
         crate::video_processing::source_crop::remap_motion(crop,&mut events,&mut []);
         if events.is_empty() {
             return Err("No cursor events found".to_string());

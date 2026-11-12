@@ -9,6 +9,46 @@ fn ffmpeg(args: &[&str]) -> Vec<u8> {
 }
 
 #[tokio::test]
+#[ignore = "requires local FFmpeg and GPU; fractional crop through encoded export"]
+async fn fractional_crop_keeps_the_source_edge_at_its_subpixel_position() {
+    let root=std::env::temp_dir().join(format!("fractional-crop-export-{}",uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let raw=root.join("edge.rgb");
+    let pixels:Vec<u8>=(0..63*63).flat_map(|i|[if i%63>=24 {255} else {0};3]).collect();
+    std::fs::write(&raw,pixels).unwrap();
+    let input=root.join("edge.mkv");
+    ffmpeg(&["-v","error","-f","rawvideo","-pixel_format","rgb24","-video_size","63x63",
+        "-framerate","10","-i",raw.to_str().unwrap(),"-c:v","ffv1",input.to_str().unwrap()]);
+    let info=VideoInfo { duration_ms:100,width:63,height:63,fps:10.0,bitrate:0,
+        format:"mkv".into(),size_bytes:0,frame_count:Some(1) };
+    for edited in [false,true] {
+        let output=root.join(format!("fractional-{edited}.mp4"));
+        let mut settings:ExportSettings=serde_json::from_value(serde_json::json!({
+            "output_path":output,"resolution":{"width":256,"height":256},
+            "source_width":63,"source_height":63,"frame_rate":30,"format":"mp4","codec":"h264",
+            "source_crop":{"x":0.2,"y":0.2,"width":0.3,"height":0.3},
+            "zoom_blocks":[],"cursor_settings":{"enabled":false},
+            "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false}
+        })).unwrap();
+        if edited {
+            settings.timeline_clips=Some(serde_json::from_value(serde_json::json!([
+                {"id":"edge","startTime":0,"duration":100,"sourceIn":0,"sourceOut":100,
+                    "playbackRate":1,"trackOrder":0,"muted":false}
+            ])).unwrap());
+        }
+        export_video(&root,&input,settings,&info,None).await.unwrap();
+        let frame=ffmpeg(&["-v","error","-i",output.to_str().unwrap(),"-frames:v","1",
+            "-f","rawvideo","-pix_fmt","rgb24","-"]);
+        assert_eq!(frame.len(),256*256*3);
+        let row=&frame[128*256*3..129*256*3];
+        let edge=row.chunks_exact(3).position(|rgb|rgb[0]>=128).unwrap();
+        // (24 - 12.6) / 18.9 * 256 = 154.4127; the rounded crop shifts it to 148.
+        assert!((153..=155).contains(&edge),"edited={edited}: edge={edge}; artifacts at {}",root.display());
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
 #[ignore = "requires local FFmpeg and GPU; cropped source and cursor integration"]
 async fn cropped_exports_keep_source_and_cursor_aligned() {
     let root = std::env::temp_dir().join(format!("crop-export-{}",uuid::Uuid::new_v4()));
@@ -54,8 +94,8 @@ async fn cropped_exports_keep_source_and_cursor_aligned() {
 }
 
 #[tokio::test]
-#[ignore = "requires local FFmpeg and GPU; crop edge effect clipping"]
-async fn crop_edges_clip_cursor_effects_to_video_during_zoom() {
+#[ignore = "requires local FFmpeg and GPU; cursor layer outside the cropped video"]
+async fn cropped_exports_preserve_cursor_effects_outside_video_during_zoom() {
     let root=std::env::temp_dir().join(format!("crop-edge-{}",uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let input=root.join("blue.mkv");
@@ -78,13 +118,13 @@ async fn crop_edges_clip_cursor_effects_to_video_during_zoom() {
             let frames=ffmpeg(&["-v","error","-i",output.to_str().unwrap(),"-fps_mode","passthrough","-f","rawvideo","-pix_fmt","rgb24","-"]);
             if effect=="baseline" { baseline=frames; continue; }
             assert_eq!(frames.len(),baseline.len());
-            let mut visible=0;
+            let mut outside=0;
             for (pixel,base) in frames.chunks_exact(3).zip(baseline.chunks_exact(3)) {
                 if base.iter().all(|value|*value<8) {
-                    assert!(pixel.iter().all(|value|*value<32),"{mode}/{effect} leaked into background: {pixel:?}; artifacts {}",root.display());
-                } else if pixel[0]>80 && pixel[1]>80 { visible+=1; }
+                    if pixel.iter().any(|value|*value>=32) { outside+=1; }
+                }
             }
-            if mode=="window" { assert!(visible>20,"fixture did not exercise a partially clipped cursor"); }
+            assert!(outside>20,"{mode}/{effect}: cursor effects were clipped to the video; artifacts {}",root.display());
         }
     }
     std::fs::remove_dir_all(root).unwrap();

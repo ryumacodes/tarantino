@@ -85,8 +85,9 @@ async fn loupe_exports_follow_source_time_through_trim_speed_and_gaps() {
         size_bytes: 0,
         frame_count: Some(30),
     };
-    let mut baseline_count = 0;
-    for case in ["baseline", "trimmed", "edited"] {
+    let mut baseline_energy = 0u64;
+    let mut edited_baseline = Vec::new();
+    for case in ["baseline", "trimmed", "edited-baseline", "edited"] {
         let output = root.join(format!("{case}.mp4"));
         let mut settings:ExportSettings = serde_json::from_value(serde_json::json!({
             "output_path":output,"format":"mp4","codec":"h264","frame_rate":30,
@@ -96,14 +97,14 @@ async fn loupe_exports_follow_source_time_through_trim_speed_and_gaps() {
             "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false,"background_color":"#000000"},
             "zoom_blocks":[{"start_time_ms":200,"end_time_ms":800,"zoom_level":2,
                 "center_x":0.5,"center_y":0.5,"is_manual":true,"instant_animation":true,
-                "is_disabled":case=="baseline",
+                "is_disabled":case.ends_with("baseline"),
                 "loupe":{"radius":0.3125,"glass":false,"bevel":0,"chromatic_aberration":0,"shadow_alpha":0}}]
         })).unwrap();
         if case == "trimmed" {
             settings.trim_start = Some(200);
             settings.trim_end = Some(800);
         }
-        if case == "edited" {
+        if case.starts_with("edited") {
             settings.timeline_clips=Some(serde_json::from_value(serde_json::json!([
                 {"id":"fast","startTime":0,"duration":250,"sourceIn":250,"sourceOut":750,"playbackRate":2,"trackOrder":0,"muted":false},
                 {"id":"replay","startTime":500,"duration":500,"sourceIn":0,"sourceOut":500,"playbackRate":1,"trackOrder":0,"muted":false}
@@ -130,13 +131,14 @@ async fn loupe_exports_follow_source_time_through_trim_speed_and_gaps() {
             (if case == "trimmed" { 18 } else { 30 }) * 128 * 128 * 3
         );
         for (index, frame) in decoded.chunks_exact(128 * 128 * 3).enumerate() {
-            let whites = frame
-                .chunks_exact(3)
-                .filter(|pixel| pixel.iter().all(|&v| v > 180))
-                .count();
+            let energy: u64 = frame.iter().map(|&value| value as u64).sum();
             if case == "baseline" {
-                baseline_count = whites;
-                assert!(whites > 20);
+                baseline_energy = energy;
+                assert!(energy > 20 * 180 * 3);
+                continue;
+            }
+            if case == "edited-baseline" {
+                edited_baseline.push(energy);
                 continue;
             }
             let output_ms = index as f64 * 1000.0 / 30.0;
@@ -147,16 +149,17 @@ async fn loupe_exports_follow_source_time_through_trim_speed_and_gaps() {
                 );
                 continue;
             }
+            let baseline = if case == "edited" { edited_baseline[index] } else { baseline_energy };
             let active = case == "trimmed" || output_ms < 250.0 || output_ms >= 700.0;
             if active {
                 assert!(
-                    whites > baseline_count * 2,
-                    "{case}/{index}: cursor not magnified: {whites} vs {baseline_count}"
+                    energy > baseline * 2,
+                    "{case}/{index}: cursor not magnified: {energy} vs {baseline}"
                 );
             } else {
                 assert!(
-                    whites.abs_diff(baseline_count) < 15,
-                    "inactive source interval retained magnification"
+                    energy.abs_diff(baseline) <= (baseline / 6).max(1000),
+                    "inactive source interval changed cursor energy at {index}: {energy} vs {baseline}"
                 );
             }
         }

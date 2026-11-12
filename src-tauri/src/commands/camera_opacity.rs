@@ -16,9 +16,12 @@ pub async fn compute_camera_opacity(
     let motion=super::motion::compute_zoom_trajectory(input_path.clone(),duration_ms,settings.clone()).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let source=(settings.source_width.unwrap_or(1920),settings.source_height.unwrap_or(1080));
-        let crop=settings.source_crop.map(|c|c.resolve(source.0,source.1)).transpose()?;
-        let cropped=crop.map(|c|(c.width,c.height)).unwrap_or(source);
-        let config=build_gpu_config_with_webcam(&settings,&webcam,Some(cropped.0),Some(cropped.1));
+        let crop=settings.source_crop.map(|c|c.geometry(source.0,source.1)).transpose()?;
+        let cropped=crop.map(|c|(c.width,c.height)).unwrap_or((source.0 as f64,source.1 as f64));
+        let mut layout = settings.clone();
+        if let Some(crop) = crop { crop.apply_window_dimensions(&mut layout); }
+        let mut config=build_gpu_config_with_webcam(&layout,&webcam,Some(source.0),Some(source.1));
+        config.apply_source_geometry(&layout,cropped);
         let mouse=export::resolve_mouse_events_path(std::path::Path::new(&input_path));
         let activity=export::load_camera_activity(&mouse,std::path::Path::new(&input_path),
             source,&settings,duration_ms)?;
@@ -32,6 +35,31 @@ pub async fn compute_camera_opacity(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn cropped_desktop_lens_hides_the_camera_at_its_visible_position() {
+        let root=std::env::temp_dir().join(format!("cropped-camera-opacity-{}",uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let input=root.join("source.mp4");
+        std::fs::write(input.with_extension("webcam.mp4"),[]).unwrap();
+        std::fs::write(input.with_extension("mouse.json"),"[]").unwrap();
+        let settings:ExportSettings=serde_json::from_value(serde_json::json!({
+            "source_width":1000,"source_height":1000,"resolution":{"width":1000,"height":1000},
+            "capture_mode":"window","screen_width":1000,"screen_height":1000,
+            "window_width":1000,"window_height":1000,
+            "source_crop":{"x":0.5,"y":0,"width":0.5,"height":1},
+            "webcam_x":0.65,"webcam_y":0.5,"webcam_size":0.08,
+            "visual_settings":{"padding":0,"corner_radius":0,"window_layout_mode":"desktop"},
+            "zoom_blocks":[{"start_time_ms":500,"end_time_ms":1500,"zoom_level":2,
+                "center_x":0.8,"center_y":0.5,"is_manual":true,"instant_animation":true,
+                "loupe":{"radius":0.05,"glass":false,"bevel":0,"chromatic_aberration":0,"shadow_alpha":0}}]
+        })).unwrap();
+        let frames=compute_camera_opacity(input.to_string_lossy().into_owned(),3000,settings).await.unwrap();
+        assert_eq!(frames[0].stage,1.0);
+        assert!(frames[120].stage<0.05,"camera remained visible under the cropped lens: {}",frames[120].stage);
+        assert_eq!(frames[359].stage,1.0);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[tokio::test]
     async fn preview_camera_opacity_uses_export_geometry_and_hidden_camera_gate() {
         let root=std::env::temp_dir().join(format!("camera-opacity-preview-{}",uuid::Uuid::new_v4()));

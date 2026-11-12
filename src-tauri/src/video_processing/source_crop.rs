@@ -22,6 +22,34 @@ pub struct PixelCrop {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CropGeometry {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    source_width: u32,
+    source_height: u32,
+}
+
+impl CropGeometry {
+    pub fn normalized(self) -> SourceCrop {
+        SourceCrop { x:self.x / self.source_width as f64, y:self.y / self.source_height as f64,
+            width:self.width / self.source_width as f64, height:self.height / self.source_height as f64 }
+    }
+
+    pub fn source_point(self, x:f64, y:f64) -> (f64,f64) {
+        ((x * self.source_width as f64 - self.x) / self.width,
+         (y * self.source_height as f64 - self.y) / self.height)
+    }
+
+    pub fn apply_window_dimensions(self, settings: &mut super::types::ExportSettings) {
+        let rect = self.normalized();
+        settings.window_width = settings.window_width.map(|w| (w as f64 * rect.width).round().max(1.0) as u32);
+        settings.window_height = settings.window_height.map(|h| (h as f64 * rect.height).round().max(1.0) as u32);
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CropSampling {
     pub bounds: [f64; 4],
     pub decode: PixelCrop,
@@ -29,6 +57,14 @@ pub struct CropSampling {
 }
 
 impl SourceCrop {
+    pub fn geometry(self, width:u32, height:u32) -> Result<CropGeometry> {
+        self.validate(width,height)?;
+        if self.x >= 1.0 || self.y >= 1.0 { bail!("Crop must intersect the source video"); }
+        Ok(CropGeometry { x:self.x * width as f64, y:self.y * height as f64,
+            width:self.width * width as f64, height:self.height * height as f64,
+            source_width:width,source_height:height })
+    }
+
     pub fn sampling(self, width: u32, height: u32, padding: u32) -> Result<CropSampling> {
         self.validate(width, height)?;
         let bounds = [self.x * width as f64, self.y * height as f64,
@@ -118,7 +154,7 @@ impl PixelCrop {
 
 /// Transform only source-relative targets. Manual targets already describe the
 /// visible crop, so changing the source crop must not reinterpret their anchors.
-pub fn remap_motion(crop: Option<PixelCrop>, events: &mut [crate::cursor_renderer::CursorEvent],
+pub fn remap_motion(crop: Option<CropGeometry>, events: &mut [crate::cursor_renderer::CursorEvent],
     blocks: &mut [super::types::ZoomBlock]) {
     let Some(crop) = crop else { return; };
     for event in events {
@@ -144,7 +180,7 @@ mod tests {
     #[test]
     fn cropped_typing_follows_the_same_path_as_crop_local_caret_points() {
         use crate::{cursor_renderer::SpringConfig,video_processing::zoom_trajectory::simulate_zoom_trajectory};
-        let crop=SourceCrop{x:0.5,y:0.25,width:0.5,height:0.5}.resolve(1920,1080).unwrap();
+        let crop=SourceCrop{x:0.5,y:0.25,width:0.5,height:0.5}.geometry(1920,1080).unwrap();
         let original:super::super::types::ZoomBlock=serde_json::from_value(serde_json::json!({
             "start_time_ms":0,"end_time_ms":1000,"zoom_level":2,
             "center_x":0.7,"center_y":0.5,"kind":"typing",
@@ -173,7 +209,7 @@ mod tests {
 
     #[test]
     fn source_targets_move_into_crop_space_while_manual_anchors_stay_relative() {
-        let crop = SourceCrop{x:0.5,y:0.0,width:0.5,height:1.0}.resolve(128,64).unwrap();
+        let crop = SourceCrop{x:0.5,y:0.0,width:0.5,height:1.0}.geometry(128,64).unwrap();
         let mut events = vec![crate::cursor_renderer::CursorEvent{ is_release: false,timestamp_ms:0,x:0.75,y:0.5,is_click:true}];
         let automatic: super::super::types::ZoomBlock = serde_json::from_value(serde_json::json!({
             "start_time_ms":0,"end_time_ms":1000,"zoom_level":2,"center_x":0.75,"center_y":0.5
@@ -203,7 +239,7 @@ mod tests {
     #[test]
     fn full_source_is_identity_and_invalid_crops_are_rejected() {
         let full = SourceCrop { x:0.0,y:0.0,width:1.0,height:1.0 };
-        let crop = full.resolve(1920,1080).unwrap();
+        let crop = full.geometry(1920,1080).unwrap();
         assert_eq!(crop.source_point(0.25,0.75),(0.25,0.75));
         for invalid in [SourceCrop { x:-0.1,..full },SourceCrop { x:f64::NAN,..full },
             SourceCrop { width:0.0,..full },SourceCrop { width:1.1,..full },
@@ -256,6 +292,19 @@ mod decode_tests {
 #[cfg(test)]
 mod sampling_tests {
     use super::*;
+
+    #[test]
+    fn logical_crop_keeps_fractional_bounds_and_motion_coordinates() {
+        let rect=SourceCrop { x:0.25,y:0.1,width:0.5,height:0.8 };
+        let crop=rect.geometry(1919,1079).unwrap();
+        assert_eq!([crop.x,crop.y,crop.width,crop.height],[479.75,107.9,959.5,863.2]);
+        let point=crop.source_point(0.6,0.6);
+        assert!((point.0-0.7).abs()<1e-12);
+        assert!((point.1-0.625).abs()<1e-12);
+        let normalized=crop.normalized();
+        assert_eq!([normalized.x,normalized.y,normalized.width,normalized.height],[rect.x,rect.y,rect.width,rect.height]);
+        assert_eq!(SourceCrop { width:0.00001,..rect }.geometry(100,100).unwrap().width,0.001);
+    }
 
     #[test]
     fn fractional_geometry_survives_decode_envelopes_and_filter_padding() {

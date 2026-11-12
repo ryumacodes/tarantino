@@ -16,7 +16,16 @@ impl Default for CameraViewport {
 }
 
 impl CameraViewport {
-    pub(crate) fn from_settings(settings: &ExportSettings, source: (u32, u32)) -> Self {
+    pub(crate) fn from_source_settings(settings: &ExportSettings, source: (u32, u32)) -> anyhow::Result<Self> {
+        let crop = settings.source_crop.map(|crop| crop.geometry(source.0, source.1)).transpose()?;
+        let mut layout = settings.clone();
+        if let Some(crop) = crop {
+            crop.apply_window_dimensions(&mut layout);
+        }
+        Ok(Self::from_settings(&layout, crop.map(|crop| (crop.width, crop.height)).unwrap_or((source.0 as f64,source.1 as f64))))
+    }
+
+    pub(crate) fn from_settings<T: Into<f64>>(settings: &ExportSettings, source: (T, T)) -> Self {
         let (width, height) = visual_effects::get_output_dimensions(settings);
         let padding_x = visual_effects::content_inset(width,height,
             settings.visual_settings.as_ref().and_then(|v|v.padding).unwrap_or(0.0));
@@ -24,7 +33,7 @@ impl CameraViewport {
         let content_width = width.saturating_sub(2 * padding_x).max(2);
         let content_height = height.saturating_sub(2 * padding_y).max(2);
         let (plane_width, plane_height, offset_x, offset_y) = input_layout(
-            settings, Some(source.0), Some(source.1), content_width, content_height);
+            settings, Some(source.0.into()), Some(source.1.into()), content_width, content_height);
         let units = 1080.0 / height as f64;
         let source = ScreenRect {
             x: (padding_x + offset_x) as f64 * units,

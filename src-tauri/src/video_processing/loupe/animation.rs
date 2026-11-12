@@ -70,7 +70,7 @@ pub fn simulate(
     {
         bail!("Invalid magnifier animation cadence or spring");
     }
-    crop.resolve(source.0, source.1)?;
+    crop.geometry(source.0, source.1)?;
     let timeline = LoupeTimeline::new(ranges)?;
     if duration_ms == 0 {
         return Ok(Vec::new());

@@ -87,7 +87,7 @@ impl RecordingInput {
         if let Some(crop) = crop {
             // Resolve against recorded pixels for validation, but retain the
             // logical-pixel metric used for interaction accuracy.
-            let crop = crop.resolve(source_size.0, source_size.1)?.normalized();
+            let crop = crop.geometry(source_size.0, source_size.1)?.normalized();
             origin[0] += crop.x * width;
             origin[1] += crop.y * height;
             width *= crop.width;

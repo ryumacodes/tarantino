@@ -29,12 +29,6 @@ pub fn build_gpu_config(
         .and_then(|path| match image::open(path) {
             Ok(image) => {
                 println!("[Window Mask] loaded native silhouette: {}", path);
-                let image = if let Some(rect) = settings.source_crop {
-                    match rect.resolve(image.width(),image.height()) {
-                        Ok(crop) => image.crop_imm(crop.x,crop.y,crop.width,crop.height),
-                        Err(_) => return None,
-                    }
-                } else { image };
                 Some(image.to_rgba8())
             }
             Err(error) => {
@@ -109,7 +103,7 @@ pub fn build_gpu_config(
         });
 
     let (input_w, input_h, input_off_x, input_off_y) = input_layout(
-        settings, source_width, source_height, content_w, content_h);
+        settings, source_width.map(f64::from), source_height.map(f64::from), content_w, content_h);
 
     println!(
         "[GPU Config] output={}x{}, content={}x{}, input={}x{} offset=({},{})",
@@ -132,8 +126,11 @@ pub fn build_gpu_config(
         background_color,
         background_gradient,
         background_image,
+        window_mask_uv: if window_mask.is_some() {
+            settings.source_crop.map_or([0.0,0.0,1.0,1.0],|rect|
+                [rect.x as f32,rect.y as f32,rect.width as f32,rect.height as f32])
+        } else { [0.0,0.0,1.0,1.0] },
         window_mask,
-        window_mask_uv: [0.0, 0.0, 1.0, 1.0],
         corner_radius,
         shadow_enabled,
         shadow_blur,
@@ -154,13 +151,13 @@ pub fn build_gpu_config(
 }
 
 /// Geometry only: shared by compositing and camera activity grouping.
-pub(crate) fn input_layout(settings: &types::ExportSettings, source_width: Option<u32>,
-    source_height: Option<u32>, content_w: u32, content_h: u32) -> (u32,u32,u32,u32) {
+pub(crate) fn input_layout(settings: &types::ExportSettings, source_width: Option<f64>,
+    source_height: Option<f64>, content_w: u32, content_h: u32) -> (u32,u32,u32,u32) {
     let visual = settings.visual_settings.as_ref();
     let is_window_mode = settings.capture_mode.as_deref() == Some("window");
     let is_focus_window = visual.and_then(|v| v.window_layout_mode.as_deref()).unwrap_or("focus") == "focus";
         if let (Some(sw), Some(sh)) = (source_width, source_height) {
-            if sw > 0 && sh > 0 {
+            if sw > 0.0 && sh > 0.0 {
                 if is_window_mode && is_focus_window {
                     let src_aspect = sw as f64 / sh as f64;
                     let cnt_aspect = content_w as f64 / content_h as f64;
@@ -206,8 +203,8 @@ pub(crate) fn input_layout(settings: &types::ExportSettings, source_width: Optio
 }
 
 fn aspect_fit_input(
-    source_w: u32,
-    source_h: u32,
+    source_w: f64,
+    source_h: f64,
     content_w: u32,
     content_h: u32,
 ) -> (u32, u32, u32, u32) {
@@ -254,8 +251,8 @@ mod tests {
 
     #[test]
     fn portrait_and_padded_square_layouts_match_preview_geometry() {
-        assert_eq!(aspect_fit_input(1920, 1080, 608, 1080), (608, 342, 0, 369));
-        assert_eq!(aspect_fit_input(1920, 1080, 800, 800), (800, 450, 0, 175));
+        assert_eq!(aspect_fit_input(1920.0, 1080.0, 608, 1080), (608, 342, 0, 369));
+        assert_eq!(aspect_fit_input(1920.0, 1080.0, 800, 800), (800, 450, 0, 175));
     }
 
     #[test]
@@ -497,5 +494,12 @@ mod shadow_intensity_tests {
             let config=build_gpu_config_with_webcam(&settings,&None,Some(96),Some(64));
             assert!((config.shadow_intensity-expected).abs()<0.00001);
         }
+    }
+}
+
+impl GpuCompositorConfig {
+    pub(crate) fn apply_source_geometry(&mut self, settings:&types::ExportSettings, source:(f64,f64)) {
+        let (w,h,x,y) = input_layout(settings,Some(source.0),Some(source.1),self.content_width,self.content_height);
+        self.input_width=w;self.input_height=h;self.input_offset_x=x;self.input_offset_y=y;
     }
 }

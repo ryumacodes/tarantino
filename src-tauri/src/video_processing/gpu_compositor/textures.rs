@@ -203,14 +203,10 @@ impl GpuCompositor {
     pub(super) fn create_corner_mask_texture(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        width: u32,
-        height: u32,
         native_mask: Option<&image::RgbaImage>,
     ) -> wgpu::Texture {
         let (texture_width, texture_height, data) = if let Some(mask) = native_mask {
-            let resized =
-                image::imageops::resize(mask, width, height, image::imageops::FilterType::Lanczos3);
-            (width, height, resized.into_raw())
+            (mask.width(), mask.height(), mask.as_raw().clone())
         } else {
             (1, 1, vec![255u8; 4])
         };

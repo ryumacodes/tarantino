@@ -36,7 +36,7 @@ impl Tracks {
             let end=settings.trim_end.unwrap_or(duration) as f64;
             Some((start,(end-loop_ms).max(start)))
         };
-        let crop=settings.source_crop.map(|c|c.resolve(source.0,source.1)).transpose()?;
+        let crop=settings.source_crop.map(|c|c.geometry(source.0,source.1)).transpose()?;
         let size=crop.map_or(logical,|c| {
             let rect=c.normalized(); (logical.0*rect.width,logical.1*rect.height)
         });

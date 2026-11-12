@@ -78,7 +78,7 @@ pub fn target_at(
     source_time_ms: f64,
     options: LoupeOptions,
 ) -> Result<LoupeTarget> {
-    let crop = crop.resolve(source.0, source.1)?;
+    let crop = crop.geometry(source.0, source.1)?;
     if ![
         focus.0,
         focus.1,

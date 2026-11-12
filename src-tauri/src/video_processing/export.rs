@@ -19,7 +19,7 @@ mod support;
 pub(crate) mod resources;
 use resources::{ExportChild, ExportOutput};
 pub(crate) mod timeline_support;
-use super::timeline_decode::{video_decode_args, video_decode_args_with_crop};
+use super::timeline_decode::{video_decode_args,video_decode_args_with_crop};
 use super::source_crop::remap_motion;
 pub(crate) use support::{parse_filtered_cursor_events,get_cursor_spring_config,load_camera_tracks,load_camera_activity};
 pub use support::{load_raw_cursor_events, load_camera_events, load_filtered_cursor_events};
@@ -44,12 +44,11 @@ pub async fn export_video(
     }
 
     let camera_settings=settings.clone();
-    let crop = settings.source_crop.map(|rect| rect.resolve(video_info.width, video_info.height)).transpose()?;
+    let crop = settings.source_crop.map(|rect| rect.geometry(video_info.width, video_info.height)).transpose()?;
     if let Some(crop) = crop {
         let rect = crop.normalized();
         settings.source_crop = Some(rect);
-        settings.window_width = settings.window_width.map(|width| (width as f64 * rect.width).round().max(1.0) as u32);
-        settings.window_height = settings.window_height.map(|height| (height as f64 * rect.height).round().max(1.0) as u32);
+        crop.apply_window_dimensions(&mut settings);
     }
     let background_start_ms = settings.trim_start.unwrap_or(0) as f64;
     let audio_timeline = resolve_plan(&settings, input_path, video_info.duration_ms)?;
@@ -154,7 +153,7 @@ pub async fn export_video(
         if let Some(ref mut zb) = blocks {
             validate_export_zoom_blocks(zb, duration_ms);
             source_zoom_blocks = zb.clone();
-            loupe_trajectory = loupe_support::prepare(zb, &settings, &camera_activity,
+            loupe_trajectory = loupe_support::prepare(zb, &camera_settings, &camera_activity,
                 (source_width,source_height), duration_ms)?;
             remap_motion(crop, &mut [], zb);
         }
@@ -188,8 +187,8 @@ pub async fn export_video(
                         range.end_ms
                     },
                     is_window_mode,
-                    CameraViewport::from_settings(&settings, (crop.map(|c| c.width).unwrap_or(source_width),
-                        crop.map(|c| c.height).unwrap_or(source_height))),
+                    CameraViewport::from_settings(&settings, (crop.map(|c| c.width).unwrap_or(source_width as f64),
+                        crop.map(|c| c.height).unwrap_or(source_height as f64))),
                     Some(super::zoom_trajectory::targets::CameraActivity {events:&[],prepared:Some(&camera_activity),smooth:get_cursor_spring_config(&settings).mass>0.0}),
                 );
                 println!("Zoom trajectory: {} frames", trajectory.len());
@@ -256,19 +255,27 @@ pub async fn export_video(
         None
     };
 
-    // Resolve source dimensions: prefer frontend-provided, fallback to video_info
-    let src_w = crop.map(|c| c.width).or(settings.source_width).or(Some(source_width));
-    let src_h = crop.map(|c| c.height).or(settings.source_height).or(Some(source_height));
+    let src_w = settings.source_width.or(Some(source_width));
+    let src_h = settings.source_height.or(Some(source_height));
 
-    // Build GPU compositor config
     let mut gpu_config = build_gpu_config_with_webcam(&settings, &webcam_info, src_w, src_h);
-    gpu_config.source_size = crop.map_or([source_width, source_height], |c| [c.width, c.height]);
+    gpu_config.source_size = [source_width, source_height];
+    if let Some(crop) = crop {
+        gpu_config.apply_source_geometry(&settings,(crop.width,crop.height));
+    }
+    let sampling=settings.source_crop.map(|crop| gpu_config.crop_sampling(crop,[source_width,source_height],
+        zoom_trajectory.as_deref().unwrap_or(&[]),settings.mask_overlay.is_some())).transpose()?;
+    let decode_crop=sampling.map(|plan|plan.decode);
+    if let Some(plan)=sampling {
+        gpu_config.source_size=[plan.decode.width,plan.decode.height];
+        gpu_config.source_uv=plan.view.map(|value|value as f32);
+    }
     let webcam_timeline = super::webcam_timeline::WebcamTimeline::new(&settings, gpu_config.webcam.clone())?;
     let camera_opacity = if webcam_info.is_some() {
         Some(super::loupe::camera_opacity_prepare::prepare_camera_opacity(
             &source_zoom_blocks, &[], (source_width,source_height),
             if timeline.is_some() {duration_ms} else {range.end_ms},
-            get_zoom_spring_config(&settings), &settings, &gpu_config,
+            get_zoom_spring_config(&camera_settings), &camera_settings, &gpu_config,
             zoom_trajectory.as_deref().unwrap_or(&[]),
          Some(&camera_activity))?)
     } else {None};
@@ -353,7 +360,7 @@ pub async fn export_video(
                 wc_args.extend(["-i".to_string(), webcam_path.to_string_lossy().into_owned()]);
                 wc_args.extend([
                     "-vf".to_string(),
-                    format!("setpts=PTS-STARTPTS,fps={},tpad=stop_mode=clone:stop=1,trim=end_frame={},scale={}:{}", target_fps, expected_frames, wc_w, wc_h),
+                    format!("{}setpts=PTS-STARTPTS,fps={},tpad=stop_mode=clone:stop=1,trim=end_frame={},scale={}:{}", decode_crop.map_or(String::new(),|crop|crop.decode_filter()), target_fps, expected_frames, wc_w, wc_h),
                     "-f".to_string(),
                     "rawvideo".to_string(),
                     "-pix_fmt".to_string(),
@@ -416,10 +423,9 @@ pub async fn export_video(
     ]);
 
 
-    // Decode filter: fps + scale to input dims (aspect-correct, all effects on GPU)
     decoder_args.extend([
         "-vf".to_string(),
-        format!("{}setpts=PTS-STARTPTS,fps={},tpad=stop_mode=clone:stop=1,trim=end_frame={},scale={}:{}", crop.map_or(String::new(), |c| c.decode_filter()), target_fps, expected_frames, input_width, input_height),
+        format!("{}setpts=PTS-STARTPTS,fps={},tpad=stop_mode=clone:stop=1,trim=end_frame={},scale={}:{}", decode_crop.map_or(String::new(),|crop|crop.decode_filter()), target_fps, expected_frames, input_width, input_height),
         "-f".to_string(),
         "rawvideo".to_string(),
         "-pix_fmt".to_string(),
@@ -428,7 +434,7 @@ pub async fn export_video(
     ]);
 
     if let Some(plan) = &timeline {
-        decoder_args = video_decode_args_with_crop(plan, input_path, input_width, input_height, target_fps, crop);
+        decoder_args = video_decode_args_with_crop(plan, input_path, input_width, input_height, target_fps,decode_crop);
     }
     println!("  Decoder args: {:?}", decoder_args);
 

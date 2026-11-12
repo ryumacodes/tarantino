@@ -18,7 +18,7 @@ pub fn project(
             width: 1.0,
             height: 1.0,
         })
-        .resolve(source.0, source.1)?
+        .geometry(source.0, source.1)?
         .normalized();
     if !video_rect.iter().all(|value| value.is_finite())
         || video_rect[2] <= 0.0
