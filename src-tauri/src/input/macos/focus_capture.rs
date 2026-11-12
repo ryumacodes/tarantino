@@ -31,7 +31,7 @@ impl Nudger {
                         pending.pop_front();
                         let Some(pid) = super::focus_application::frontmost_pid() else { continue; };
                         if request.expected_pid.is_some_and(|expected| expected != pid) { continue; }
-                        sample(&tracker, request, || {
+                        sample(&tracker, request, pid, || {
                             let attachment = if matches!(request.trigger, FocusTrigger::Application) {
                                 request.expected_pid.inspect(|&pid| super::focus_application::refresh(pid))
                             } else {
@@ -46,9 +46,9 @@ impl Nudger {
                                     super::focus_observer::attach(request.session, pid, sender.as_ref().clone(), tracker.clone());
                                 }
                             }
-                            let caret = super::focus_observer::selected_caret(Some(request.session), pid)
-                                .unwrap_or_else(|| super::caret_position_in_application(pid, true));
-                            (super::focus_application::frontmost_pid() == Some(pid)).then_some(caret).flatten()
+                            let caret = super::focus_observer::selected_focus(Some(request.session), pid)
+                                .unwrap_or_else(|| super::focus_in_application(pid, true));
+                            if super::focus_application::frontmost_pid() == Some(pid) { caret } else { super::FocusObservation::default() }
                         });
                         continue;
                     }
@@ -91,27 +91,40 @@ fn enqueue(pending: &mut VecDeque<Request>, request: Request) {
     pending.insert(index, request);
 }
 
-fn sample(tracker: &Mutex<MouseTracker>, request: Request, query: impl FnOnce() -> Option<super::FocusPosition>) {
+fn sample(tracker: &Mutex<MouseTracker>, request: Request, pid: i32, query: impl FnOnce() -> super::FocusObservation) {
     let session = request.session;
     {
         let state = tracker.lock();
         if !state.is_tracking || state.recording_start_time != Some(session) { return; }
     }
-    let (caret, estimated_caret, caret_bounds) = match query() {
+    let observation = query();
+    let (caret, estimated_caret, caret_bounds) = match observation.caret {
         Some(super::FocusPosition::Measured(value)) => (Some([value.point.0, value.point.1]), None, Some(value.bounds)),
         Some(super::FocusPosition::Estimated(value)) => (None, Some([value.point.0, value.point.1]), Some(value.bounds)),
         None => (None, None, None),
     };
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+    let timestamp = observation.observed_at.duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
     let mut state = tracker.lock();
     if state.is_tracking && state.recording_start_time == Some(session) {
-        state.focus_samples.push(FocusSample { timestamp, caret, caret_bounds, estimated_caret, trigger_timestamp: request.trigger_timestamp, trigger: request.trigger });
+        state.focus_samples.push(FocusSample {
+            timestamp,
+            focus_state: Some(observation.state),
+            app_pid: (observation.state == super::FocusState::Present).then_some(pid),
+            focus_role: observation.role,
+            focus_bounds: observation.bounds,
+            caret,
+            caret_bounds,
+            estimated_caret,
+            trigger_timestamp: request.trigger_timestamp,
+            trigger: request.trigger,
+        });
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::{FocusObservation, FocusState};
 
     fn request() -> Request {
         Request { session: UNIX_EPOCH, due: Instant::now(), trigger_timestamp: 123, trigger: FocusTrigger::Key, expected_pid: None }
@@ -169,18 +182,19 @@ mod tests {
             state.is_tracking = true;
             state.recording_start_time = Some(UNIX_EPOCH);
         }
-        sample(&tracker, request(), || {
+        sample(&tracker, request(), 42, || {
             assert!(tracker.try_lock().is_some());
-            Some(super::super::FocusPosition::Measured(super::super::caret_range::Geometry { point: (10.0, 20.0), bounds: [10.0, 12.0, 2.0, 16.0] }))
+            FocusObservation { bounds: Some([0.0, 0.0, 300.0, 100.0]), state: FocusState::Present, role: Some("AXTextField".to_owned()), caret: Some(super::super::FocusPosition::Measured(super::super::caret_range::Geometry { point: (10.0, 20.0), bounds: [10.0, 12.0, 2.0, 16.0] })), ..Default::default() }
         });
-        sample(&tracker, request(), || None);
-        sample(&tracker, request(), || Some(super::super::FocusPosition::Estimated(super::super::caret_range::Geometry {
+        sample(&tracker, request(), 42, FocusObservation::default);
+        sample(&tracker, request(), 42, || FocusObservation { bounds: Some([0.0, 0.0, 300.0, 100.0]), state: FocusState::Present, role: Some("AXTextField".to_owned()), caret: Some(super::super::FocusPosition::Estimated(super::super::caret_range::Geometry {
             point: (15.0, 25.0), bounds: [14.0, 21.0, 2.0, 8.0],
-        })));
+        })), ..Default::default() });
         let state = tracker.lock();
         assert!(state.get_key_events().is_empty());
         assert_eq!(state.focus_samples.len(), 3);
         assert_eq!(state.focus_samples[0].caret, Some([10.0, 20.0]));
+        assert_eq!(state.focus_samples[0].focus_bounds, Some([0.0, 0.0, 300.0, 100.0]));
         assert_eq!(state.focus_samples[0].caret_bounds, Some([10.0, 12.0, 2.0, 16.0]));
         assert_eq!(state.focus_samples[0].trigger_timestamp, 123);
         assert_eq!(state.focus_samples[0].trigger, FocusTrigger::Key);
@@ -195,6 +209,52 @@ mod tests {
     }
 
     #[test]
+    fn focus_without_a_caret_is_distinct_from_absence_and_lookup_failure() {
+        let tracker = Mutex::new(MouseTracker::new());
+        {
+            let mut state = tracker.lock();
+            state.is_tracking = true;
+            state.recording_start_time = Some(UNIX_EPOCH);
+        }
+        let states = [FocusState::Present, FocusState::Absent, FocusState::Unavailable];
+        for state in states {
+            sample(&tracker, request(), 42, || FocusObservation { bounds: None, state, role: (state == FocusState::Present).then(|| "AXButton".to_owned()), caret: None, ..Default::default() });
+        }
+        let state = tracker.lock();
+        assert_eq!(state.focus_samples.len(), states.len());
+        for (sample, expected) in state.focus_samples.iter().zip(states) {
+            assert_eq!(sample.focus_state, Some(expected));
+            assert_eq!(sample.app_pid, (expected == FocusState::Present).then_some(42));
+            assert_eq!(sample.focus_role.as_deref(), (expected == FocusState::Present).then_some("AXButton"));
+            assert_eq!(sample.caret, None);
+            assert_eq!(sample.estimated_caret, None);
+        }
+    }
+
+    #[test]
+    fn metadata_completion_does_not_shift_the_focus_observation_timestamp() {
+        let tracker = Mutex::new(MouseTracker::new());
+        {
+            let mut state = tracker.lock();
+            state.is_tracking = true;
+            state.recording_start_time = Some(UNIX_EPOCH);
+        }
+        sample(&tracker, request(), 42, || {
+            let mut observation = FocusObservation {
+                observed_at: UNIX_EPOCH + Duration::from_millis(150),
+                state: FocusState::Present,
+                ..Default::default()
+            };
+            observation.bounds = Some([0.0, 0.0, 300.0, 100.0]);
+            observation
+        });
+        let state = tracker.lock();
+        assert_eq!(state.focus_samples[0].timestamp, 150);
+        assert_eq!(state.focus_samples[0].trigger_timestamp, 123);
+        assert_eq!(state.focus_samples[0].focus_bounds, Some([0.0, 0.0, 300.0, 100.0]));
+    }
+
+    #[test]
     fn late_queries_cannot_enter_stopped_or_restarted_recordings() {
         for restart in [false, true] {
             let tracker = Mutex::new(MouseTracker::new());
@@ -203,14 +263,14 @@ mod tests {
                 state.is_tracking = true;
                 state.recording_start_time = Some(UNIX_EPOCH);
             }
-            sample(&tracker, request(), || {
+            sample(&tracker, request(), 42, || {
                 let mut state = tracker.lock();
                 state.is_tracking = restart;
                 state.recording_start_time = restart.then_some(UNIX_EPOCH + Duration::from_secs(1));
-                Some(super::super::FocusPosition::Measured(super::super::caret_range::Geometry { point: (10.0, 20.0), bounds: [10.0, 12.0, 2.0, 16.0] }))
+                FocusObservation { bounds: Some([0.0, 0.0, 300.0, 100.0]), state: FocusState::Present, role: Some("AXTextField".to_owned()), caret: Some(super::super::FocusPosition::Measured(super::super::caret_range::Geometry { point: (10.0, 20.0), bounds: [10.0, 12.0, 2.0, 16.0] })), ..Default::default() }
             });
             assert!(tracker.lock().focus_samples.is_empty());
-            sample(&tracker, request(), || panic!("expired session must not query"));
+            sample(&tracker, request(), 42, || panic!("expired session must not query"));
         }
     }
 }

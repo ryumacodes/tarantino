@@ -93,6 +93,18 @@ mod tests {
     }
 
     #[test]
+    fn application_switch_does_not_generate_a_zoom_from_another_apps_delayed_caret() {
+        let mut input = json!({"display_width":1000,"display_height":500,"mouse_events":[],
+            "key_events":[{"timestamp":2000,"is_typing":true,"is_modifier":false,"cursor_x":1500,"cursor_y":100}],
+            "focus_samples":[{"timestamp":2120,"trigger_timestamp":2000,"trigger":"key","caret":[100,150]}]});
+        assert_eq!(analyze(&input.to_string(),10000,(1000,500)).unwrap().zoom_blocks.len(), 1);
+        input["focus_samples"].as_array_mut().unwrap().push(json!({
+            "timestamp":2200,"trigger_timestamp":2050,"trigger":"activation","caret":null
+        }));
+        assert!(analyze(&input.to_string(),10000,(1000,500)).unwrap().zoom_blocks.is_empty());
+    }
+
+    #[test]
     #[ignore = "requires external recorded-input range cases"]
     fn external_zoom_range_cases_match_recorded_input() {
         let path = std::env::var("TARANTINO_ZOOM_RANGE_CASES").unwrap();

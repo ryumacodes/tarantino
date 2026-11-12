@@ -29,6 +29,12 @@ pub(super) fn associated<'a>(
                 .filter(|event| matches!(event.base.event_type, MouseEventType::ButtonPress { .. }))
                 .map(|event| event.base.timestamp),
         )
+        .chain(
+            samples
+                .iter()
+                .filter(|sample| sample.trigger == FocusTrigger::Activation)
+                .map(|sample| sample.trigger_timestamp),
+        )
         .collect();
     barriers.sort_unstable();
     samples
@@ -64,6 +70,10 @@ mod tests {
     }
     fn sample(trigger: u64, observed: u64) -> FocusSample {
         FocusSample {
+            focus_state: None,
+            app_pid: None,
+            focus_role: None,
+            focus_bounds: None,
             caret_bounds: None,
             estimated_caret: None,
             timestamp: observed,
@@ -86,6 +96,17 @@ mod tests {
         let mut focus = sample(100, 200);
         focus.estimated_caret = focus.caret.take();
         assert!(associated(&[key(100, true)], &[], &[focus], 1000).is_empty());
+    }
+
+    #[test]
+    fn application_switch_prevents_a_delayed_caret_from_retargeting_earlier_typing() {
+        let mut activation = sample(150, 250);
+        activation.trigger = FocusTrigger::Activation;
+        activation.caret = None;
+        let samples = [sample(100, 200), activation, sample(300, 400)];
+        let result = associated(&[key(100, true), key(300, true)], &[], &samples, 1000);
+        assert!(!result.contains_key(&100));
+        assert_eq!(result[&300].timestamp, 400);
     }
 
     #[test]
