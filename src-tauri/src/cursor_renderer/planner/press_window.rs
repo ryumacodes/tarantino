@@ -21,18 +21,32 @@ pub fn boundary(timeline: &EditTimeline, time: f64, recording: &Path) -> Option<
         }
     }
     let source = segment.source_start_ms?;
-    Some(
-        source
-            + (time.clamp(segment.output_start_ms, segment.output_end_ms)
-                - segment.output_start_ms)
-                * segment.rate,
-    )
+    let time = time.clamp(segment.output_start_ms, segment.output_end_ms);
+    if time == segment.output_end_ms {
+        return segment.source_end_ms;
+    }
+    Some(source + (time - segment.output_start_ms) * segment.rate)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::video_processing::timeline::EditClip;
+
+    #[test]
+    fn fractional_trim_preserves_inclusive_source_endpoint() {
+        let clip: EditClip = serde_json::from_value(serde_json::json!({
+            "id":"last", "startTime":300.0, "duration":300.0,
+            "sourceIn":100.0, "sourceOut":250.0, "playbackRate":0.5,
+            "trackOrder":0, "muted":false
+        })).unwrap();
+        let trim: f64 = serde_json::from_str("25.2").unwrap();
+        let timeline = EditTimeline::build(&[clip],trim,600.0).unwrap();
+        let recording = Path::new("video.mp4");
+        assert_eq!(boundary(&timeline,timeline.duration_ms,recording),Some(250.0));
+        assert_eq!(boundary(&timeline,timeline.duration_ms+100.0,recording),Some(250.0));
+        assert!((boundary(&timeline,timeline.duration_ms-1.0,recording).unwrap()-249.5).abs()<1e-9);
+    }
 
     #[test]
     #[ignore = "requires external source-boundary fixtures"]

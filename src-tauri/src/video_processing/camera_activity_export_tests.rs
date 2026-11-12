@@ -21,7 +21,8 @@ async fn encoded_camera_targets_respect_trim_speed_and_loop_bounds() {
     let info=VideoInfo{duration_ms:1000,width:128,height:128,fps:60.0,bitrate:0,
         format:"mkv".into(),size_bytes:0,frame_count:Some(60)};
     for (mode,center,time,channel) in [("full",0.9,"0.55",2),("trim",0.55,"0.35",1),
-        ("speed",0.55,"0.175",1),("loop",0.1,"0.55",0)] {
+        ("speed",0.55,"0.175",1),("loop",0.1,"0.55",0),
+        ("fractional-end",0.9,"0.75",2)] {
         let mut frames=Vec::new();
         for manual in [false,true] {
             let output=root.join(format!("{mode}-{manual}.mp4"));
@@ -38,6 +39,11 @@ async fn encoded_camera_targets_respect_trim_speed_and_loop_bounds() {
             if mode=="speed" {settings.timeline_clips=Some(serde_json::from_value(serde_json::json!([
                 {"id":"fast","startTime":0,"duration":250,"sourceIn":200,"sourceOut":700,
                     "playbackRate":2,"trackOrder":0,"muted":false}])).unwrap());}
+            if mode=="fractional-end" {settings.timeline_clips=Some(serde_json::from_value(serde_json::json!([
+                {"id":"opening","startTime":0,"duration":300.3,"sourceIn":0,"sourceOut":300.3,
+                    "playbackRate":1,"trackOrder":0,"muted":false},
+                {"id":"fractional","startTime":300.3,"duration":699.7,"sourceIn":100.3,"sourceOut":800,
+                    "playbackRate":1,"trackOrder":0,"muted":false}])).unwrap());}
             export_video(&root,&input,settings,&info,None).await.unwrap();
             let frame=ffmpeg(&["-v","error","-ss",time,"-i",output.to_str().unwrap(),"-frames:v","1",
                 "-f","rawvideo","-pix_fmt","rgb24","-"]);

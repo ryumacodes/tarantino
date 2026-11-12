@@ -8,6 +8,7 @@ pub(crate) struct MotionSegment {
     pub output_start_ms:f64,
     pub output_end_ms:f64,
     pub source_start_ms:f64,
+    pub source_end_ms:f64,
     pub rate:f64,
     pub points:Vec<MotionPoint>,
 }
@@ -26,7 +27,7 @@ pub(crate) fn map_cursor(events:&[super::CursorEvent],timeline:&EditTimeline,rec
         x:event.x,y:event.y}).collect::<Vec<_>>();
     map_recording(&points,timeline,recording_path).into_iter().map(|motion| {
         let start=motion.source_start_ms;
-        let end=start+(motion.output_end_ms-motion.output_start_ms)*motion.rate;
+        let end=motion.source_end_ms;
         let from=events.partition_point(|event|(event.timestamp_ms as f64)<start);
         let to=events.partition_point(|event|(event.timestamp_ms as f64)<end);
         let clicks=events[from..to].iter().filter(|event|event.is_click).map(|event|MotionPoint {
@@ -64,7 +65,7 @@ pub(crate) fn map_recording(points:&[MotionPoint],timeline:&EditTimeline,recordi
             return None;
         }
         let start=segment.source_start_ms?;
-        let end=start+(segment.output_end_ms-segment.output_start_ms)*segment.rate;
+        let end=segment.source_end_ms?;
         // Do not introduce a cursor before its first recorded event.
         let first_time=start.max(points.first()?.time_ms);
         if first_time>=end {return None;}
@@ -79,7 +80,7 @@ pub(crate) fn map_recording(points:&[MotionPoint],timeline:&EditTimeline,recordi
         output.extend(points[from..to].iter().copied().map(mapped));
         output.push(mapped(last));
         Some(MotionSegment{output_start_ms:segment.output_start_ms,
-            output_end_ms:segment.output_end_ms,source_start_ms:start,rate:segment.rate,points:output})
+            output_end_ms:segment.output_end_ms,source_start_ms:start,source_end_ms:end,rate:segment.rate,points:output})
     }).collect()
 }
 
@@ -148,6 +149,17 @@ mod tests {
         assert_eq!(segments[0].clicks.iter().map(|p|p.time_ms).collect::<Vec<_>>(),vec![0.0,499.0]);
         assert_eq!(segments[1].clicks.iter().map(|p|p.time_ms).collect::<Vec<_>>(),vec![500.0,999.0]);
         assert_eq!(segments[1].clicks[0].x,0.5);
+    }
+    #[test]
+    fn fractional_trim_does_not_duplicate_a_boundary_click() {
+        let timeline=EditTimeline::build(&[
+            clip("a",0.0,0.0,300.0,0.5),
+            clip("b",300.0,100.0,300.0,0.5),
+            clip("c",600.0,250.0,300.0,1.0),
+        ],25.3,850.0).unwrap();
+        let segments=map_cursor(&clicks(&[0,249,250,499,500]),&timeline,"recording.mp4");
+        assert_eq!(segments[1].clicks.iter().map(|p|p.x).collect::<Vec<_>>(),vec![0.249]);
+        assert_eq!(segments[2].clicks.iter().map(|p|p.x).collect::<Vec<_>>(),vec![0.250,0.499]);
     }
     #[test]
     fn repeated_clicks_retime_without_rounding_fractional_output_times() {

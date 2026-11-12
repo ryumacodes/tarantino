@@ -31,8 +31,7 @@ impl EditedRotation {
                     drawn.push(*first);
                 }
                 for segment in segments {
-                    let source_end = segment.source_start_ms
-                        + (segment.output_end_ms - segment.output_start_ms) * segment.rate;
+                    let source_end = segment.source_end_ms;
                     let from =
                         points.partition_point(|point| point.time_ms < segment.source_start_ms);
                     let to = points.partition_point(|point| point.time_ms < source_end);
@@ -88,5 +87,40 @@ impl EditedRotation {
                         (-rest / 120.0).exp()
                     }
             })) as f32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::video_processing::timeline::{EditClip, EditTimeline};
+
+    #[test]
+    fn fractional_trim_excludes_rotation_from_the_next_source_segment() {
+        let clip: EditClip = serde_json::from_value(serde_json::json!({
+            "id":"clip", "startTime":300.0, "duration":300.0,
+            "sourceIn":100.0, "sourceOut":250.0, "playbackRate":0.5,
+            "trackOrder":0, "muted":false
+        })).unwrap();
+        let timeline = EditTimeline::build(&[clip],25.3,600.0).unwrap();
+        for mode in ["horizontal", "directional"] {
+            let settings: CursorSettings = serde_json::from_value(serde_json::json!({
+                "rotate_while_moving":true, "rotation_mode":mode
+            })).unwrap();
+            let make = |outside_x| {
+                let points = [
+                    MotionPoint {time_ms:100.0,x:10.0,y:20.0},
+                    MotionPoint {time_ms:249.0,x:100.0,y:30.0},
+                    MotionPoint {time_ms:250.0,x:outside_x,y:200.0},
+                ];
+                let segments = super::super::edited_path::map_recording(&points,&timeline,"recording.mp4");
+                EditedRotation::new(&points,&segments,None,&settings,timeline.duration_ms).unwrap()
+            };
+            let mut left = make(-10000.0);
+            let mut right = make(10000.0);
+            for time in 0..575 {
+                assert_eq!(left.at(time as f64),right.at(time as f64),"{mode} at {time}ms");
+            }
+        }
     }
 }

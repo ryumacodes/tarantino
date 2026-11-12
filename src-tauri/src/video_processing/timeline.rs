@@ -30,6 +30,7 @@ pub struct EditSegment {
     pub output_start_ms: f64,
     pub output_end_ms: f64,
     pub source_start_ms: Option<f64>,
+    pub source_end_ms: Option<f64>,
     pub source_file_path: Option<String>,
     pub rate: f64,
     pub muted: bool,
@@ -42,6 +43,7 @@ pub struct EditSegment {
 pub struct EditTimeline {
     pub segments: Vec<EditSegment>,
     pub duration_ms: f64,
+    pub starts_after_cut: bool,
 }
 impl EditTimeline {
     pub fn build(clips: &[EditClip], trim_start_ms: f64, trim_end_ms: f64) -> Result<Self> {
@@ -103,6 +105,8 @@ impl EditTimeline {
                 output_end_ms: end - trim_start_ms,
                 source_start_ms: active
                     .map(|c| c.source_in + (start - c.start_time) * c.playback_rate),
+                source_end_ms: active
+                    .map(|c| c.source_in + (end - c.start_time) * c.playback_rate),
                 source_file_path: active.and_then(|c| c.source_file_path.clone()),
                 rate: active.map_or(1.0, |c| c.playback_rate),
                 mic_volume: active.map_or(1.0, |c| c.mic_volume),
@@ -112,7 +116,19 @@ impl EditTimeline {
                 disable_cursor_smoothing: active.is_some_and(|c| c.disable_cursor_smoothing),
             });
         }
+        let preceding = clips.iter().enumerate()
+            .filter(|(_, clip)| clip.start_time < trim_start_ms
+                && clip.start_time + clip.duration >= trim_start_ms)
+            .min_by_key(|(index, clip)| (clip.track_order, *index))
+            .map(|(_, clip)| clip);
+        let starts_after_cut = preceding.zip(segments.first()).is_some_and(|(clip, first)| {
+            first.source_start_ms.is_some_and(|source| {
+                let previous = clip.source_in + (trim_start_ms - clip.start_time) * clip.playback_rate;
+                (previous - source).abs() > 1e-7 || clip.source_file_path != first.source_file_path
+            })
+        });
         Ok(Self {
+            starts_after_cut,
             segments,
             duration_ms: trim_end_ms - trim_start_ms,
         })

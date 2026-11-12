@@ -18,7 +18,7 @@ pub fn map(input: &RecordingInput, timeline: &EditTimeline, recording: &Path) ->
     let mut seeds = Vec::new();
     let mut points = Vec::new();
     let mut sync = Vec::new();
-    let mut cuts = Vec::new();
+    let mut cuts = if timeline.starts_after_cut { vec![0.0] } else { Vec::new() };
     let mut instant = Vec::new();
     let canonical = std::fs::canonicalize(recording).ok();
     let matches = |path: &Option<String>| {
@@ -42,7 +42,7 @@ pub fn map(input: &RecordingInput, timeline: &EditTimeline, recording: &Path) ->
         };
         let start = segment.output_start_ms;
         let end = segment.output_end_ms;
-        let source_end = source_start + (end - start) * segment.rate;
+        let source_end = segment.source_end_ms.unwrap();
         if previous.is_some_and(|(output, source)| (output - start).abs() > 1e-7 || (source - source_start).abs() > 1e-7)
             || (previous.is_none() && start > 0.0)
         {
@@ -121,7 +121,8 @@ mod tests {
             let expected = &case["expected"];
             assert_eq!(
                 output.points.len(),
-                expected["points"].as_array().unwrap().len()
+                expected["points"].as_array().unwrap().len(),
+                "trim={} clips={}", case["trimStart"], case["clips"]
             );
             for (actual, wanted) in output
                 .points
@@ -219,6 +220,30 @@ mod tests {
             "hidden cursor still plans its source motion"
         );
     }
+    #[test]
+    fn fractional_trim_keeps_the_final_cursor_sample() {
+        let timeline = EditTimeline::build(&[
+            clip(0.0, 0.0, 300.0, 0.5),
+            clip(300.0, 100.0, 300.0, 0.5),
+            clip(600.0, 250.0, 300.0, 1.0),
+        ], 25.2, 850.0).unwrap();
+        assert_eq!(timeline.segments.last().unwrap().source_end_ms, Some(500.0));
+        let output = map(&recording(), &timeline, Path::new("recording.mp4"));
+        assert_eq!(output.points.last().unwrap().x, 500.0);
+        assert!((output.points.last().unwrap().time_ms - 824.8).abs() < 1e-9);
+    }
+
+    #[test]
+    fn trimming_at_a_cut_keeps_its_opening_anticipation_barrier() {
+        for (source, expected) in [(100.0, vec![0.0]), (150.0, vec![])] {
+            let clips = [clip(0.0, 0.0, 300.0, 0.5), clip(300.0, source, 300.0, 0.5)];
+            let timeline = EditTimeline::build(&clips, 300.0, 600.0).unwrap();
+            assert_eq!(map(&recording(), &timeline, Path::new("recording.mp4")).cuts, expected);
+            let inside = EditTimeline::build(&clips, 301.0, 600.0).unwrap();
+            assert!(!inside.starts_after_cut);
+        }
+    }
+
     #[test]
     fn fractional_speed_boundary_preserves_continuity() {
         let mut first = clip(0.0, 1000.1, 1000.2, 1.0);
