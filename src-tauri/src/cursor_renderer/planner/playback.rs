@@ -58,16 +58,19 @@ pub fn map(input: &RecordingInput, timeline: &EditTimeline, recording: &Path) ->
                 ..*point
             });
         }
+        let output_time = |time: f64| {
+            if time == source_end { end } else { start + (time - source_start) / segment.rate }
+        };
         let from = input.points.partition_point(|p| p.time_ms < source_start);
         let to = input.points.partition_point(|p| p.time_ms <= source_end);
         points.extend(input.points[from..to].iter().map(|p| Point {
-            time_ms: start + (p.time_ms - source_start) / segment.rate,
+            time_ms: output_time(p.time_ms),
             ..*p
         }));
         let from = input.sync.partition_point(|p| p.time_ms < source_start);
         let to = input.sync.partition_point(|p| p.time_ms <= source_end);
         sync.extend(input.sync[from..to].iter().map(|p| SyncPoint {
-            time_ms: start + (p.time_ms - source_start) / segment.rate,
+            time_ms: output_time(p.time_ms),
             ..*p
         }));
         if segment.disable_cursor_smoothing {
@@ -136,7 +139,7 @@ mod tests {
                 ] {
                     assert!(
                         (value - wanted[key].as_f64().unwrap()).abs() < 1e-9,
-                        "{key}"
+                        "{key}: actual={value} expected={} trim={} clips={}", wanted[key], case["trimStart"], case["clips"]
                     );
                 }
             }
@@ -220,6 +223,20 @@ mod tests {
             "hidden cursor still plans its source motion"
         );
     }
+    #[test]
+    fn fractional_trim_keeps_boundary_samples_in_stable_order() {
+        let timeline = EditTimeline::build(&[
+            clip(0.0, 0.0, 300.0, 0.3),
+            clip(300.0, 100.0, 300.0, 0.5),
+        ], 299.999, 600.0).unwrap();
+        let mut input = recording();
+        input.points.insert(1, Point {time_ms:90.0, x:90.0, y:20.0});
+        let output = map(&input, &timeline, Path::new("recording.mp4"));
+        let boundary = timeline.segments[0].output_end_ms;
+        let positions: Vec<_> = output.points.iter().filter(|p|p.time_ms == boundary).map(|p|p.x).collect();
+        assert_eq!(positions, vec![100.0, 90.0, 100.0]);
+    }
+
     #[test]
     fn fractional_trim_keeps_the_final_cursor_sample() {
         let timeline = EditTimeline::build(&[

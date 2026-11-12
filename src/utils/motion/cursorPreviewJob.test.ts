@@ -21,7 +21,7 @@ it('cancels active native work without waiting for its result', async () => {
   const end = vi.fn(async () => {});
   const job = new CursorPreviewJob(async () => 'active', end);
   const running = job.run(task);
-  await Promise.resolve();
+  await vi.waitFor(() => expect(finish).toBeDefined());
   await job.cancel();
   expect(end).toHaveBeenCalledExactlyOnceWith('active');
   finish();
@@ -38,4 +38,35 @@ it('releases failed work and does not register tasks cancelled while queued', as
   await job.cancel();
   await job.run(async () => {});
   expect(begin).toHaveBeenCalledTimes(1);
+});
+
+
+it('releases the replacement when restarted work finishes', async () => {
+  const end = vi.fn(async () => {});
+  const begin = vi.fn().mockResolvedValueOnce('first').mockImplementationOnce(async () => {
+    expect(end).not.toHaveBeenCalled();
+    return 'second';
+  });
+  const job = new CursorPreviewJob(begin, end);
+  await job.run(async id => {
+    expect(id).toBe('first');
+    expect(await job.replace()).toBe('second');
+    expect(end).toHaveBeenCalledExactlyOnceWith('first');
+  });
+  expect(end.mock.calls).toEqual([['first'], ['second']]);
+});
+
+it('releases a replacement registered after cancellation without returning its id', async () => {
+  let registered!: (id: string) => void;
+  const begin = vi.fn().mockResolvedValueOnce('first').mockImplementationOnce(() => new Promise<string>(resolve => {registered = resolve;}));
+  const end = vi.fn(async () => {});
+  const job = new CursorPreviewJob(begin, end);
+  await job.run(async () => {
+    const replacing = job.replace();
+    await vi.waitFor(() => expect(registered).toBeDefined());
+    await job.cancel();
+    registered('second');
+    expect(await replacing).toBeNull();
+  });
+  expect(end.mock.calls).toEqual([['first'], ['second']]);
 });

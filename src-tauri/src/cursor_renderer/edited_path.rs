@@ -72,7 +72,8 @@ pub(crate) fn map_recording(points:&[MotionPoint],timeline:&EditTimeline,recordi
         let first=at(points,first_time)?;
         let last=at(points,end)?;
         let mapped=|point:MotionPoint|MotionPoint {
-            time_ms:segment.output_start_ms+(point.time_ms-start)/segment.rate,..point
+            time_ms:if point.time_ms==end {segment.output_end_ms}
+                else {segment.output_start_ms+(point.time_ms-start)/segment.rate},..point
         };
         let mut output=vec![mapped(first)];
         let from=points.partition_point(|point|point.time_ms<=first_time);
@@ -95,6 +96,13 @@ mod tests {
     }
     fn points()->Vec<MotionPoint> {
         (0..=8).map(|i|MotionPoint{time_ms:i as f64*250.0,x:i as f64*100.0,y:20.0}).collect()
+    }
+    #[test]
+    fn fractional_trim_maps_the_final_target_to_the_segment_end() {
+        let timeline=EditTimeline::build(&[clip("slow",0.0,0.0,300.0,0.3)],299.999,300.0).unwrap();
+        let segments=map_recording(&points(),&timeline,"recording.mp4");
+        let segment=&segments[0];
+        assert_eq!(segment.points.last().unwrap().time_ms,segment.output_end_ms);
     }
     #[test]
     fn repeated_source_has_separate_output_paths_and_speed() {

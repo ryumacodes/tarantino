@@ -20,8 +20,10 @@ static JOBS: LazyLock<Mutex<HashMap<String, Job>>> = LazyLock::new(Default::defa
 
 pub(super) fn begin(owner: &str) -> String {
     let id = uuid::Uuid::new_v4().to_string();
-    let job = Job { id: id.clone(), control: Arc::new(Control::default()) };
-    if let Some(old) = JOBS.lock().insert(owner.into(), job) {
+    let mut jobs = JOBS.lock();
+    let input = jobs.get(owner).map_or_else(Default::default, |old| old.control.input.fork());
+    let job = Job { id: id.clone(), control: Arc::new(Control { input, ..Default::default() }) };
+    if let Some(old) = jobs.insert(owner.into(), job) {
         old.control.cancelled.store(true, Ordering::Relaxed);
     }
     id
@@ -74,6 +76,45 @@ mod tests {
         assert!(current.check().is_err());
         assert!(acquire(&second).is_err());
     }
+    #[test]
+    fn replacement_reuses_live_input_but_not_cancellation_or_other_windows() {
+        let path = std::env::temp_dir().join(format!("{}.json", uuid::Uuid::new_v4()));
+        std::fs::write(&path, "[1]").unwrap();
+        let owner = uuid::Uuid::new_v4().to_string();
+        let first = begin(&owner);
+        let old = acquire(&first).unwrap();
+        let input = old.read_input(&path, false).unwrap();
+        let second = begin(&owner);
+        let current = acquire(&second).unwrap();
+        assert!(old.check().is_err());
+        assert!(Arc::ptr_eq(&input, &current.read_input(&path, true).unwrap()));
+        let other = begin(&uuid::Uuid::new_v4().to_string());
+        assert!(!Arc::ptr_eq(&input, &acquire(&other).unwrap().read_input(&path, false).unwrap()));
+        std::fs::write(&path, "[1,2]").unwrap();
+        assert_eq!(*current.read_input(&path, false).unwrap(), serde_json::json!([1,2]));
+        finish(&second);
+        finish(&other);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    #[ignore = "opt-in recorded preview replacement input profile"]
+    fn recorded_preview_replacement_input_profile() {
+        let path = std::path::PathBuf::from(std::env::var("TARANTINO_CURSOR_PROFILE_INPUT").unwrap());
+        let owner = uuid::Uuid::new_v4().to_string();
+        let first = begin(&owner);
+        let old = acquire(&first).unwrap();
+        let start = std::time::Instant::now();
+        let input = old.read_input(&path, false).unwrap();
+        let initial_ms = start.elapsed().as_secs_f64()*1000.0;
+        let start = std::time::Instant::now();
+        let second = begin(&owner);
+        let reused = acquire(&second).unwrap().read_input(&path, false).unwrap();
+        assert!(Arc::ptr_eq(&input, &reused));
+        println!("REPLACEMENT_INPUT initial_ms={initial_ms:.3} reused_ms={:.3}",start.elapsed().as_secs_f64()*1000.0);
+        finish(&second);
+    }
+
     #[test]
     fn cancellation_is_window_scoped_and_completion_releases_the_entry() {
         let a = uuid::Uuid::new_v4().to_string();

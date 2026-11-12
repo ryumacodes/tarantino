@@ -118,3 +118,47 @@ async fn contiguous_trim_prefix_uses_the_returned_trajectory_clock() {
     }
     std::fs::remove_file(path).unwrap();
 }
+
+#[tokio::test]
+#[ignore = "opt-in recorded seek replacement command profile"]
+async fn recorded_seek_replacement_preserves_frames_and_cancels_full_work() {
+    let path = std::env::var("TARANTINO_CURSOR_PROFILE_INPUT").unwrap();
+    let duration: u64 = std::env::var("TARANTINO_CURSOR_PROFILE_DURATION").unwrap().parse().unwrap();
+    let data: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let width = data["display_width"].as_u64().unwrap() as u32;
+    let height = data["display_height"].as_u64().unwrap() as u32;
+    drop(data);
+    assert!(duration > 37000);
+    for edited in [false, true] {
+        let run = |until, job| {
+            let edit = edited.then(|| serde_json::from_value(json!({
+                "recordingPath":"recording.mp4","trimStart":0,"trimEnd":duration/2,
+                "clips":[{"id":"whole","startTime":0,"duration":duration as f64/2.0,
+                    "sourceIn":0,"sourceOut":duration,"playbackRate":2,"trackOrder":0,"muted":false}]
+            })).unwrap());
+            compute_cursor_trajectory(path.clone(),duration,120,width,height,
+                1.0,false,2000,false,0,false,None,None,Some(470.0),Some(70.0),Some(3.0),
+                Some(0.0),Some(true),Some(30.0),Some("horizontal".into()),edit,None,Some(false),None,until,job)
+        };
+        let owner = uuid::Uuid::new_v4().to_string();
+        let first = crate::commands::cursor_preview_jobs::begin(&owner);
+        run(Some(5000),Some(first.clone())).await.unwrap();
+        let full = tokio::spawn(run(None,Some(first)));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(!full.is_finished(),"full preparation finished before the seek");
+        let start = std::time::Instant::now();
+        let second = crate::commands::cursor_preview_jobs::begin(&owner);
+        let error = full.await.unwrap().unwrap_err();
+        assert!(error.contains("Cursor preview cancelled"),"{error}");
+        let cancelled_ms = start.elapsed().as_secs_f64()*1000.0;
+        let replacement = run(Some(37000),Some(second.clone())).await.unwrap();
+        let ready_ms = start.elapsed().as_secs_f64()*1000.0;
+        crate::commands::cursor_preview_jobs::finish(&second);
+        let reference = run(Some(37000),None).await.unwrap();
+        assert_eq!(replacement,reference,"edited={edited}");
+        let value: Value = serde_json::from_str(&replacement).unwrap();
+        let frames = value.get("frames").unwrap_or(&value).as_array().unwrap();
+        assert_eq!(frames.len(),4440);
+        println!("SEEK_REPLACEMENT edited={edited} cancelled_ms={cancelled_ms:.3} ready_ms={ready_ms:.3} frames={} bytes={}",frames.len(),replacement.len());
+    }
+}

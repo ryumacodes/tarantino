@@ -140,10 +140,7 @@ fn prepare_input(
             || timeline.is_none_or(|timeline| {
                 timeline.segments.iter().all(|segment| {
                     segment.source_start_ms.is_none_or(|source| {
-                        source >= start
-                            && source
-                                + (segment.output_end_ms - segment.output_start_ms) * segment.rate
-                                <= end
+                        source >= start && segment.source_end_ms.unwrap() <= end
                     })
                 })
             })
@@ -291,11 +288,34 @@ mod tests {
                 &settings,spring,Some(&check),None).unwrap().unwrap();
             let total_ms = start.elapsed().as_secs_f64()*1000.0;
             let checkpoints = checkpoints.into_inner();
-            assert_eq!(checkpoints.len(),(duration/10_000.0).floor() as usize+1);
-            let first_ready_ms = checkpoints.get(1).map_or(total_ms,|time|time.as_secs_f64()*1000.0);
+            let chunks = (duration/10_000.0).floor() as usize+1;
+            assert_eq!(checkpoints.len(),chunks+1);
+            let first_ready_ms = checkpoints.get(2).map_or(total_ms,|time|time.as_secs_f64()*1000.0);
             assert!(planned.at(0.0).iter().chain(planned.at(duration).iter()).all(|value|value.is_finite()));
             println!("CURSOR_STARTUP run={run} input_bytes={} parse_ms={parsed_ms:.3} first_chunk_ready_ms={first_ready_ms:.3} full_plan_ms={total_ms:.3} chunks={}",
-                bytes.len(),checkpoints.len());
+                bytes.len(),chunks);
+        }
+    }
+
+    #[test]
+    fn fractional_trim_keeps_the_opening_source_window() {
+        let value = serde_json::json!({"display_width":100,"display_height":100,
+            "mouse_events":[
+                {"timestamp":0,"x":10,"y":50,"event_type":"Move"},
+                {"timestamp":20,"x":80,"y":50,"event_type":"Move"},
+                {"timestamp":250,"x":30,"y":50,"event_type":"Move"}
+            ]});
+        let clips = serde_json::from_value::<Vec<crate::video_processing::timeline::EditClip>>(serde_json::json!([
+            {"id":"a","startTime":0,"duration":300,"sourceIn":0,"sourceOut":90,"playbackRate":0.3,"trackOrder":0,"muted":false},
+            {"id":"b","startTime":300,"duration":300,"sourceIn":100,"sourceOut":250,"playbackRate":0.5,"trackOrder":0,"muted":false}
+        ])).unwrap();
+        let settings = serde_json::from_value(serde_json::json!({"follow_hover":false})).unwrap();
+        for trim in [25.2,25.3] {
+            let timeline = EditTimeline::build(&clips,trim,600.0).unwrap();
+            let prepared = prepare_from_value(&value,Path::new("unused.json"),(100,100),None,
+                Some(&timeline),Path::new("unused.mp4"),600.0,&settings,
+                SpringConfig {tension:470.0,friction:70.0,mass:0.0},None,None).unwrap().unwrap();
+            assert_eq!(prepared.at(0.0)[0],0.8,"trim={trim}");
         }
     }
 

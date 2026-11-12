@@ -286,7 +286,15 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
           const outputDuration = edit ? edit.trimEnd - edit.trimStart : duration;
           return loadCursorPreview(outputDuration, currentTime,
             previewUntilMs => invoke<string>('compute_cursor_trajectory', {...request, previewUntilMs, previewJobId}),
-            publish, () => cancelled);
+            publish, () => cancelled, {
+              subscribe: listener => useEditorStore.subscribe((state, previous) => {
+                if (state.playbackRevision !== previous.playbackRevision && state.currentTime !== previous.currentTime) listener();
+              }),
+              restart: async () => {
+                const replacement = await job.replace();
+                if (replacement !== null) previewJobId = replacement;
+              },
+            });
         }));
       } catch (error) {
         if (!cancelled) console.error('[CursorEffect] Failed to compute cursor trajectory:', error);
