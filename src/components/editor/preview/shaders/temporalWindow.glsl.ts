@@ -26,6 +26,17 @@ vec4 sourceColor(vec2 uv) {
   float lod=max(0.0,log2(max(footprint.x,footprint.y)));
   return textureLod(sourceTexture,(sourceTransform*vec3(uv.x,1.0-uv.y,1.0)).xy,lod);
 }
+vec4 sourceSegment(vec2 uv,vec2 delta,int count) {
+  uv=clamp(uv,vec2(0.0),vec2(1.0));
+  vec2 footprint=sourceSize/shutterStart.zw;
+  float lod=max(0.0,log2(max(footprint.x,footprint.y)));
+  vec2 texels=delta*sourceSize;
+  vec2 along=delta/float(count);
+  vec2 across=vec2(-texels.y,texels.x)/max(length(texels),0.000001)*exp2(lod)/sourceSize;
+  return textureGrad(sourceTexture,(sourceTransform*vec3(uv.x,1.0-uv.y,1.0)).xy,
+    (sourceTransform*vec3(along*vec2(1.0,-1.0),0.0)).xy,
+    (sourceTransform*vec3(across*vec2(1.0,-1.0),0.0)).xy);
+}
 int shutterFetchCount(vec2 delta) {
   vec2 texelsPerPixel=sourceSize/shutterStart.zw;
   float pixelsPerTexel=inversesqrt(max(max(texelsPerPixel.x*texelsPerPixel.x,texelsPerPixel.y*texelsPerPixel.y),1e-8));
@@ -55,7 +66,7 @@ vec4 displayContent(vec2 pixel) {
     for(int tap=0;tap<16;tap++) {
       if(tap>=count) break;
       vec2 uv=clamp(mix(a,b,(float(tap)+(slow?0.5:shutterSamplePhase(pixel)))/float(count)),vec2(0.0),vec2(1.0));
-      vec4 value=sourceColor(uv);
+      vec4 value=slow?sourceColor(uv):sourceSegment(uv,b-a,count);
       content+=vec4(value.rgb*value.rgb*value.a,value.a)/float(count);
     }
     float radius=min(cornerRadius,min(inputSize.x,inputSize.y)*0.5);
@@ -117,7 +128,7 @@ void main() {
         if(tap>=count) break;
         vec2 uv=clamp(mix(a,b,(float(tap)+shutterSamplePhase(pixel))/float(count)),vec2(0.0),vec2(1.0));
         vec3 bottomUv=vec3(uv.x,1.0-uv.y,1.0);
-        vec4 color=sourceColor(uv);
+        vec4 color=sourceSegment(uv,b-a,count);
         float mask=texture(maskTexture,(maskTransform*bottomUv).xy).r;
         float opacity=color.a*mask;
         content+=vec4(color.rgb*color.rgb*opacity,opacity)/float(count);

@@ -483,7 +483,6 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
       u.get('uCursorClipBefore')!.value.fromArray(shutter.clipBefore);
       u.get('uCursorClipNow')!.value.fromArray(shutter.clipNow);
     }
-    effect.prepare(gl);
     priorTrajectory.current=opacity>.01?trajectory:null;
 
 

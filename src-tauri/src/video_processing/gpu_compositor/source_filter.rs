@@ -12,7 +12,7 @@ impl GpuCompositorConfig {
     pub(crate) fn crop_sampling(&self, crop:crate::video_processing::source_crop::SourceCrop,
         source:[u32;2], cameras:&[ZoomFrameState], has_source_masks:bool,
     ) -> Result<crate::video_processing::source_crop::CropSampling> {
-        if has_source_masks {
+        if has_source_masks || self.motion_blur_enabled {
             return crop.sampling(source[0],source[1],u32::MAX);
         }
         let logical=crop.geometry(source[0],source[1])?;
@@ -51,7 +51,7 @@ fn export_crop_plan_preserves_mask_filtering_and_shutter_bounds() {
     let cameras=[ZoomFrameState{rect:Some([0.0,0.0,0.9,0.8]),scale:0.9,center_x:0.5,center_y:0.5},
         ZoomFrameState{rect:Some([0.0,0.0,2.1,1.1]),scale:2.1,center_x:0.5,center_y:0.5}];
     let plan=config.crop_sampling(crop,[512,512],&cameras,false).unwrap();
-    assert!(plan.decode.width*plan.decode.height<512*512/2);
+    assert_eq!([plan.decode.width,plan.decode.height],[512,512]);
     assert_eq!(plan.decode.x%8,0);
     for (source,masks) in [([511,509],false),([512,512],true)] {
         let full=config.crop_sampling(crop,source,&cameras,masks).unwrap();
@@ -99,7 +99,9 @@ impl GpuCompositor {
         if let Some(pyramid)=&self.source_pyramid {
             let [width,height]=self.config.source_size.map(|value|value as f32);
             let rect=self.config.source_uv;
-            pyramid.encode_through(encoder,sampled_level([width*rect[2],height*rect[3]],before,now));
+            let level=super::shutter_mips::level([width*rect[2],height*rect[3]],before,now,
+                [self.config.output_width as f32,self.config.output_height as f32]);
+            pyramid.encode_through(encoder,level);
         }
     }
 
@@ -107,7 +109,7 @@ impl GpuCompositor {
         let [width, height] = self.config.source_size;
         let view = self.config.source_uv;
         if self.source_pyramid.is_none()
-            && (width as f32 * view[2] > self.config.input_width as f32
+            && (self.config.motion_blur_enabled || width as f32 * view[2] > self.config.input_width as f32
                 || height as f32 * view[3] > self.config.input_height as f32)
         {
             let source = if self.mask_placement.is_some() {

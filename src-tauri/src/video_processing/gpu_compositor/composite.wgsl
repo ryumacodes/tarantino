@@ -119,6 +119,17 @@ fn sample_source_texture(uv: vec2<f32>) -> vec4<f32> {
     return textureSampleLevel(source_tex, bilinear_sampler, source_view().xy + uv * source_view().zw, source_sampling_lod());
 }
 
+fn sample_source_segment(uv:vec2<f32>,delta:vec2<f32>,count:i32) -> vec4<f32> {
+    let view=source_view();
+    let size=vec2<f32>(textureDimensions(source_tex))*view.zw;
+    let texels=delta*size;
+    let along=delta/f32(count);
+    let across=vec2<f32>(-texels.y,texels.x)/max(length(texels),0.000001)
+        *exp2(source_sampling_lod())/size;
+    return textureSampleGrad(source_tex,cursor_motion_sampler,view.xy+uv*view.zw,
+        along*view.zw,across*view.zw);
+}
+
 fn sample_zoomed(uv: vec2<f32>) -> vec4<f32> {
     let scale = u.zoom_scale;
     if (scale <= 1.001) {
@@ -189,7 +200,7 @@ fn sample_with_motion_blur(uv: vec2<f32>) -> vec4<f32> {
     var color=vec4<f32>(0.0);
     for (var tap=0;tap<count;tap=tap+1) {
         let pos=clamp(mix(a,b,(f32(tap)+window_sample_phase(pixel))/f32(count)),vec2<f32>(0.0),vec2<f32>(1.0));
-        let value=sample_source_texture(pos);
+        let value=sample_source_segment(pos,b-a,count);
         color=color+vec4<f32>(value.rgb*value.rgb*value.a,value.a)/f32(count);
     }
     if (color.a<=0.0) {return vec4<f32>(0.0);}

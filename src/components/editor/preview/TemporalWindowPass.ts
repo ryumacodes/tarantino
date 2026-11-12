@@ -2,6 +2,7 @@ import {
   Camera, GLSL3, Matrix3, Mesh, NoBlending, PlaneGeometry, RawShaderMaterial,
   Scene, Texture, Vector2, Vector4, WebGLRenderer, WebGLRenderTarget,
 } from 'three';
+import { shutterMipLevel } from '../../../utils/motion/shutterMipLevel';
 import { LoupePyramid } from './LoupePyramid';
 import { temporalWindowShader } from './shaders/temporalWindow.glsl';
 
@@ -66,14 +67,15 @@ export class TemporalWindowPass {
     const [sourceWidth,sourceHeight]=input.sourceSize.map(Math.round);
     const canonical=u.sourceTransform.value.elements.every((value:number,index:number)=>
       Math.abs(value-Number(index%4===0))<1e-10);
+    const moving=input.before.some((value,index)=>Math.abs(value-input.now[index])>0.01);
     const filtered=input.source.mipmaps.length>1&&canonical;
-    if(!filtered&&(sourceWidth>input.inputSize[0]||sourceHeight>input.inputSize[1])) {
+    if(moving||(!filtered&&(sourceWidth>input.inputSize[0]||sourceHeight>input.inputSize[1]))) {
       if(this.sourcePyramid?.width!==sourceWidth||this.sourcePyramid.height!==sourceHeight) {
         this.sourcePyramid?.dispose();this.sourcePyramid=new LoupePyramid(sourceWidth,sourceHeight);
       }
-      const footprint=Math.max(sourceWidth/Math.min(input.before[2],input.now[2]),
-        sourceHeight/Math.min(input.before[3],input.now[3]));
-      const lastLevel=Math.floor(Math.max(0,Math.log2(footprint)))+1;
+      const lastLevel=shutterMipLevel(input.sourceSize,input.before,input.now,[width,height],
+        u.fetchBudget.value,u.fetchSpan.value);
+      this.sourcePyramid.target.texture.anisotropy=Math.min(4,renderer.capabilities.getMaxAnisotropy());
       this.sourcePyramid.update(renderer,input.source,u.sourceTransform.value,lastLevel);
       u.sourceTexture.value=this.sourcePyramid.target.texture;u.sourceTransform.value.identity();
     }

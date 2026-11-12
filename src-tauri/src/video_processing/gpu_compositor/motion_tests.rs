@@ -180,3 +180,35 @@ fn display_pan_samples_the_trailing_camera_without_blurring_the_frame() {
         assert!((subtle[(y*160+80)*4] as i32-242).abs()<=1,"slow pan must not carry a dither grid");
     }
 }
+
+#[test]
+#[ignore="native GPU; shutter footprints filter detail between temporal taps"]
+fn screen_motion_filters_between_taps_and_restores_static_detail() {
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":128,"height":128},"frame_rate":60,
+        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false}
+    })).unwrap();
+    let source:Vec<u8>=(0..512*512).flat_map(|i| {
+        let value=if (i%512+i/512)%2==0 {0} else {255};[value,value,value,255]
+    }).collect();
+    for window in [false,true] {
+        let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+        config.source_size=[512,512];config.window_mode=window;
+        config.motion_blur_enabled=true;config.motion_blur_pan_intensity=1.0;
+        config.motion_blur_zoom_intensity=0.0;
+        let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
+        let before=ZoomFrameState{rect:Some([-1.00390625,-1.00390625,4.0,4.0]),scale:4.0,center_x:0.3759765625,center_y:0.3759765625};
+        let now=ZoomFrameState{rect:Some([-2.00390625,-1.00390625,4.0,4.0]),center_x:0.6259765625,..before.clone()};
+        let still=compositor.composite_frame(&source,&now,None).unwrap();
+        compositor.reset_motion_history();
+        compositor.composite_frame(&source,&before,None).unwrap();
+        let moving=compositor.composite_frame(&source,&now,None).unwrap();
+        for y in 32..96 {for x in 32..96 {
+            let pixel=&moving[(y*128+x)*4..][..4];
+            assert!(pixel[..3].iter().all(|v|v.abs_diff(128)<=2),"window={window}, ({x},{y}): {pixel:?}");
+            assert_eq!(pixel[3],255);
+        }}
+        assert!(still!=moving,"fixture must distinguish static detail from motion filtering");
+        assert_eq!(still,compositor.composite_frame(&source,&now,None).unwrap());
+    }
+}

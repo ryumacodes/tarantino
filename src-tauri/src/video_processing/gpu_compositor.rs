@@ -5,6 +5,7 @@ use image::RgbaImage;
 mod shortcuts;
 mod masks;
 mod source_filter;
+mod shutter_mips;
 mod config;
 mod init;
 mod shader;
