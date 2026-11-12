@@ -72,7 +72,8 @@ mod tests {
         struct Config { tension:f64,friction:f64,mass:f64 }
         #[derive(serde::Deserialize)]
         struct Case { config:Config,blocks:Vec<super::super::ZoomBlock>,samples:Vec<[f64;4]>,
-            source:Option<ScreenRect>,area:Option<ScreenRect>,window:Option<bool> }
+            source:Option<ScreenRect>,area:Option<ScreenRect>,window:Option<bool>,
+            logical_size:Option<(f64,f64)>,#[serde(default)] points:Vec<[f64;3]> }
         let path=std::env::var("TARANTINO_RECT_PIPELINE_CASES").unwrap();
         let cases:Vec<Case>=serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         assert!(!cases.is_empty());
@@ -84,8 +85,39 @@ mod tests {
                     (Some(source),Some(zoom_area))=>super::super::CameraViewport{source,zoom_area,..Default::default()},
                     _=>super::super::CameraViewport::default(),
                 };
+                let activity=case.logical_size.map(|size| {
+                    let events=case.points.iter().map(|p|crate::cursor_renderer::CursorEvent {
+                        timestamp_ms:p[0] as u64,x:p[1],y:p[2],is_click:false,is_release:false
+                    }).collect::<Vec<_>>();
+                    let settings=serde_json::from_value(serde_json::json!({})).unwrap();
+                    crate::video_processing::camera_activity::Tracks::prepare(&events,size,
+                        (size.0 as u32,size.1 as u32),&settings,3000,std::path::Path::new("source.mp4")).unwrap()
+                });
                 for fps in [24.0,60.0,120.0,144.0] {
-                    let frames=super::super::simulate_zoom_trajectory_in_viewport(&case.blocks,&[],&config,true,"focused",fps,3000,window,viewport,None);
+                    let frames=super::super::simulate_zoom_trajectory_in_viewport(&case.blocks,&[],&config,true,"focused",fps,3000,window,viewport,
+                        activity.as_ref().map(|track|super::super::targets::CameraActivity{events:&[],smooth:true,prepared:Some(track)}));
+                    if fps == super::super::CAMERA_SIMULATION_FPS {
+                        for rate in [0.25,0.5,1.0,1.25,2.0,8.0,24.0] {
+                            let duration=(2500.0-123.4)/rate;
+                            let clips:Vec<crate::video_processing::timeline::EditClip>=serde_json::from_value(serde_json::json!([{
+                                "id":"speed","startTime":0,"duration":duration,"sourceIn":123.4,
+                                "sourceOut":2500,"playbackRate":rate,"trackOrder":0,"muted":false
+                            }])).unwrap();
+                            let plan=crate::video_processing::timeline::EditTimeline::build(&clips,0.0,duration).unwrap();
+                            for index in 0..(duration*60.0/1000.0).ceil() as usize {
+                                let output_time=index as f64*1000.0/60.0;
+                                let (_,source_time)=plan.source_at(output_time).unwrap();
+                                let position=(123.4+output_time*rate)*60.0/1000.0;
+                                let lower=position.floor() as usize;
+                                let fraction=position-lower as f64;
+                                let actual=super::super::sample_camera_frame(&frames,source_time).unwrap().rect.unwrap();
+                                for (axis,value) in actual.into_iter().enumerate() {
+                                    let expected=case.samples[lower][axis]+(case.samples[lower+1][axis]-case.samples[lower][axis])*fraction;
+                                    assert!((value-expected).abs()<1e-9,"rate={rate} time={output_time} axis={axis}: {value} != {expected}");
+                                }
+                            }
+                        }
+                    }
                     for (index,frame) in frames.iter().enumerate() {
                         let position=index as f64*60.0/fps;
                         let lower=position.floor() as usize;

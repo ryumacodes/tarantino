@@ -264,7 +264,18 @@ mod tests {
             let events=fixture.events.iter().map(|p|CursorEvent {timestamp_ms:p.time,x:p.x,y:p.y,
                 is_click:p.kind=="mouseDown",is_release:p.kind=="mouseUp"}).collect::<Vec<_>>();
             let actual=fallback(CameraActivity{events:&events,smooth:fixture.smooth,prepared:None},fixture.time as f64);
-            assert_eq!(actual.map(|e|(e.timestamp_ms,e.x,e.y)),fixture.expected.map(|p|(p.time,p.x,p.y)));
+            assert_eq!(actual.map(|e|(e.timestamp_ms,e.x,e.y)),fixture.expected.as_ref().map(|p|(p.time,p.x,p.y)));
+            let settings=serde_json::from_value(serde_json::json!({
+                "trim_start":events.first().map_or(0,|e|e.timestamp_ms)
+            })).unwrap();
+            for size in [(1470.0,956.0),(960.0,540.0)] {
+                let logical=events.iter().map(|e|CursorEvent{x:e.x*size.0,y:e.y*size.1,..e.clone()}).collect::<Vec<_>>();
+                let tracks=crate::video_processing::camera_activity::Tracks::prepare(
+                    &logical,size,(2940,1912),&settings,2000,std::path::Path::new("source.mp4")).unwrap();
+                let actual=tracks.fallback(fixture.time as f64,fixture.smooth);
+                assert_eq!(actual.map(|e|(e.time,e.x,e.y)),fixture.expected.as_ref().map(|p|
+                    (p.time as f64,p.x*size.0,p.y*size.1)));
+            }
         }
     }
 

@@ -21,7 +21,7 @@ import { CAMERA_SIMULATION_FPS, sampleCameraFrame } from '../../../utils/motion/
 import { resolveCursorSpring } from '../../../utils/motion/cursorStyle';
 import { cursorFragmentShader } from './shaders/cursor.glsl';
 
-import { sampleCursorFrame } from '../../../utils/motion/cursorSampling';
+import { sampleCursorFrame, cursorSegmentIndex } from '../../../utils/motion/cursorSampling';
 
 interface TrailPosition {
   x: number;
@@ -387,7 +387,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     const adjustedCursorScale = vs.cursorScale * densityScale * windowZoomScale;
 
     if (vs.cursorTrailEnabled && opacity > 0.01) {
-      const segmentIndex=clock.outputTime?clock.segments?.findIndex(([start,end])=>start<=currentTime && currentTime<end)??0:0;
+      const segmentIndex=clock.outputTime && clock.segments ? cursorSegmentIndex(clock.segments,currentTime) : 0;
       const segmentStart=clock.segments?.[segmentIndex]?.[0]??0;
       trailHistory.current=cursorTrailSamples(trajectory,currentTime,segmentStart,vs.cursorTrailLength,clock.entryTimes?.[segmentIndex]??Infinity).map(point=>{
         let pose=transform;

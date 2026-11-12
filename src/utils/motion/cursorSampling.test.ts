@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { sampleCursorFrame } from './cursorSampling';
+import { sampleCursorFrame, cursorSegmentIndex } from './cursorSampling';
 
 const frames = [
   [0, 0, 1, 0, 0, .2, .3, 0, 0, 0],
@@ -51,4 +51,14 @@ it('retains spring overshoot until rendering so fractional fades stay linear', (
   expect(midpoint[2]).toBeCloseTo(.1, 12);
   expect(midpoint[8]).toBeCloseTo(.2, 12);
   expect(sampleCursorFrame(samples, 0)[2]).toBe(-.1);
+});
+
+it('finds sorted edit segments across fractional cuts, gaps and backwards seeks', () => {
+  const segments = Array.from({length: 2048}, (_, i) => [i * 20.125, i * 20.125 + (i % 3 ? 20.125 : 10.25)]);
+  const times = [-1, NaN, Infinity, 0, ...segments.flatMap(([start, end]) =>
+    [start - .001, start, start + .001, end - .001, end, end + .001])];
+  for (const time of times.reverse()) {
+    expect(cursorSegmentIndex(segments, time)).toBe(segments.findIndex(([start, end]) => start <= time && time < end));
+  }
+  expect(cursorSegmentIndex([], 0)).toBe(-1);
 });
