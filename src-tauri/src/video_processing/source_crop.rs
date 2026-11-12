@@ -126,6 +126,9 @@ pub fn remap_motion(crop: Option<PixelCrop>, events: &mut [crate::cursor_rendere
     }
     for block in blocks.iter_mut().filter(|block| !block.is_manual) {
         (block.center_x,block.center_y) = crop.source_point(block.center_x,block.center_y);
+        for center in &mut block.centers {
+            (center.x,center.y) = crop.source_point(center.x,center.y);
+        }
     }
 }
 
@@ -138,6 +141,36 @@ impl PixelCrop {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cropped_typing_follows_the_same_path_as_crop_local_caret_points() {
+        use crate::{cursor_renderer::SpringConfig,video_processing::zoom_trajectory::simulate_zoom_trajectory};
+        let crop=SourceCrop{x:0.5,y:0.25,width:0.5,height:0.5}.resolve(1920,1080).unwrap();
+        let original:super::super::types::ZoomBlock=serde_json::from_value(serde_json::json!({
+            "start_time_ms":0,"end_time_ms":1000,"zoom_level":2,
+            "center_x":0.7,"center_y":0.5,"kind":"typing",
+            "centers":[{"time":100,"x":0.65,"y":0.45},{"time":800,"x":0.85,"y":0.55}]
+        })).unwrap();
+        let mut actual=[original.clone()];
+        remap_motion(Some(crop),&mut [],&mut actual);
+        let mut expected=original.clone();
+        expected.center_x=0.4;expected.center_y=0.5;
+        expected.centers[0].x=0.3;expected.centers[0].y=0.4;
+        expected.centers[1].x=0.7;expected.centers[1].y=0.6;
+        let spring=SpringConfig{tension:250.0,friction:40.0,mass:2.25};
+        for window in [false,true] {for fps in [30.0,60.0,120.0] {
+            let actual=simulate_zoom_trajectory(&actual,&[],&spring,true,"focused",fps,1200,window);
+            let expected=simulate_zoom_trajectory(&[expected.clone()],&[],&spring,true,"focused",fps,1200,window);
+            for (a,b) in actual.iter().zip(&expected) {
+                for (a,b) in a.sample().into_iter().zip(b.sample()) {
+                    assert!((a-b).abs()<1e-10,"window={window}, fps={fps}: {a} != {b}");
+                }
+            }
+        }}
+        let mut manual=[original];manual[0].is_manual=true;
+        remap_motion(Some(crop),&mut [],&mut manual);
+        assert_eq!((manual[0].center_x,manual[0].centers[0].x),(0.7,0.65));
+    }
+
     #[test]
     fn source_targets_move_into_crop_space_while_manual_anchors_stay_relative() {
         let crop = SourceCrop{x:0.5,y:0.0,width:0.5,height:1.0}.resolve(128,64).unwrap();

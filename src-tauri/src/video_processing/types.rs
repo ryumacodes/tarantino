@@ -111,15 +111,26 @@ pub struct AudioSettingsExport {
 pub struct ZoomCenter {
     pub x: f64,
     pub y: f64,
-    pub time: u64,
+    #[serde(deserialize_with = "source_time")]
+    pub time: f64,
+}
+
+fn source_time<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
+    let time = f64::deserialize(deserializer)?;
+    if !time.is_finite() || time < 0.0 {
+        return Err(serde::de::Error::custom("Source time must be finite and nonnegative"));
+    }
+    Ok(time)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZoomBlock {
     #[serde(default)]
     pub is_manual: bool,
-    pub start_time_ms: u64,
-    pub end_time_ms: u64,
+    #[serde(deserialize_with = "source_time")]
+    pub start_time_ms: f64,
+    #[serde(deserialize_with = "source_time")]
+    pub end_time_ms: f64,
     pub zoom_level: f64,
     pub center_x: f64,
     pub center_y: f64,
@@ -238,10 +249,10 @@ pub fn validate_export_zoom_blocks(blocks: &mut Vec<ZoomBlock>, duration_ms: u64
         return;
     }
 
-    blocks.sort_by_key(|b| b.start_time_ms);
+    blocks.sort_by(|a,b| a.start_time_ms.total_cmp(&b.start_time_ms));
 
     for block in blocks.iter_mut() {
-        block.end_time_ms = block.end_time_ms.min(duration_ms);
+        block.end_time_ms = block.end_time_ms.min(duration_ms as f64);
     }
 
     // Zero-gap: truncate A.end to B.start (no merge, no gap)
@@ -319,7 +330,7 @@ mod export_zoom_validation_tests {
         std::fs::create_dir_all(&directory).unwrap();
         let video = directory.join("recording.mp4");
         let ranges = [(800, 1200), (200, 700), (0, 100), (750, 750), (1200, 1300)];
-        let analysis = crate::auto_zoom::ZoomAnalysis {
+        let analysis: crate::auto_zoom::ZoomAnalysis = crate::auto_zoom::ZoomAnalysis {
             zoom_blocks: ranges.iter().enumerate().map(|(index, &(start, end))| {
                 serde_json::from_value(serde_json::json!({
                     "id":index.to_string(), "click_x":0.3,"click_y":0.4,
@@ -336,7 +347,7 @@ mod export_zoom_validation_tests {
         let blocks = load_zoom_blocks_from_sidecar(&video).unwrap();
         std::fs::remove_dir_all(directory).unwrap();
         assert_eq!(blocks.iter().map(|b| (b.start_time_ms,b.end_time_ms)).collect::<Vec<_>>(),
-            [(0,100),(200,700),(800,1000)]);
+            [(0.0,100.0),(200.0,700.0),(800.0,1000.0)]);
         assert!(blocks[1].is_manual);
         assert!(blocks.iter().all(|b| b.kind.as_deref() == Some("typing") && b.instant_animation
             && b.centers.len() == 1 && b.center_x == 0.3 && b.center_y == 0.4));
@@ -350,6 +361,6 @@ mod export_zoom_validation_tests {
             {"start_time_ms":1200,"end_time_ms":1300,"zoom_level":2,"center_x":0.5,"center_y":0.5}
         ])).unwrap();
         validate_export_zoom_blocks(&mut blocks,1000);
-        assert_eq!(blocks.iter().map(|b|(b.start_time_ms,b.end_time_ms)).collect::<Vec<_>>(),[(0,100),(200,700)]);
+        assert_eq!(blocks.iter().map(|b|(b.start_time_ms,b.end_time_ms)).collect::<Vec<_>>(),[(0.0,100.0),(200.0,700.0)]);
     }
 }

@@ -37,8 +37,8 @@ export function exportZoomBlock(block: ZoomBlock, leadInMs = 0) {
     loupe: block.loupe ?? null,
     animation_lead_in_ms: Number.isFinite(leadInMs) ? Math.round(Math.max(0, Math.min(2000, leadInMs))) : 0,
     instant_animation: block.instant_animation ?? false,
-    start_time_ms: Math.max(0, Math.round(block.start_time)),
-    end_time_ms: Math.max(0, Math.round(block.end_time)),
+    start_time_ms: Math.max(0, block.start_time),
+    end_time_ms: Math.max(0, block.end_time),
     zoom_level: block.zoom_factor,
     center_x: block.center_x,
     center_y: block.center_y,
@@ -46,7 +46,7 @@ export function exportZoomBlock(block: ZoomBlock, leadInMs = 0) {
     zoom_in_speed: block.zoom_in_speed ?? null,
     zoom_out_speed: block.zoom_out_speed ?? null,
     timing_adjusted: block.timing_adjusted ?? false,
-    centers: (block.centers ?? []).map(center => ({ ...center, time: Math.max(0, Math.round(center.time)) })),
+    centers: (block.centers ?? []).map(center => ({ ...center, time: Math.max(0, center.time) })),
   };
 }
 

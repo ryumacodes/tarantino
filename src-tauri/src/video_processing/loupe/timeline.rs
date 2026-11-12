@@ -4,8 +4,8 @@ use anyhow::{bail, Result};
 
 #[derive(Clone, Copy, Debug)]
 pub struct LoupeRange {
-    pub start_ms: u64,
-    pub end_ms: u64,
+    pub start_ms: f64,
+    pub end_ms: f64,
     pub disabled: bool,
     pub instant: bool,
     /// None denotes an ordinary whole-screen zoom, which can block early entry.
@@ -15,7 +15,7 @@ pub struct LoupeRange {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Selection {
     Active { index: usize },
-    Inactive { index: usize, boundary_ms: u64 },
+    Inactive { index: usize, boundary_ms: f64 },
     Empty,
 }
 
@@ -24,26 +24,26 @@ pub struct LoupeTimeline<'a> {
     starts: Vec<usize>,
     ends: Vec<usize>,
     loupe_starts: Vec<usize>,
-    prefix_end: Vec<u64>,
-    instant_starts: Vec<u64>,
-    instant_end_prefix: Vec<u64>,
+    prefix_end: Vec<f64>,
+    instant_starts: Vec<f64>,
+    instant_end_prefix: Vec<f64>,
 }
 
 impl<'a> LoupeTimeline<'a> {
     pub fn new(ranges: &'a [LoupeRange]) -> Result<Self> {
-        if ranges.iter().any(|range| range.end_ms <= range.start_ms) {
+        if ranges.iter().any(|range| !range.start_ms.is_finite() || !range.end_ms.is_finite() || range.start_ms < 0.0 || range.end_ms <= range.start_ms) {
             bail!("Magnifier ranges must have positive duration");
         }
         let mut starts: Vec<_> = (0..ranges.len()).collect();
-        starts.sort_by_key(|&index| (ranges[index].start_ms, index));
+        starts.sort_by(|&a,&b| ranges[a].start_ms.total_cmp(&ranges[b].start_ms).then(a.cmp(&b)));
         let mut ends = starts.clone();
-        ends.sort_by_key(|&index| (ranges[index].end_ms, index));
+        ends.sort_by(|&a,&b| ranges[a].end_ms.total_cmp(&ranges[b].end_ms).then(a.cmp(&b)));
         let loupe_starts = starts
             .iter()
             .copied()
             .filter(|&index| !ranges[index].disabled && ranges[index].options.is_some())
             .collect();
-        let mut longest = 0;
+        let mut longest = 0.0_f64;
         let prefix_end = starts
             .iter()
             .map(|&index| {
@@ -57,11 +57,11 @@ impl<'a> LoupeTimeline<'a> {
             .filter(|range| range.instant && !range.disabled)
             .collect();
         let instant_starts = instant_ranges.iter().map(|range| range.start_ms).collect();
-        let mut instant_end = 0;
+        let mut instant_end = 0.0_f64;
         let instant_end_prefix = instant_ranges
             .iter()
             .map(|range| {
-                instant_end = instant_end.max(range.end_ms.saturating_add(50));
+                instant_end = instant_end.max(range.end_ms + 50.0);
                 instant_end
             })
             .collect();
@@ -93,7 +93,7 @@ impl<'a> LoupeTimeline<'a> {
         }
         let count = self
             .starts
-            .partition_point(|&i| self.ranges[i].start_ms as f64 <= time_ms);
+            .partition_point(|&i| self.ranges[i].start_ms <= time_ms);
         let mut active_loupe: Option<usize> = None;
         let mut active_other = false;
         // Prefix maxima let ordinary nonoverlapping timelines stop after one
@@ -104,7 +104,7 @@ impl<'a> LoupeTimeline<'a> {
             }
             let index = self.starts[position];
             let range = self.ranges[index];
-            if range.disabled || (range.end_ms as f64) < time_ms {
+            if range.disabled || (range.end_ms) < time_ms {
                 continue;
             }
             if range.options.is_some() {
@@ -119,10 +119,10 @@ impl<'a> LoupeTimeline<'a> {
         if !active_other && lead_in_ms > 0 {
             let next = self
                 .loupe_starts
-                .partition_point(|&i| self.ranges[i].start_ms as f64 <= time_ms);
+                .partition_point(|&i| self.ranges[i].start_ms <= time_ms);
             if let Some(&index) = self.loupe_starts.get(next) {
                 let range = self.ranges[index];
-                if !range.instant && time_ms >= range.start_ms.saturating_sub(lead_in_ms) as f64 {
+                if !range.instant && time_ms >= (range.start_ms - lead_in_ms as f64).max(0.0) {
                     return Selection::Active { index };
                 }
             }
@@ -133,16 +133,16 @@ impl<'a> LoupeTimeline<'a> {
     fn inactive_at(&self, time_ms: f64) -> Selection {
         let previous = self
             .ends
-            .partition_point(|&i| (self.ranges[i].end_ms as f64) < time_ms);
+            .partition_point(|&i| (self.ranges[i].end_ms) < time_ms);
         let previous = previous.checked_sub(1).map(|i| self.ends[i]);
         let next = self
             .starts
-            .partition_point(|&i| self.ranges[i].start_ms as f64 <= time_ms);
+            .partition_point(|&i| self.ranges[i].start_ms <= time_ms);
         let next = self.starts.get(next).copied();
         let chosen = match (previous, next) {
             (Some(a), Some(b)) => {
-                if time_ms - self.ranges[a].end_ms as f64
-                    <= self.ranges[b].start_ms as f64 - time_ms
+                if time_ms - self.ranges[a].end_ms
+                    <= self.ranges[b].start_ms - time_ms
                 {
                     Some((a, self.ranges[a].end_ms))
                 } else {
@@ -175,7 +175,7 @@ impl<'a> LoupeTimeline<'a> {
     ) -> Result<Option<LoupeTarget>> {
         let (index, sample_time, inactive) = match self.select(time_ms, lead_in_ms) {
             Selection::Active { index } => (index, time_ms, false),
-            Selection::Inactive { index, boundary_ms } => (index, boundary_ms as f64, true),
+            Selection::Inactive { index, boundary_ms } => (index, boundary_ms, true),
             Selection::Empty => return Ok(None),
         };
         let target = target_at(
@@ -194,10 +194,21 @@ impl<'a> LoupeTimeline<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fractional_boundaries_preserve_selection_and_inactive_sampling() {
+        let mut item=range(100,200);
+        item.start_ms=100.125;item.end_ms=200.875;
+        let ranges=[item];
+        let timeline=LoupeTimeline::new(&ranges).unwrap();
+        assert_eq!(timeline.select(100.0,0),Selection::Inactive{index:0,boundary_ms:100.125});
+        assert_eq!(timeline.select(100.125,0),Selection::Active{index:0});
+        assert_eq!(timeline.select(200.875,0),Selection::Active{index:0});
+        assert_eq!(timeline.select(200.876,0),Selection::Inactive{index:0,boundary_ms:200.875});
+    }
     fn range(start_ms: u64, end_ms: u64) -> LoupeRange {
         LoupeRange {
-            start_ms,
-            end_ms,
+            start_ms: start_ms as f64,
+            end_ms: end_ms as f64,
             disabled: false,
             instant: false,
             options: Some(LoupeOptions {
@@ -247,7 +258,7 @@ mod tests {
             LoupeTimeline::new(&ranges).unwrap().select(300.0, 0),
             Selection::Inactive {
                 index: 0,
-                boundary_ms: 200
+                boundary_ms: 200.0
             }
         );
         ranges[0].disabled = true;
@@ -277,7 +288,7 @@ mod tests {
             let selection = timeline.select(time, 0);
             let expected = match selection {
                 Selection::Active { .. } => time,
-                Selection::Inactive { boundary_ms, .. } => boundary_ms as f64,
+                Selection::Inactive { boundary_ms, .. } => boundary_ms,
                 _ => panic!("expected a magnifier target"),
             };
             let target = timeline

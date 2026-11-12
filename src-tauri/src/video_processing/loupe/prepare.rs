@@ -88,12 +88,7 @@ fn trajectories_in_viewport(
     let activity=activity.map(|input|targets::CameraActivity {
         events:raw_events.as_deref().unwrap(),smooth:input.smooth,prepared:input.prepared });
     for block in &mut blocks {
-        block.centers.sort_by_key(|center| center.time);
-        if !block.is_manual {
-            for center in &mut block.centers {
-                (center.x, center.y) = resolved.source_point(center.x, center.y);
-            }
-        }
+        block.centers.sort_by(|a,b| a.time.total_cmp(&b.time));
     }
     let ranges: Vec<_> = blocks
         .iter()

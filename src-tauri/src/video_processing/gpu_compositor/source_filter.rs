@@ -19,8 +19,10 @@ impl GpuCompositor {
 
     pub(super) fn prepare_source_filter(&mut self) -> Result<()> {
         let [width, height] = self.config.source_size;
+        let view = self.config.source_uv;
         if self.source_pyramid.is_none()
-            && (width > self.config.input_width || height > self.config.input_height)
+            && (width as f32 * view[2] > self.config.input_width as f32
+                || height as f32 * view[3] > self.config.input_height as f32)
         {
             let source = if self.mask_placement.is_some() {
                 self.mask_stage.as_ref().expect("Mask stage initialized").texture()
@@ -173,6 +175,7 @@ fn source_view_uses_logical_size_for_mip_selection() {
     }).collect();
     let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
     let frame=compositor.composite_frame(&source,&camera,None).unwrap();
+    assert!(compositor.source_pyramid.is_none(),"one-to-one crop should not allocate a minification pyramid");
     for x in 8..120 {
         let expected=if x%2==0 {0u8} else {255u8};
         assert!(frame[(64*128+x)*4].abs_diff(expected)<=1,"stripe {x} blurred despite a one-to-one logical footprint");
@@ -212,4 +215,63 @@ fn bounded_crop_mips_match_full_source_sampling() {
         }
         }
     }
+}
+
+#[test]
+#[ignore = "requires FFmpeg and native GPU; fractional crops through timeline decode"]
+fn decoded_fractional_crop_preserves_timeline_frames_and_gaps() {
+    use crate::video_processing::{source_crop::SourceCrop,timeline::{EditClip,EditTimeline},timeline_decode::video_decode_args_with_crop};
+    use std::process::Command;
+    let root=std::env::temp_dir().join(format!("fractional-decode-{}",uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    for [width,height] in [[512,512],[511,509]] {
+    let input=root.join(format!("source-{width}x{height}.mkv"));
+    let generator=format!("nullsrc=s={width}x{height}:r=20:d=1,format=rgb24,geq=r='mod(X*73+Y*29+N*31,256)':g='mod(X*17+Y*103+N*47,256)':b='mod(X+Y+N*61,256)'");
+    let generated=Command::new(crate::ffmpeg::binary("ffmpeg")).args(["-v","error","-f","lavfi","-i",
+        &generator,
+        "-c:v","ffv1"]).arg(&input).output().unwrap();
+    assert!(generated.status.success(),"{}",String::from_utf8_lossy(&generated.stderr));
+    let clips:Vec<EditClip>=serde_json::from_value(serde_json::json!([
+        {"id":"fast","startTime":0,"duration":250,"sourceIn":0,"sourceOut":500,"playbackRate":2,"trackOrder":0,"muted":false},
+        {"id":"later","startTime":500,"duration":250,"sourceIn":500,"sourceOut":750,"playbackRate":1,"trackOrder":0,"muted":false}
+    ])).unwrap();
+    let timeline=EditTimeline::build(&clips,0.0,750.0).unwrap();
+    let crop=SourceCrop{x:0.2563,y:0.1991,width:0.51,height:0.63};
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":128,"height":128},
+        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false,"motion_blur_enabled":false}
+    })).unwrap();
+    let mut outputs=Vec::new();
+    let bounded=crop.sampling_for_mips(width,height,2).unwrap();
+    if width%4==0 {assert!(bounded.decode.width<width);}
+    for plan in [crop.sampling(width,height,u32::MAX).unwrap(),bounded] {
+        let raster=plan.decode;
+        let decoded=Command::new(crate::ffmpeg::binary("ffmpeg"))
+            .args(video_decode_args_with_crop(&timeline,&input,raster.width,raster.height,20,Some(raster)))
+            .output().unwrap();
+        assert!(decoded.status.success(),"{}",String::from_utf8_lossy(&decoded.stderr));
+        let frame_size=(raster.width*raster.height*4) as usize;
+        assert_eq!(decoded.stdout.len(),15*frame_size);
+        let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+        config.source_size=[raster.width,raster.height];
+        config.source_uv=plan.view.map(|value|value as f32);
+        let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
+        let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
+        let frames:Vec<_>=decoded.stdout.chunks_exact(frame_size).enumerate().map(|(index,frame)| {
+            let rendered=compositor.composite_frame(frame,&camera,None).unwrap();
+            if (5..10).contains(&index) {
+                assert!(rendered.chunks_exact(4).all(|pixel|pixel[..3].iter().all(|value|*value<8)),"nonblack gap {index}");
+            } else {
+                assert!(rendered.chunks_exact(4).any(|pixel|pixel[0]>64),"empty source frame {index}");
+            }
+            rendered
+        }).collect();
+        assert_ne!(frames[0],frames[1],"speed-adjusted source frames must advance");
+        outputs.push(frames);
+    }
+    for (full,bounded) in outputs[0].iter().flatten().zip(outputs[1].iter().flatten()) {
+        assert!(full.abs_diff(*bounded)<=1);
+    }
+    }
+    std::fs::remove_dir_all(root).unwrap();
 }

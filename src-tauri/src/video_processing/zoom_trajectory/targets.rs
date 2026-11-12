@@ -26,12 +26,12 @@ pub(crate) fn prepare_in_viewport(block: &ZoomBlock, events: &[CursorEvent], vie
         return Vec::new();
     }
     if let Some(input)=activity.and_then(|input|input.prepared.map(|track|(track,input.smooth))) {
-        return prepare_range(&input.0.grouped,block.start_time_ms as f64,block.end_time_ms as f64,
-            |e|(e.time,e.x,e.y),||input.0.fallback(block.start_time_ms as f64,input.1).map(|e|(e.time,e.x,e.y)),
+        return prepare_range(&input.0.grouped,block.start_time_ms,block.end_time_ms,
+            |e|(e.time,e.x,e.y),||input.0.fallback(block.start_time_ms,input.1).map(|e|(e.time,e.x,e.y)),
             viewport.activity_extent(block.zoom_level));
     }
     let activity = activity.unwrap_or(CameraActivity { events, smooth: true, prepared:None });
-    prepare_range(events, block.start_time_ms as f64, block.end_time_ms as f64,
+    prepare_range(events, block.start_time_ms, block.end_time_ms,
         |event| (event.timestamp_ms as f64, event.x, event.y),
         || fallback(activity, block.start_time_ms).map(|event| (event.timestamp_ms as f64,event.x,event.y)),
         viewport.activity_extent(block.zoom_level))
@@ -59,14 +59,14 @@ fn prepare_range<T>(events: &[T], start: f64, end: f64,
     }, extent)
 }
 
-fn fallback(activity: CameraActivity<'_>, time: u64) -> Option<&CursorEvent> {
+fn fallback(activity: CameraActivity<'_>, time: f64) -> Option<&CursorEvent> {
     let events=activity.events;
-    let first=events.partition_point(|event|event.timestamp_ms<time);
+    let first=events.partition_point(|event|(event.timestamp_ms as f64)<time);
     if activity.smooth {
-        if let Some(event)=events[first..].iter().take_while(|event|event.timestamp_ms-time<=500)
+        if let Some(event)=events[first..].iter().take_while(|event|event.timestamp_ms as f64-time<=500.0)
             .find(|event|event.is_click || event.is_release) { return Some(event); }
     }
-    if events.get(first).is_some_and(|event|event.timestamp_ms==time) { events.get(first) }
+    if events.get(first).is_some_and(|event|event.timestamp_ms as f64==time) { events.get(first) }
     else { events.get(first.saturating_sub(1)) }
 }
 
@@ -164,7 +164,7 @@ mod tests {
         for fixture in fixtures {
             let events=fixture.events.iter().map(|p|CursorEvent {timestamp_ms:p.time,x:p.x,y:p.y,
                 is_click:p.kind=="mouseDown",is_release:p.kind=="mouseUp"}).collect::<Vec<_>>();
-            let actual=fallback(CameraActivity{events:&events,smooth:fixture.smooth,prepared:None},fixture.time);
+            let actual=fallback(CameraActivity{events:&events,smooth:fixture.smooth,prepared:None},fixture.time as f64);
             assert_eq!(actual.map(|e|(e.timestamp_ms,e.x,e.y)),fixture.expected.map(|p|(p.time,p.x,p.y)));
         }
     }

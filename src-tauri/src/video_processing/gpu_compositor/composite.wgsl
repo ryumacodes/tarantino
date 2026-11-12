@@ -82,6 +82,7 @@ struct Uniforms {
     camera_left:f32, camera_top:f32, camera_width:f32, camera_height:f32,
     cursor_image_left:f32, cursor_image_top:f32, cursor_image_width:f32, cursor_image_height:f32,
     source_left:f32, source_top:f32, source_width:f32, source_height:f32,
+    mask_left:f32, mask_top:f32, mask_width:f32, mask_height:f32,
 };
 
 struct TrailPoint {
@@ -103,6 +104,12 @@ struct TrailPoint {
 @group(0) @binding(9) var background_tex: texture_2d<f32>;
 @group(0) @binding(10) var foreground_layer: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(11) var background_layer: texture_storage_2d<rgba8unorm, write>;
+
+fn sample_window_mask(uv: vec2<f32>) -> f32 {
+    let offset=vec2<f32>(u.mask_left,u.mask_top);
+    let extent=vec2<f32>(u.mask_width,u.mask_height);
+    return textureSampleLevel(corner_mask_tex,bilinear_sampler,offset+uv*extent,0.0).r;
+}
 
 fn source_view() -> vec4<f32> {
     return vec4<f32>(u.source_left,u.source_top,u.source_width,u.source_height);
@@ -359,12 +366,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 content_color = sample_with_motion_blur(content_uv);
             }
             let has_native_window_mask = textureDimensions(corner_mask_tex).x > 1u;
-            let native_window_alpha = textureSampleLevel(
-                corner_mask_tex,
-                bilinear_sampler,
-                content_uv,
-                0.0
-            ).r;
+            let native_window_alpha = sample_window_mask(content_uv);
             content_color.a = content_color.a * native_window_alpha;
             // Older recordings have no silhouette sidecar, so retain the
             // conservative compatibility radius only for those files.

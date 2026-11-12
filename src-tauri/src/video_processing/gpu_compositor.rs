@@ -1,8 +1,4 @@
 //! GPU-accelerated video compositing using wgpu.
-//!
-//! Replaces all CPU-based per-pixel operations (zoom, cursor blend, rounded corners,
-//! shadow, webcam mask, motion blur, background compositing) with GPU compute shaders.
-//! Keeps per-frame compositing work on the GPU.
 
 use anyhow::{Result, anyhow};
 use image::RgbaImage;
@@ -58,6 +54,7 @@ pub struct GpuCompositorConfig {
     pub background_image: Option<RgbaImage>,
     /// Native selected-window silhouette (white inside, black outside)
     pub window_mask: Option<RgbaImage>,
+    pub window_mask_uv: [f32; 4],
     /// Corner radius in pixels (0 = no rounding)
     pub corner_radius: f32,
     /// Shadow settings
@@ -252,6 +249,7 @@ struct CompositeUniforms {
     camera_rect: [f32;4],
     cursor_image_rect: [f32;4],
     source_uv: [f32;4],
+    window_mask_uv: [f32;4],
 }
 
 // The simulator's POD layout is uploaded directly, without a per-frame copy.
@@ -528,6 +526,7 @@ impl GpuCompositor {
             camera_rect: self.resolved_webcam_rect(),
             cursor_image_rect: self.recorded_cursor_rect(),
             source_uv: self.config.source_uv,
+            window_mask_uv: self.config.window_mask_uv,
             shutter_start,shutter_now,cursor_shutter_start,cursor_shutter_now,
         };
 

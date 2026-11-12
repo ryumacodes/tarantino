@@ -1,9 +1,24 @@
 //! Sweep source time once instead of scanning every range at every frame.
 use super::ZoomBlock;
 use std::{
-    cmp::Reverse,
+    cmp::{Ordering, Reverse},
     collections::{BTreeSet, BinaryHeap},
 };
+
+#[derive(Clone, Copy, Debug)]
+struct Deadline(f64, usize);
+impl PartialEq for Deadline {
+    fn eq(&self, other: &Self) -> bool { self.cmp(other) == Ordering::Equal }
+}
+impl Eq for Deadline {}
+impl PartialOrd for Deadline {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+}
+impl Ord for Deadline {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.total_cmp(&other.0).then(self.1.cmp(&other.1))
+    }
+}
 
 pub(super) struct ZoomSchedule<'a> {
     blocks: &'a [ZoomBlock],
@@ -11,13 +26,13 @@ pub(super) struct ZoomSchedule<'a> {
     screen_starts: Vec<usize>,
     next: usize,
     active: BTreeSet<usize>,
-    ends: BinaryHeap<Reverse<(u64, usize)>>,
-    instant_ends: BinaryHeap<Reverse<u64>>,
+    ends: BinaryHeap<Reverse<Deadline>>,
+    instant_ends: BinaryHeap<Reverse<Deadline>>,
 }
 impl<'a> ZoomSchedule<'a> {
     pub fn new(blocks: &'a [ZoomBlock]) -> Self {
         let mut starts: Vec<_> = (0..blocks.len()).filter(|&i| !blocks[i].is_disabled).collect();
-        starts.sort_by_key(|&i| (blocks[i].start_time_ms, i));
+        starts.sort_by(|&a,&b| blocks[a].start_time_ms.total_cmp(&blocks[b].start_time_ms).then(a.cmp(&b)));
         let screen_starts = starts.iter().copied().filter(|&i| blocks[i].loupe.is_none()).collect();
         Self {
             blocks,
@@ -34,25 +49,25 @@ impl<'a> ZoomSchedule<'a> {
     pub fn advance(&mut self, time: f64) -> (Option<usize>, bool) {
         while let Some(&index) = self.starts.get(self.next) {
             let block = &self.blocks[index];
-            if block.start_time_ms as f64 > time {
+            if block.start_time_ms > time {
                 break;
             }
             self.active.insert(index);
-            self.ends.push(Reverse((block.end_time_ms, index)));
+            self.ends.push(Reverse(Deadline(block.end_time_ms, index)));
             if block.instant_animation {
                 self.instant_ends
-                    .push(Reverse(block.end_time_ms.saturating_add(50)));
+                    .push(Reverse(Deadline(block.end_time_ms + 50.0, index)));
             }
             self.next += 1;
         }
-        while self.ends.peek().is_some_and(|end| (end.0.0 as f64) < time) {
-            let Reverse((_, index)) = self.ends.pop().unwrap();
+        while self.ends.peek().is_some_and(|end| (end.0.0) < time) {
+            let Reverse(Deadline(_, index)) = self.ends.pop().unwrap();
             self.active.remove(&index);
         }
         while self
             .instant_ends
             .peek()
-            .is_some_and(|end| (end.0 as f64) < time)
+            .is_some_and(|end| (end.0.0) < time)
         {
             self.instant_ends.pop();
         }
@@ -61,15 +76,12 @@ impl<'a> ZoomSchedule<'a> {
             // An active magnifier prevents anticipating a screen zoom, but
             // does not suppress an already active screen range.
             if !self.active.is_empty() { return None; }
-            let next_screen = self.screen_starts.partition_point(|&i| self.blocks[i].start_time_ms as f64 <= time);
+            let next_screen = self.screen_starts.partition_point(|&i| self.blocks[i].start_time_ms <= time);
             let index = *self.screen_starts.get(next_screen)?;
             let block = &self.blocks[index];
             (!block.instant_animation
                 && time
-                    >= block
-                        .start_time_ms
-                        .saturating_sub(block.animation_lead_in_ms.min(2000))
-                        as f64)
+                    >= (block.start_time_ms - block.animation_lead_in_ms.min(2000) as f64).max(0.0))
                 .then_some(index)
         });
         (selected, !self.instant_ends.is_empty())
@@ -83,9 +95,9 @@ mod tests {
     fn sweep_matches_scan_for_overlaps_ties_gaps_and_instant_guards() {
         let mut blocks: Vec<ZoomBlock> = (0..137)
             .map(|i| {
-                let start = (i * 173) % 3000;
+                let start = ((i * 173) % 3000) as f64 + (i % 4) as f64 * 0.125;
                 serde_json::from_value(serde_json::json!({
-                    "start_time_ms": start, "end_time_ms": start + (i * 71) % 500,
+                    "start_time_ms": start, "end_time_ms": start + ((i * 71) % 500) as f64,
                     "zoom_level": 2, "center_x": 0.5, "center_y": 0.5,
                     "instant_animation": i % 4 == 0, "animation_lead_in_ms": (i * 41) % 2200,
                     "is_disabled": i % 11 == 0,
@@ -102,7 +114,7 @@ mod tests {
             for boundary in [
                 block.start_time_ms,
                 block.end_time_ms,
-                block.end_time_ms + 50,
+                block.end_time_ms + 50.0,
             ] {
                 times.extend([boundary as f64, boundary as f64 + 0.001]);
             }
@@ -114,28 +126,26 @@ mod tests {
                 .iter()
                 .enumerate()
                 .find(|(_, b)| !b.is_disabled && b.loupe.is_none()
-                    && time >= b.start_time_ms as f64 && time <= b.end_time_ms as f64)
+                    && time >= b.start_time_ms && time <= b.end_time_ms)
                 .or_else(|| {
-                    if blocks.iter().any(|b| !b.is_disabled && time >= b.start_time_ms as f64
-                        && time <= b.end_time_ms as f64) { return None; }
+                    if blocks.iter().any(|b| !b.is_disabled && time >= b.start_time_ms
+                        && time <= b.end_time_ms) { return None; }
                     blocks
                         .iter()
                         .enumerate()
-                        .filter(|(_, b)| !b.is_disabled && b.loupe.is_none() && b.start_time_ms as f64 > time)
-                        .min_by_key(|(_, b)| b.start_time_ms)
+                        .filter(|(_, b)| !b.is_disabled && b.loupe.is_none() && b.start_time_ms > time)
+                        .min_by(|(_,a),(_,b)| a.start_time_ms.total_cmp(&b.start_time_ms))
                         .filter(|(_, b)| {
                             !b.instant_animation
                                 && time
-                                    >= b.start_time_ms
-                                        .saturating_sub(b.animation_lead_in_ms.min(2000))
-                                        as f64
+                                    >= (b.start_time_ms - b.animation_lead_in_ms.min(2000) as f64).max(0.0)
                         })
                 })
                 .map(|(index, _)| index);
             let instant = blocks.iter().any(|b| {
                 !b.is_disabled && b.instant_animation
-                    && time >= b.start_time_ms as f64
-                    && time <= b.end_time_ms.saturating_add(50) as f64
+                    && time >= b.start_time_ms
+                    && time <= b.end_time_ms + 50.0
             });
             assert_eq!(schedule.advance(time), (scan, instant), "time={time}");
         }

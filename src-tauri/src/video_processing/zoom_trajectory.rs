@@ -193,7 +193,7 @@ fn simulate_zoom_steps(
     let mut prepared_blocks: Vec<_> = zoom_blocks.iter()
         .filter(|block| !block.is_disabled).cloned().collect();
     for block in &mut prepared_blocks {
-        block.centers.sort_by_key(|center| center.time);
+        block.centers.sort_by(|a,b| a.time.total_cmp(&b.time));
     }
     let zoom_blocks = prepared_blocks.as_slice();
     let automatic_targets: Vec<_> = zoom_blocks.iter()
@@ -278,7 +278,7 @@ fn simulate_zoom_steps(
             if block.is_manual {
                 target_center_x = block.center_x;
                 target_center_y = block.center_y;
-            } else if time_ms >= first_center_time as f64 && block.kind.as_deref() == Some("typing")
+            } else if time_ms >= first_center_time && block.kind.as_deref() == Some("typing")
             {
                 is_follow_phase = true;
                 target_center_x = anchor_center_x;
@@ -289,7 +289,7 @@ fn simulate_zoom_steps(
                 let (x, y) = targets::at(&automatic_targets[block_idx], time_ms).unwrap();
                 target_center_x = x;
                 target_center_y = y;
-            } else if time_ms >= first_center_time as f64 {
+            } else if time_ms >= first_center_time {
                 if let Some((cursor_x, cursor_y)) = cursor_position {
                     is_follow_phase = true;
                     target_center_x = cursor_x;

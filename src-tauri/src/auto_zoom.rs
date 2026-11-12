@@ -33,27 +33,28 @@ impl Default for ZoomConfig {
 
 /// A re-center point within a zoom block (when user clicks a new location while zoomed)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZoomCenter {
+pub struct ZoomCenter<T = u64> {
     pub x: f64,    // Normalized center X (0-1)
     pub y: f64,    // Normalized center Y (0-1)
-    pub time: u64, // When to start panning to this center (ms)
+    pub time: T, // When to start panning to this center (ms)
 }
 
 /// Click-based zoom block.
 /// Consecutive clicks merge into one block with multiple centers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZoomBlock {
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+pub struct ZoomBlock<T = u64> {
     pub id: String,
     pub click_x: f64,     // First click position X
     pub click_y: f64,     // First click position Y
     pub center_x: f64,    // Current/initial zoom center X
     pub center_y: f64,    // Current/initial zoom center Y
-    pub start_time: u64,  // When zoom starts
-    pub end_time: u64,    // When zoom ends
+    pub start_time: T,  // When zoom starts
+    pub end_time: T,    // When zoom ends
     pub zoom_factor: f32, // Zoom level (default from config)
     pub is_manual: bool,  // True if user manually adjusted the zoom area
     #[serde(default)]
-    pub centers: Vec<ZoomCenter>, // Re-center points from merged clicks
+    pub centers: Vec<ZoomCenter<T>>, // Re-center points from merged clicks
     #[serde(default = "default_kind")]
     pub kind: String, // "click" or "typing"
     #[serde(default)]
@@ -76,8 +77,8 @@ fn default_kind() -> String {
 
 /// Zoom analysis result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZoomAnalysis {
-    pub zoom_blocks: Vec<ZoomBlock>,
+pub struct ZoomAnalysis<T = u64> {
+    pub zoom_blocks: Vec<ZoomBlock<T>>,
     pub total_clicks: usize,
     pub session_duration: u64,
     pub config: ZoomConfig,
@@ -353,7 +354,7 @@ fn point_in_capture(px: f64, py: f64, metadata: &crate::event_capture::SessionMe
 }
 
 /// Save zoom analysis to file
-pub fn save_analysis(analysis: &ZoomAnalysis, path: impl AsRef<std::path::Path>) -> Result<()> {
+pub fn save_analysis<T: Serialize>(analysis: &ZoomAnalysis<T>, path: impl AsRef<std::path::Path>) -> Result<()> {
     let path = path.as_ref();
     let json = serde_json::to_string_pretty(analysis)?;
     std::fs::write(path, json)?;
@@ -361,10 +362,21 @@ pub fn save_analysis(analysis: &ZoomAnalysis, path: impl AsRef<std::path::Path>)
     Ok(())
 }
 
+
+pub fn validate_saved_times(analysis: &ZoomAnalysis<f64>) -> Result<()> {
+    for block in &analysis.zoom_blocks {
+        for time in [block.start_time, block.end_time].into_iter().chain(block.centers.iter().map(|center| center.time)) {
+            anyhow::ensure!(time.is_finite() && time >= 0.0, "Zoom times must be finite and nonnegative");
+        }
+    }
+    Ok(())
+}
+
 /// Load zoom analysis from file
-pub fn load_analysis(path: impl AsRef<std::path::Path>) -> Result<ZoomAnalysis> {
+pub fn load_analysis(path: impl AsRef<std::path::Path>) -> Result<ZoomAnalysis<f64>> {
     let json = std::fs::read_to_string(path)?;
-    let analysis: ZoomAnalysis = serde_json::from_str(&json)?;
+    let analysis: ZoomAnalysis<f64> = serde_json::from_str(&json)?;
+    validate_saved_times(&analysis)?;
     Ok(analysis)
 }
 

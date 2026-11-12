@@ -84,7 +84,7 @@ async fn benchmark(root: &Path) -> Result<()> {
         ensure!(
             blocks.iter().all(|b| b.zoom_level > 1.0
                 && b.end_time_ms > b.start_time_ms
-                && b.end_time_ms <= 5000),
+                && b.end_time_ms <= 5000.0),
             "Zoom blocks must fit the five-second fixture"
         );
         Some(blocks)

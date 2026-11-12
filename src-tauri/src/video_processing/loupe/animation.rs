@@ -130,8 +130,8 @@ mod tests {
     use super::*;
     fn range() -> LoupeRange {
         LoupeRange {
-            start_ms: 500,
-            end_ms: 1500,
+            start_ms: 500.0,
+            end_ms: 1500.0,
             disabled: false,
             instant: false,
             options: Some(LoupeOptions {

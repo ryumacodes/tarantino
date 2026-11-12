@@ -184,15 +184,33 @@ export const createZoomActions = (set: SetFn, get: GetFn) => {
       || block.end_time - time < MIN_ZOOM_DURATION_MS) return;
 
     const originalCenters = block.centers ?? [];
+    let firstCenters = originalCenters.filter(center => center.time < time);
+    let secondCenters = originalCenters.filter(center => center.time >= time);
+    if (block.kind === 'typing' && !block.is_manual) {
+      const sorted = [...originalCenters].sort((a, b) => a.time - b.time);
+      const nextIndex = sorted.findIndex(center => center.time >= time);
+      const boundaryIndex = nextIndex < 0 ? sorted.length : nextIndex;
+      const next = sorted[boundaryIndex];
+      const previous = sorted[boundaryIndex - 1];
+      const anchor = next?.time === time ? next : previous;
+      if (anchor) {
+        const progress = next && previous && next.time > time
+          ? (time - previous.time) / (next.time - previous.time) : 0;
+        const boundary = { time, x: anchor.x + ((next?.x ?? anchor.x) - anchor.x) * progress,
+          y: anchor.y + ((next?.y ?? anchor.y) - anchor.y) * progress };
+        firstCenters = [...firstCenters, boundary];
+        if (next?.time !== time) secondCenters = [boundary, ...secondCenters];
+      }
+    }
     const secondBlock = {
       ...block,
       id: crypto.randomUUID(),
       start_time: time,
-      centers: originalCenters.filter(center => center.time >= time),
+      centers: secondCenters,
       timing_adjusted: true,
     };
     block.end_time = time;
-    block.centers = originalCenters.filter(center => center.time < time);
+    block.centers = firstCenters;
     block.timing_adjusted = true;
     state.zoomAnalysis.zoom_blocks.push(secondBlock);
 

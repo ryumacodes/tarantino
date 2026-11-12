@@ -91,3 +91,36 @@ fn mask_export_coordinates_follow_the_logical_source_view() {
     compositor.set_source_mask(None).unwrap();
     assert_eq!(compositor.composite_frame(&source,&camera,None).unwrap(),base);
 }
+
+#[test]
+#[ignore = "requires native GPU; fractional silhouette sampling during zoom"]
+fn fractional_window_mask_matches_logical_silhouette_during_motion() {
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":128,"height":128},
+        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false,
+            "motion_blur_enabled":true,"motion_blur_pan_intensity":1,"motion_blur_zoom_intensity":1}
+    })).unwrap();
+    let source=[180,120,60,255].repeat(128*128);
+    for window in [false,true] {for moving in [false,true] {
+        let render=|mapped:bool| {
+            let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+            config.window_mode=window;
+            config.background_color=[0.0;4];
+            config.window_mask=Some(image::RgbaImage::from_fn(128,128,|x,_| {
+                let value=if mapped {2*x} else {32+x} as u8;
+                image::Rgba([value,value,value,255])
+            }));
+            if mapped {config.window_mask_uv=[16.25/128.0,0.0,0.5,1.0];}
+            let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
+            let before=ZoomFrameState{rect:None,scale:1.2,center_x:0.4,center_y:0.5};
+            let now=ZoomFrameState{rect:None,scale:1.6,center_x:0.6,center_y:0.5};
+            compositor.composite_frame(&source,if moving {&before} else {&now},None).unwrap();
+            compositor.composite_frame(&source,&now,None).unwrap()
+        };
+        let mapped=render(true);
+        let logical=render(false);
+        for (index,(actual,expected)) in mapped.iter().zip(&logical).enumerate() {
+            assert!(actual.abs_diff(*expected)<=2,"window={window} moving={moving} byte={index}: {actual} != {expected}");
+        }
+    }}
+}

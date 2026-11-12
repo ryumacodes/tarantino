@@ -50,7 +50,7 @@ impl PostProcessor {
         &self,
         input_path: &Path,
         output_path: &Path,
-        zoom_analysis: Option<&ZoomAnalysis>,
+        zoom_analysis: Option<&ZoomAnalysis<f64>>,
     ) -> Result<()> {
         println!("Starting post-processing pipeline");
         println!("Input: {}", input_path.display());
@@ -131,7 +131,7 @@ impl PostProcessor {
         &self,
         input_path: &Path,
         output_path: &Path,
-        zoom_analysis: &ZoomAnalysis,
+        zoom_analysis: &ZoomAnalysis<f64>,
     ) -> Result<()> {
         println!("Applying {} zoom blocks", zoom_analysis.zoom_blocks.len());
 
@@ -184,7 +184,7 @@ impl PostProcessor {
     /// Build FFmpeg filter chain for zoom blocks.
     fn build_zoom_filter(
         &self,
-        zoom_blocks: &[ZoomBlock],
+        zoom_blocks: &[ZoomBlock<f64>],
         duration_ms: u64,
         width: u32,
         height: u32,
@@ -479,8 +479,8 @@ mod tests {
             click_y: 0.3,
             center_x: 0.5,
             center_y: 0.3,
-            start_time: 1000,
-            end_time: 2000,
+            start_time: 1000.0,
+            end_time: 2000.0,
             zoom_factor: 2.0,
             is_manual: false,
             centers: vec![],

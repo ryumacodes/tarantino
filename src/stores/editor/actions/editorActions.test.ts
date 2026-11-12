@@ -141,6 +141,53 @@ describe('timeline clip actions', () => {
   };
 
 describe('zoom block actions', () => {
+  it('preserves the interpolated typing position on both sides of a split', () => {
+    const typing = { ...structuredClone(zoomBlock), kind: 'typing' as const };
+    const state = { ...useEditorStore.getInitialState(), duration: 5000,
+      zoomAnalysis: { total_clicks: 0, session_duration: 5000,
+        config: {enabled:true,zoom_factor:2,zoom_duration:5000,min_click_spacing:500}, zoom_blocks: [typing] },
+      history: [], historyIndex: -1 };
+    const actions = harness(state, createZoomActions);
+    actions.splitZoomBlockAtTime('zoom-a', 2250);
+    const [first, second] = state.zoomAnalysis.zoom_blocks;
+    expect(first.centers).toEqual([{x:0.4,y:0.4,time:1500},{x:0.5,y:0.5,time:2250}]);
+    expect(second.centers).toEqual([{x:0.5,y:0.5,time:2250},{x:0.6,y:0.6,time:3000}]);
+    expect(first.is_manual).toBe(false);
+    expect(second.is_manual).toBe(false);
+  });
+
+  it.each([1200,1500,3000,3500])('keeps typing boundary behavior at %i ms', time => {
+    const state = { ...useEditorStore.getInitialState(), duration: 5000,
+      zoomAnalysis: { total_clicks: 0, session_duration: 5000,
+        config: {enabled:true,zoom_factor:2,zoom_duration:5000,min_click_spacing:500},
+        zoom_blocks: [{ ...structuredClone(zoomBlock), kind: 'typing' as const }] },
+      history: [], historyIndex: -1 };
+    harness(state, createZoomActions).splitZoomBlockAtTime('zoom-a', time);
+    const [first, second] = state.zoomAnalysis.zoom_blocks;
+    if (time < 1500) {
+      expect(first.centers).toEqual([]);
+      expect(second.centers).toEqual(zoomBlock.centers);
+    } else {
+      const value = time < 3000 ? 0.4 : 0.6;
+      expect(first.centers[first.centers.length - 1]).toEqual({time,x:value,y:value});
+      expect(second.centers[0]).toEqual({time,x:value,y:value});
+      expect(second.centers.filter(center => center.time === time)).toHaveLength(1);
+    }
+  });
+
+  it('retains ordered caret updates sharing the split timestamp', () => {
+    const centers = [{time:1500,x:0.2,y:0.4},{time:2250,x:0.4,y:0.4},
+      {time:2250,x:0.6,y:0.4},{time:3000,x:0.8,y:0.4}];
+    const state = { ...useEditorStore.getInitialState(), duration: 5000,
+      zoomAnalysis: { total_clicks: 0, session_duration: 5000,
+        config: {enabled:true,zoom_factor:2,zoom_duration:5000,min_click_spacing:500},
+        zoom_blocks: [{ ...structuredClone(zoomBlock), kind: 'typing' as const, centers }] },
+      history: [], historyIndex: -1 };
+    harness(state, createZoomActions).splitZoomBlockAtTime('zoom-a', 2250);
+    const [first, second] = state.zoomAnalysis.zoom_blocks;
+    expect(first.centers).toEqual(centers.slice(0,2));
+    expect(second.centers).toEqual(centers.slice(1));
+  });
 
 
   it('clamps block end time and marks manual center edits', () => {

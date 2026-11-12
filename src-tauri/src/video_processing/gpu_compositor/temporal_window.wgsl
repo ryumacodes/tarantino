@@ -61,7 +61,7 @@ fn window_temporal_content(pixel:vec2<f32>) -> vec4<f32> {
         let rect=(before+now)*0.5;
         let uv=clamp((uv_start+uv_end)*0.5,vec2<f32>(0.0),vec2<f32>(1.0));
         let color=sample_source_texture(uv);
-        let mask=textureSampleLevel(corner_mask_tex,bilinear_sampler,uv,0.0).r;
+        let mask=sample_window_mask(uv);
         let alpha=color.a*mask*(1.0-smoothstep(-0.5,0.5,window_temporal_distance(pixel,rect)));
         var content=vec4<f32>(color.rgb*color.rgb*alpha,alpha);
         if (u.shadow_enabled>0.5) {content=content+window_temporal_shadow(pixel,rect)*(1.0-content.a);}
@@ -85,7 +85,7 @@ fn window_temporal_content(pixel:vec2<f32>) -> vec4<f32> {
             for (var tap=0;tap<count;tap=tap+1) {
                 let uv=clamp(mix(a,b,(f32(tap)+window_sample_phase(pixel))/f32(count)),vec2<f32>(0.0),vec2<f32>(1.0));
                 let color=sample_source_texture(uv);
-                let mask=textureSampleLevel(corner_mask_tex,bilinear_sampler,uv,0.0).r;
+                let mask=sample_window_mask(uv);
                 let opacity=color.a*mask;
                 content=content+vec4<f32>(color.rgb*color.rgb*opacity,opacity)/f32(count);
             }

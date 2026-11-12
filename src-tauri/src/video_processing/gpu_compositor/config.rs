@@ -133,6 +133,7 @@ pub fn build_gpu_config(
         background_gradient,
         background_image,
         window_mask,
+        window_mask_uv: [0.0, 0.0, 1.0, 1.0],
         corner_radius,
         shadow_enabled,
         shadow_blur,

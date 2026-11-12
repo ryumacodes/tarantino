@@ -22,12 +22,12 @@ it('interpolates fractional times and clamps to available timeline data', () => 
   expect(cameraFrameIndex(NaN, 100)).toBe(0);
 });
 
-it('serializes sub-millisecond edits into native integer timestamps', async () => {
+it('preserves sub-millisecond range boundaries and caret samples', async () => {
   const { exportZoomBlock } = await import('./zoomTrajectory');
   const result=exportZoomBlock({id:'fractional',start_time:123.4,end_time:999.8,zoom_factor:2,
     click_x:0.5,click_y:0.5,center_x:0.5,center_y:0.5,is_manual:true,
     centers:[{time:500.6,x:0.4,y:0.3}]});
-  expect(result).toMatchObject({start_time_ms:123,end_time_ms:1000,centers:[{time:501}]});
+  expect(result).toMatchObject({start_time_ms:123.4,end_time_ms:999.8,centers:[{time:500.6}]});
 });
 
 it('sends bounded anticipation to the shared native preview/export representation', async () => {

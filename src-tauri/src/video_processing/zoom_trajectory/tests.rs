@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn fractional_range_edges_do_not_move_to_adjacent_camera_steps() {
+    let block:ZoomBlock=serde_json::from_value(serde_json::json!({
+        "start_time_ms":16.6,"end_time_ms":33.4,"zoom_level":2,
+        "center_x":0.5,"center_y":0.5,"is_manual":true,"instant_animation":true
+    })).unwrap();
+    let spring=SpringConfig{tension:250.0,friction:40.0,mass:2.25};
+    for window in [false,true] {
+        let frames=simulate_zoom_trajectory(&[block.clone()],&[],&spring,true,"focused",60.0,100,window);
+        assert_eq!(frames[0].scale,1.0);
+        assert_eq!(frames[1].scale,2.0);
+        assert_eq!(frames[2].scale,2.0);
+        assert_eq!(frames[3].scale,1.0);
+    }
+}
+
+#[test]
 fn camera_sample_preserves_independent_rectangle_dimensions() {
     let frame = ZoomFrameState { scale:2.0,center_x:0.75,center_y:0.25,
         rect:Some([-0.8,-0.1,2.0,1.99]) };
@@ -249,8 +265,8 @@ fn test_zoom_reaches_target() {
         is_disabled: false,
         loupe: None,
         animation_lead_in_ms: 0,
-        start_time_ms: 100,
-        end_time_ms: 2000,
+        start_time_ms: 100.0,
+        end_time_ms: 2000.0,
         zoom_level: 2.0,
         center_x: 0.7,
         center_y: 0.3,
@@ -297,8 +313,8 @@ fn edited_block_holds_zoom_through_its_right_edge() {
         is_disabled: false,
         loupe: None,
         animation_lead_in_ms: 0,
-        start_time_ms: 100,
-        end_time_ms: 2000,
+        start_time_ms: 100.0,
+        end_time_ms: 2000.0,
         zoom_level: 2.0,
         center_x: 0.5,
         center_y: 0.5,
@@ -372,8 +388,8 @@ fn lead_in_anticipates_only_in_gaps_and_never_skips_an_instant_range() {
         );
         // A later long lead-in must not jump over the nearer instant range.
         let mut later = block.clone();
-        later.start_time_ms = 2100;
-        later.end_time_ms = 3000;
+        later.start_time_ms = 2100.0;
+        later.end_time_ms = 3000.0;
         later.animation_lead_in_ms = 2000;
         let blocked = run(&[later, instant]); // Deliberately unsorted.
         assert!(
@@ -384,8 +400,8 @@ fn lead_in_anticipates_only_in_gaps_and_never_skips_an_instant_range() {
         );
         // An existing range wins even when the next range's lead-in overlaps it.
         let mut earlier = block.clone();
-        earlier.start_time_ms = 0;
-        earlier.end_time_ms = 900;
+        earlier.start_time_ms = 0.0;
+        earlier.end_time_ms = 900.0;
         earlier.zoom_level = 1.25;
         earlier.animation_lead_in_ms = 0;
         let baseline = run(&[earlier.clone()]);
@@ -491,7 +507,7 @@ fn disabled_zoom_is_absent_from_lead_in_and_neighbor_transitions() {
         "center_x": 0.3, "center_y": 0.4, "is_manual": true
     })).unwrap();
     let mut disabled = first.clone();
-    disabled.start_time_ms = 1200; disabled.end_time_ms = 2500;
+    disabled.start_time_ms = 1200.0; disabled.end_time_ms = 2500.0;
     disabled.zoom_level = 4.0; disabled.animation_lead_in_ms = 1000;
     disabled.is_disabled = true;
     for window_mode in [false, true] {
