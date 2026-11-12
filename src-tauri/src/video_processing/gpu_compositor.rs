@@ -74,6 +74,7 @@ pub struct GpuCompositorConfig {
     pub frame_rate: f64,
     pub motion_blur_pan_intensity: f32,
     pub motion_blur_zoom_intensity: f32,
+    pub motion_blur_cursor_intensity: f32,
     /// Window mode: zoom applies to the captured window layer, not the static background
     pub window_mode: bool,
     pub clip_cursor_to_video: bool,

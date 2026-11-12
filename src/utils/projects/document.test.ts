@@ -16,6 +16,37 @@ function fixture() {
     overlays: [{ id: 'label', type: 'text' as const, startTime: 200, endTime: 900, text: 'Hello', x: 0.2, y: 0.3 }] as any,
   };
 }
+it('keeps saved cursor rotation choices when new-project motion defaults change', () => {
+  const state = fixture();
+  expect(useEditorStore.getInitialState().visualSettings).toMatchObject({
+    rotateCursorWhileMoving: true, rotationIntensity: 50, cursorRotationMode: 'horizontal',
+  });
+  for (const rotation of [
+    { rotateCursorWhileMoving: false, rotationIntensity: 30, cursorRotationMode: 'horizontal' as const },
+    { rotateCursorWhileMoving: true, rotationIntensity: 75, cursorRotationMode: 'directional' as const },
+  ]) {
+    const document = createProjectDocument({ ...state, visualSettings: { ...state.visualSettings, ...rotation } });
+    const restored = parseProjectDocument(JSON.parse(JSON.stringify(document)));
+    expect(restored.state.visualSettings).toMatchObject(rotation);
+  }
+});
+
+it('keeps saved click effects while new projects start without a highlight', () => {
+  const state = fixture();
+  expect(useEditorStore.getInitialState().visualSettings.clickEffect).toBe('none');
+  for (const clickEffect of ['none', 'circle', 'ripple'] as const) {
+    const document = createProjectDocument({ ...state, visualSettings: { ...state.visualSettings, clickEffect } });
+    expect(parseProjectDocument(JSON.parse(JSON.stringify(document))).state.visualSettings.clickEffect).toBe(clickEffect);
+  }
+});
+
+it('preserves independent blur strengths including explicit zero values', () => {
+  const state = fixture();
+  const strengths = { motionBlurPanIntensity: 20, motionBlurZoomIntensity: 0, motionBlurCursorIntensity: 0 };
+  const document = createProjectDocument({ ...state, visualSettings: { ...state.visualSettings, ...strengths } });
+  expect(parseProjectDocument(JSON.parse(JSON.stringify(document))).state.visualSettings).toMatchObject(strengths);
+});
+
 it('round trips edits without serializing actions, playback state or caches', () => {
   const document = createProjectDocument(fixture());
   const reopened = parseProjectDocument(JSON.parse(JSON.stringify(document)));

@@ -22,16 +22,16 @@ export function projectCursorPose(frame:readonly number[],camera:PreviewCameraPo
 }
 
 export function cursorShutter(frame:readonly number[],previous:readonly number[],camera:PreviewCameraMotion,
-  layout:CursorProjection,pan:number,zoom:number,enabled:boolean) {
+  layout:CursorProjection,pan:number,zoom:number,enabled:boolean,cursorIntensity:number) {
   const now=projectCursorPose(frame,camera.now,layout),old=projectCursorPose(previous,camera.before,layout);
   const before:WindowRect=[...now];
   const active=enabled&&camera.continuous&&!camera.beforeCursorHidden&&frame[2]>.01&&previous[2]>.01;
   if(active) {
-    const translation=pan*camera.fps/60,scale=zoom*camera.fps/60;
-    before[0]+=(old[0]-now[0])*translation;before[1]+=(old[1]-now[1])*translation;
-    before[2]=Math.max(.001,now[2]+(old[2]-now[2])*scale);
+    const strength=cursorIntensity*camera.fps/60;
+    before[0]+=(old[0]-now[0])*strength;before[1]+=(old[1]-now[1])*strength;
+    before[2]=Math.max(.001,now[2]+(old[2]-now[2])*strength);
     const angle=((old[3]-now[3]+180)%360+360)%360-180;
-    before[3]+=angle*translation;
+    before[3]+=angle*strength;
   }
   const fixed:WindowRect=[layout.width/2,layout.height/2,
     layout.planeWidth*layout.width/layout.viewportWidth,layout.planeHeight*layout.height/layout.viewportHeight];

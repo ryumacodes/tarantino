@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronUp, RotateCcw } from 'lucide-react';
 import type { VisualSettings } from '../../../stores/editor';
+import { DEFAULT_VISUAL_SETTINGS } from '../../../stores/editor/constants';
 
 interface BehaviorSettingsProps {
   visualSettings: VisualSettings;
@@ -104,7 +105,7 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
                   />
                   <button
                     className="reset-btn"
-                    onClick={() => updateVisualSettings({ rotationIntensity: 30 })}
+                    onClick={() => updateVisualSettings({ rotationIntensity: DEFAULT_VISUAL_SETTINGS.rotationIntensity })}
                     disabled={isExporting}
                   >
                     Reset

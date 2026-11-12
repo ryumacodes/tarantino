@@ -22,6 +22,7 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
     deleteZoomBlock,
     selectedBlockId,
     visualSettings,
+    updateVisualSettings,
     captureMode,
     videoWidth,
     videoHeight,
@@ -36,6 +37,7 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
     deleteZoomBlock: state.deleteZoomBlock,
     selectedBlockId: state.selectedBlockId,
     visualSettings: state.visualSettings,
+    updateVisualSettings: state.updateVisualSettings,
     captureMode: state.captureMode,
     videoWidth: state.videoWidth,
     videoHeight: state.videoHeight,
@@ -154,6 +156,19 @@ const ZoomTab: React.FC<TabProps> = ({ isExporting = false }) => {
               </div>
 
               <ZoomPresentationControls block={selectedBlock} disabled={isExporting} />
+
+              <div className="control-group">
+                <label className="checkbox-control">
+                  <input type="checkbox" checked={(visualSettings.zoomLeadInMs ?? 0) > 0}
+                    disabled={isExporting}
+                    onChange={event => updateVisualSettings({ zoomLeadInMs: event.target.checked ? 350 : 0 })} />
+                  Start zooms early
+                </label>
+                <small className="setting-hint">
+                  Applies to every zoom in this project. Lead-in: {visualSettings.zoomLeadInMs ?? 0} ms.
+                  {' '}Adjust the timing in Motion. Instant zooms keep their original start.
+                </small>
+              </div>
 
               <div className="control-group">
                 <label>Zoom Factor</label>

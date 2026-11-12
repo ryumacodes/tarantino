@@ -21,12 +21,11 @@ impl GpuCompositor {
         let previous=self.prev_cursor_pose.replace(now).unwrap_or(now);
         let mut start=now;
         if config.motion_blur_enabled {
-            let pan=config.motion_blur_pan_intensity*config.frame_rate as f32/60.0;
-            let zoom=config.motion_blur_zoom_intensity*config.frame_rate as f32/60.0;
-            start[0]+=(previous[0]-now[0])*pan;
-            start[1]+=(previous[1]-now[1])*pan;
-            start[2]=(now[2]+(previous[2]-now[2])*zoom).max(0.001);
-            start[3]+=((previous[3]-now[3]+180.0).rem_euclid(360.0)-180.0)*pan;
+            let strength=config.motion_blur_cursor_intensity*config.frame_rate as f32/60.0;
+            start[0]+=(previous[0]-now[0])*strength;
+            start[1]+=(previous[1]-now[1])*strength;
+            start[2]=(now[2]+(previous[2]-now[2])*strength).max(0.001);
+            start[3]+=((previous[3]-now[3]+180.0).rem_euclid(360.0)-180.0)*strength;
         }
         (start,now)
     }

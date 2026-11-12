@@ -11,6 +11,9 @@ fn cursor_body_styles_rotation_and_opacity_remain_distinct() {
     })).unwrap();
     let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
     config.background_color=[0.0;4];config.motion_blur_enabled=false;config.clip_cursor_to_video=true;
+    let left=config.content_offset_x+config.input_offset_x;
+    let top=config.content_offset_y+config.input_offset_y;
+    let bounds=(left..left+config.input_width,top..top+config.input_height);
     let source=vec![0u8;(config.input_width*config.input_height*4) as usize];
     let shape=RgbaImage::from_pixel(1,1,image::Rgba([255,255,255,255]));
     let mut compositor=GpuCompositor::new(config,Some(&shape),1.0,[1.0;3],settings.cursor_settings.as_ref()).unwrap();
@@ -42,8 +45,9 @@ fn cursor_body_styles_rotation_and_opacity_remain_distinct() {
         shapes.push(normal);
         // Enable temporal sampling only after the static style checks.
         compositor.config.motion_blur_enabled=true;
-        compositor.config.motion_blur_pan_intensity=1.0;
-        compositor.config.motion_blur_zoom_intensity=1.0;
+        compositor.config.motion_blur_pan_intensity=0.0;
+        compositor.config.motion_blur_zoom_intensity=0.0;
+        compositor.config.motion_blur_cursor_intensity=1.0;
         cursor.opacity=1.0;cursor.x=0.7;cursor.rotation=35.0;
         compositor.reset_motion_history();
         let target=compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap();
@@ -55,6 +59,11 @@ fn cursor_body_styles_rotation_and_opacity_remain_distinct() {
         let trailing=moving.chunks_exact(4).zip(target.chunks_exact(4))
             .filter(|(a,b)|a[3]>0 && b[3]==0).count();
         assert!(trailing>20,"style{style} has no swept body coverage");
+        compositor.config.motion_blur_cursor_intensity=0.0;
+        compositor.composite_frame(&source,&camera,Some(&before)).unwrap();
+        assert_eq!(target,compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap(),
+            "style{style} ignores the disabled cursor blur control");
+        compositor.config.motion_blur_cursor_intensity=1.0;
         assert_eq!(target,compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap(),"stationary cursor accumulates blur");
         compositor.composite_frame(&source,&camera,Some(&before)).unwrap();
         compositor.reset_motion_history();
@@ -65,7 +74,7 @@ fn cursor_body_styles_rotation_and_opacity_remain_distinct() {
         cursor.x=1.1;
         let clipped=compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap();
         for y in 0..128 {for x in 0..128 {
-            if !(32..96).contains(&x) || !(32..96).contains(&y) {
+            if !bounds.0.contains(&(x as u32)) || !bounds.1.contains(&(y as u32)) {
                 assert_eq!(clipped[(y*128+x)*4+3],0,"style{style} swept cursor leaks beyond crop at {x},{y}");
             }
         }}
@@ -115,7 +124,7 @@ fn write_temporal_cursor_preview_fixtures() {
         "resolution":{"width":128,"height":128},"frame_rate":60,
         "cursor_settings":{"enabled":true,"size":1,"color":"#ffffff","click_effect":"none","shadow_intensity":30},
         "visual_settings":{"padding":25,"shadow_enabled":false,"motion_blur_enabled":true,
-            "motion_blur_pan_intensity":1,"motion_blur_zoom_intensity":1}
+            "motion_blur_pan_intensity":1,"motion_blur_zoom_intensity":1,"motion_blur_cursor_intensity":1}
     })).unwrap();
     let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));config.background_color=[0.0;4];
     let source=vec![0u8;(config.input_width*config.input_height*4) as usize];
@@ -126,20 +135,28 @@ fn write_temporal_cursor_preview_fixtures() {
         settings.cursor_settings.as_ref().unwrap(),Clone::clone);
     let mut fixtures=Vec::new();
     for radius in [0.0,3.0,10.0] {for window in [false,true] {for clip in [false,true] {for style in 0..5 {
+      for strength in [0.0,0.4,1.0] {for screen_strength in [0.0,1.0] {
         compositor.config.window_mode=window;compositor.config.clip_cursor_to_video=clip;compositor.cursor_style=style as f32;
+        compositor.config.motion_blur_cursor_intensity=strength;
+        compositor.config.motion_blur_pan_intensity=screen_strength;
+        compositor.config.motion_blur_zoom_intensity=screen_strength;
         let old_camera=ZoomFrameState{rect:None,scale:if window {1.2}else{1.0},center_x:0.3,center_y:0.5};
         let camera=ZoomFrameState{rect:None,scale:if window {1.5}else{1.0},center_x:0.7,center_y:0.5};
         let mut old=states[0].clone();old.fade_blur_radius=radius;old.x=0.1;old.y=0.6;old.opacity=0.6;old.rotation=-30.0;
         let mut cursor=old.clone();cursor.x=0.9;cursor.y=0.4;cursor.rotation=45.0;
         compositor.reset_motion_history();compositor.cursor_shutter(&old_camera,Some(&old));
         let (start,now)=compositor.cursor_shutter(&camera,Some(&cursor));
-        let (clip_start,clip_now)=if window {motion::shutter_rect(&camera,Some(&old_camera),&compositor.config)}else{([64.0,64.0,64.0,64.0],[64.0,64.0,64.0,64.0])};
+        let width=compositor.config.input_width;
+        let height=compositor.config.input_height;
+        let fixed=[64.0,64.0,width as f32,height as f32];
+        let (clip_start,clip_now)=if window {motion::shutter_rect(&camera,Some(&old_camera),&compositor.config)}else{(fixed,fixed)};
         compositor.reset_motion_history();compositor.composite_frame(&source,&old_camera,Some(&old)).unwrap();
         let expected=compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap();
         compositor.reset_motion_history();
         let static_expected=compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap();
-        fixtures.push(serde_json::json!({"radius":radius,"staticExpected":static_expected,"style":style,"clip":clip,"window":window,"before":start,"now":now,"clipBefore":clip_start,"clipNow":clip_now,"expected":expected}));
-    }}}}
+        fixtures.push(serde_json::json!({"width":width,"height":height,"strength":strength,"screenStrength":screen_strength,
+            "radius":radius,"staticExpected":static_expected,"style":style,"clip":clip,"window":window,"before":start,"now":now,"clipBefore":clip_start,"clipNow":clip_now,"expected":expected}));
+    }}}}}}
     let path=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("oss-research/temporal-cursor-native.json");
     std::fs::write(path,serde_json::to_vec(&fixtures).unwrap()).unwrap();
 }

@@ -157,11 +157,11 @@ export const DEFAULT_VISUAL_SETTINGS: VisualSettings = {
   hideCursor: false,
   loopCursorPosition: false,
   // Click effects
-  clickEffect: 'ripple',
+  clickEffect: 'none',
   // Cursor rotation
   cursorRotation: 0,
-  rotateCursorWhileMoving: false,
-  rotationIntensity: 30,
+  rotateCursorWhileMoving: true,
+  rotationIntensity: 50,
   cursorRotationMode: "horizontal",
   // Advanced cursor options
   stopCursorAtEnd: false,
@@ -175,9 +175,9 @@ export const DEFAULT_VISUAL_SETTINGS: VisualSettings = {
   cursorSpeedPreset: 'mellow',
   cursorMotionStyle: 'smooth',
   motionBlurEnabled: true,
-  motionBlurPanIntensity: 20, // Subtle blur during camera pans
-  motionBlurZoomIntensity: 0,
-  motionBlurCursorIntensity: 0, // No cursor blur by default
+  motionBlurPanIntensity: 100,
+  motionBlurZoomIntensity: 100,
+  motionBlurCursorIntensity: 100,
   aspectRatio: 'auto',
   deviceFrame: 'none',
   deviceFrameColor: 'black',

@@ -67,6 +67,9 @@ pub fn build_gpu_config(
     let motion_blur_zoom_intensity = visual
         .and_then(|v| v.motion_blur_zoom_intensity)
         .unwrap_or(0.0) as f32;
+    let motion_blur_cursor_intensity = visual
+        .and_then(|v| v.motion_blur_cursor_intensity)
+        .unwrap_or(0.0) as f32;
 
     // Webcam config
     let webcam = settings.visual_settings.as_ref().and_then(|_| {
@@ -142,6 +145,7 @@ pub fn build_gpu_config(
         frame_rate: settings.frame_rate.unwrap_or(60) as f64,
         motion_blur_pan_intensity,
         motion_blur_zoom_intensity,
+        motion_blur_cursor_intensity,
         window_mode: settings.capture_mode.as_deref() == Some("window"),
         clip_cursor_to_video: settings.source_crop.is_some(),
     }

@@ -140,6 +140,7 @@ mod tests {
         compositor.config.motion_blur_enabled=true;
         compositor.config.motion_blur_pan_intensity=1.0;
         compositor.config.motion_blur_zoom_intensity=1.0;
+        compositor.config.motion_blur_cursor_intensity=1.0;
         compositor.reset_motion_history();
         state.x=16.0/128.0;state.y=0.5;
         compositor.composite_frame(&source,&camera,Some(&state)).unwrap();

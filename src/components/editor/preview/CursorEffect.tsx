@@ -470,7 +470,8 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
         viewportWidth:transform.viewportWidth,viewportHeight:transform.viewportHeight,
         planeWidth:transform.planeWidth,planeHeight:transform.planeHeight,
         size:vs.cursorScale*densityScale,windowMode:store.captureMode==='window'},
-        vs.motionBlurPanIntensity/100,vs.motionBlurZoomIntensity/100,vs.motionBlurEnabled && priorTime>=0);
+        vs.motionBlurPanIntensity/100,vs.motionBlurZoomIntensity/100,vs.motionBlurEnabled && priorTime>=0,
+        vs.motionBlurCursorIntensity/100);
       u.get('uCursorTemporalEnabled')!.value=Number(shutter.active);
       u.get('uCursorShutterStart')!.value.fromArray(shutter.before);
       u.get('uCursorShutterNow')!.value.fromArray(shutter.now);
