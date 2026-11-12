@@ -16,6 +16,7 @@ import { useEditorStore } from '../../../stores/editor';
 import { previewSample } from '../../../utils/timeline/previewTimeline';
 import { cameraFrameIndex } from '../../../utils/motion/zoomTrajectory';
 import { projectLoupeToPreview, type VideoTransform } from '../../../utils/motion/loupe';
+import { loupeMipLevel } from '../../../utils/motion/loupeMipLevel';
 import { useLoupeTrajectory } from './hooks/useCameraTrajectory';
 
 const shader = `
@@ -25,6 +26,7 @@ uniform float lensZoom;
 uniform float lensPresence;
 uniform float lensBevel;
 uniform float lensAberration;
+uniform float lensSampleBudget;
 uniform float lensSourcePixelScale;
 uniform float lensShadowAlpha;
 uniform float lensShadowReach;
@@ -58,7 +60,7 @@ vec4 sceneRead(vec2 uv,vec2 backdropUv,float radius,vec2 pixel) {
 }
 vec4 spectralSample(vec2 sampleUv,vec2 backdropUv,vec2 splitUv,float splitPixels,vec2 pixel,float blurRadius) {
   if (splitPixels<0.75) return sceneRead(sampleUv,backdropUv,blurRadius,pixel);
-  int reads=int(clamp(ceil(splitPixels),3.0,16.0));
+  int reads=int(clamp(ceil(splitPixels),3.0,lensSampleBudget));
   float interval=2.0/float(reads);
   vec3 color=vec3(0.0),weightSum=vec3(0.0);
   float alpha=0.0;
@@ -163,7 +165,7 @@ export class LoupeEffectImpl extends Effect {
       // not the original scene texture used by a merged EffectPass.
       attributes:EffectAttribute.CONVOLUTION,
       uniforms:new Map<string,Uniform>([
-        ['lensLighting',new Uniform(0)],['lensShineExponent',new Uniform(8)],
+        ['lensLighting',new Uniform(0)],['lensShineExponent',new Uniform(8)],['lensSampleBudget',new Uniform(16)],
         ['lensForeground',new Uniform(null)],['lensBackground',new Uniform(null)],['lensSeparateLayers',new Uniform(0)],
         ['lensPyramid',new Uniform(null)],['lensNoise',new Uniform(noise)],['lensMipCount',new Uniform(1)],
         ['lensCenter',new Uniform(new Vector2(0.5,0.5))],
@@ -192,7 +194,8 @@ export class LoupeEffectImpl extends Effect {
       this.pyramid?.dispose();
       this.pyramid=new LoupePyramid(input.width,input.height);
     }
-    this.pyramid.update(renderer,this.sceneLayers?.foreground ?? input.texture);
+    this.pyramid.update(renderer,this.sceneLayers?.foreground ?? input.texture,undefined,
+      loupeMipLevel(this.uniforms.get('lensZoom')!.value));
     this.uniforms.get('lensPyramid')!.value=this.pyramid.target.texture;
     this.uniforms.get('lensMipCount')!.value=this.pyramid.levels.length;
   }
@@ -223,6 +226,7 @@ export function LoupeEffect({videoTransformRef,cursorEffectRef,cameraSource}: {
     const presence = effect.uniforms.get('lensPresence')!;
     presence.value = 0;
     const state = useEditorStore.getState();
+    effect.uniforms.get('lensSampleBudget')!.value = state.isPlaying ? 4 : 16;
     const sample = previewSample(state,state.currentTime);
     if (unsupported || error || sample.sourceTime === null || !frames.length) return;
     const frame = frames[cameraFrameIndex(sample.sourceTime,frames.length)];

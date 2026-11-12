@@ -62,7 +62,7 @@ export class LoupePyramid {
     this.target.texture.mipmaps=this.levels.map(level=>({width:level.width,height:level.height,data:new Uint8Array(0)}));
   }
 
-  update(renderer:WebGLRenderer,source:Texture,transform?:Matrix3) {
+  update(renderer:WebGLRenderer,source:Texture,transform?:Matrix3,lastLevel=this.levels.length-1) {
     this.material.uniforms.transformSource.value=!!transform;
     this.material.uniforms.encodeSource.value=!!transform&&source.colorSpace===SRGBColorSpace
       &&!('isVideoTexture' in source&&source.isVideoTexture);
@@ -76,7 +76,7 @@ export class LoupePyramid {
     try {
       renderer.autoClear=false;
       renderer.initRenderTarget(this.target);
-      for(let i=0;i<this.levels.length;i++) {
+      for(let i=0;i<this.levels.length && i<=lastLevel;i++) {
         const level=this.levels[i];
         this.material.uniforms.source.value=i===0 ? source : this.levels[i-1].texture;
         this.material.uniforms.level.value=i;

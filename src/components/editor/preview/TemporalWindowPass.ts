@@ -71,7 +71,10 @@ export class TemporalWindowPass {
       if(this.sourcePyramid?.width!==sourceWidth||this.sourcePyramid.height!==sourceHeight) {
         this.sourcePyramid?.dispose();this.sourcePyramid=new LoupePyramid(sourceWidth,sourceHeight);
       }
-      this.sourcePyramid.update(renderer,input.source,u.sourceTransform.value);
+      const footprint=Math.max(sourceWidth/Math.min(input.before[2],input.now[2]),
+        sourceHeight/Math.min(input.before[3],input.now[3]));
+      const lastLevel=Math.floor(Math.max(0,Math.log2(footprint)))+1;
+      this.sourcePyramid.update(renderer,input.source,u.sourceTransform.value,lastLevel);
       u.sourceTexture.value=this.sourcePyramid.target.texture;u.sourceTransform.value.identity();
     }
     const target=renderer.getRenderTarget(),face=renderer.getActiveCubeFace(),mip=renderer.getActiveMipmapLevel();

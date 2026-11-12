@@ -165,9 +165,9 @@ export const DEFAULT_VISUAL_SETTINGS: VisualSettings = {
   cursorRotationMode: "horizontal",
   // Advanced cursor options
   stopCursorAtEnd: false,
-  stopCursorDuration: 500,
+  stopCursorDuration: 0,
   removeCursorShakes: true,
-  shakesThreshold: 3,
+  shakesThreshold: 500,
   optimizeCursorChanges: true,
   // Animation
   zoomSpeedPreset: 'mellow',

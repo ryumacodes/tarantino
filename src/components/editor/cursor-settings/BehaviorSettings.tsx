@@ -145,7 +145,7 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
                   min="0"
                   max="5000"
                   step="100"
-                  value={visualSettings.stopCursorDuration}
+                  value={visualSettings.stopCursorAtEnd ? visualSettings.stopCursorDuration : 0}
                   onChange={(e) => updateVisualSettings({
                     stopCursorAtEnd: parseInt(e.target.value) > 0,
                     stopCursorDuration: parseInt(e.target.value)
@@ -187,13 +187,13 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
               {visualSettings.removeCursorShakes && (
                 <>
                   <label className="cursor-setting-label" style={{ marginTop: '16px' }}>
-                    Remove cursor shakes threshold (pixels)
+                    Jump threshold: {visualSettings.shakesThreshold} logical pixels
                   </label>
                   <div className="slider-with-reset">
                     <input
                       type="range"
                       min="1"
-                      max="20"
+                      max="2000"
                       step="1"
                       value={visualSettings.shakesThreshold}
                       onChange={(e) => updateVisualSettings({ shakesThreshold: parseInt(e.target.value) })}
@@ -202,7 +202,7 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
                     />
                     <button
                       className="reset-btn"
-                      onClick={() => updateVisualSettings({ shakesThreshold: 3 })}
+                      onClick={() => updateVisualSettings({ shakesThreshold: DEFAULT_VISUAL_SETTINGS.shakesThreshold })}
                       disabled={isExporting}
                     >
                       Reset
@@ -210,26 +210,6 @@ export const BehaviorSettings: React.FC<BehaviorSettingsProps> = ({
                   </div>
                 </>
               )}
-            </div>
-
-            <div className="cursor-setting-section">
-              <div className="toggle-row">
-                <div className="toggle-info">
-                  <label className="cursor-setting-label">Optimize cursor changes</label>
-                  <span className="toggle-description">
-                    Will try to minimize rapid cursor changes (eg when quickly moving over some elements) when this option is enabled.
-                  </span>
-                </div>
-                <label className="toggle-switch">
-                  <input
-                    type="checkbox"
-                    checked={visualSettings.optimizeCursorChanges}
-                    onChange={(e) => updateVisualSettings({ optimizeCursorChanges: e.target.checked })}
-                    disabled={isExporting}
-                  />
-                  <span className="toggle-slider" />
-                </label>
-              </div>
             </div>
           </div>
         )}

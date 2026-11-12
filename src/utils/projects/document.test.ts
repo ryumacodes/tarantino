@@ -47,6 +47,29 @@ it('preserves independent blur strengths including explicit zero values', () => 
   expect(parseProjectDocument(JSON.parse(JSON.stringify(document))).state.visualSettings).toMatchObject(strengths);
 });
 
+it('preserves saved jump filtering choices when the default threshold changes', () => {
+  const state = fixture();
+  for (const filtering of [
+    { removeCursorShakes: true, shakesThreshold: 3 },
+    { removeCursorShakes: false, shakesThreshold: 500 },
+    { removeCursorShakes: true, shakesThreshold: 900 },
+  ]) {
+    const document = createProjectDocument({ ...state, visualSettings: { ...state.visualSettings, ...filtering } });
+    expect(parseProjectDocument(JSON.parse(JSON.stringify(document))).state.visualSettings).toMatchObject(filtering);
+  }
+});
+
+it('preserves saved end freezes independently of their enabled state', () => {
+  const state = fixture();
+  for (const freeze of [
+    { stopCursorAtEnd: false, stopCursorDuration: 500 },
+    { stopCursorAtEnd: true, stopCursorDuration: 1200 },
+  ]) {
+    const document = createProjectDocument({ ...state, visualSettings: { ...state.visualSettings, ...freeze } });
+    expect(parseProjectDocument(JSON.parse(JSON.stringify(document))).state.visualSettings).toMatchObject(freeze);
+  }
+});
+
 it('round trips edits without serializing actions, playback state or caches', () => {
   const document = createProjectDocument(fixture());
   const reopened = parseProjectDocument(JSON.parse(JSON.stringify(document)));

@@ -1,5 +1,17 @@
 import { expect, it } from 'vitest';
 import { removePointerShakes } from './pointerFilter';
+import { DEFAULT_VISUAL_SETTINGS } from '../../stores/editor/constants';
+
+it('keeps ordinary movement and drag releases at the new-project threshold', () => {
+  const events = [
+    { timestamp: 0, x: 100, y: 100, event_type: 'ButtonPress' },
+    { timestamp: 16, x: 120, y: 110, event_type: 'Move' },
+    { timestamp: 32, x: 140, y: 120, event_type: 'Move' },
+    { timestamp: 48, x: 160, y: 130, event_type: 'ButtonRelease' },
+  ];
+  expect(removePointerShakes(events, DEFAULT_VISUAL_SETTINGS.shakesThreshold)).toEqual(events);
+  expect(removePointerShakes(events, 3)).toEqual(events.slice(2, 3));
+});
 
 it('uses the native outlier and paired release rules without mutating input', () => {
   const events = [
