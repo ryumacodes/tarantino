@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn clicking_another_field_before_key_release_preserves_the_original_caret() {
+    for event_type in [MouseEventType::Move, MouseEventType::ButtonPress { button: MouseButton::Left }] {
+        let mut tracker = MouseTracker::new();
+        tracker.is_tracking = true;
+        tracker.add_key_event(serde_json::from_value(serde_json::json!({
+            "timestamp":100,"is_typing":true,"is_modifier":false,
+            "caret_x":20.0,"caret_y":30.0
+        })).unwrap());
+        tracker.add_event(MouseEvent { timestamp: 150, x: 1200.0, y: 900.0,
+            event_type: event_type.clone(), display_id: None });
+        tracker.add_key_event(KeyEvent::release(200, false));
+        tracker.update_latest_typing_caret(1200.0, 900.0);
+        let keys = tracker.get_key_events();
+        let expected = if matches!(event_type, MouseEventType::ButtonPress { .. }) {
+            (Some(20.0), Some(30.0))
+        } else { (Some(1200.0), Some(900.0)) };
+        assert_eq!((keys[0].caret_x, keys[0].caret_y), expected);
+    }
+}
+
+#[test]
 fn release_events_preserve_the_preceding_typing_caret_update() {
     let mut tracker = MouseTracker::new();
     tracker.is_tracking = true;

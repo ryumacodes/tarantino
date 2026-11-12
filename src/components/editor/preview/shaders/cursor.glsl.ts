@@ -73,14 +73,16 @@ vec4 sampledCursorBody(vec2 pixel,vec4 pose,vec3 color) {
     float margin=3.0*uCursorFadeBlur/pose.z;
     if(any(lessThan(local,rect.xy-vec2(margin))) || any(greaterThan(local,rect.xy+rect.zw+vec2(margin))))return vec4(0.0);
     vec2 uv=(local-rect.xy)/rect.zw;
+    vec2 texelsPerPixel=uCursorImageSize.xy/(rect.zw*pose.z);
+    float samplingLod=max(0.0,log2(max(texelsPerPixel.x,texelsPerPixel.y)));
     vec4 sampled=vec4(0.0);
     if(uCursorFadeBlur<=0.04) {
-      if(all(greaterThanEqual(uv,vec2(0.0))) && all(lessThanEqual(uv,vec2(1.0))))sampled=blurMipRead(uCursorTile,uv,0.0);
+      if(all(greaterThanEqual(uv,vec2(0.0))) && all(lessThanEqual(uv,vec2(1.0))))sampled=blurMipRead(uCursorTile,uv,samplingLod);
     } else {
       vec2 noise=vec2(texture2D(uCursorNoise,(mod(floor(pixel),32.0)+0.5)/32.0).r,
         texture2D(uCursorNoise,(mod(floor(pixel+vec2(37.0)),32.0)+0.5)/32.0).r);
       float texelScale=uCursorImageSize.x/(rect.z*pose.z);
-      sampled=blurPyramid(uCursorTile,uCursorImageSize.xy,uCursorImageSize.z,uv,uCursorFadeBlur*texelScale,0.0,noise,true);
+      sampled=blurPyramid(uCursorTile,uCursorImageSize.xy,uCursorImageSize.z,uv,uCursorFadeBlur*texelScale,samplingLod,noise,true);
     }
     return sampled.a>0.0 ? vec4(sampled.rgb/sampled.a,sampled.a*uCursorOpacity) : vec4(0.0);
   }

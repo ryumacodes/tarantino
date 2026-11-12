@@ -111,15 +111,17 @@ fn draw_cursor_body(pixel:vec2<f32>,position:vec2<f32>,size:f32,rotation:f32,
         let margin=3.0*u.cursor_fade_blur/size;
         if(any(local<rect.xy-vec2<f32>(margin)) || any(local>rect.xy+rect.zw+vec2<f32>(margin))) {return;}
         let uv=(local-rect.xy)/rect.zw;
+        let texels_per_pixel=vec2<f32>(textureDimensions(cursor_tex))/(rect.zw*size);
+        let sampling_lod=max(0.0,log2(max(texels_per_pixel.x,texels_per_pixel.y)));
         var sampled=vec4<f32>(0.0);
         if(u.cursor_fade_blur<=0.04) {
             if(all(uv>=vec2<f32>(0.0)) && all(uv<=vec2<f32>(1.0))) {
-                sampled=textureSampleLevel(cursor_tex,bilinear_sampler,uv,0.0);
+                sampled=textureSampleLevel(cursor_tex,bilinear_sampler,uv,sampling_lod);
             }
         } else {
             let noise_pixel=vec2<u32>(max(floor(pixel),vec2<f32>(0.0)));
             let texel_scale=f32(textureDimensions(cursor_tex).x)/(rect.z*size);
-            sampled=mip_sample_blurred_border(cursor_tex,bilinear_sampler,uv,u.cursor_fade_blur*texel_scale,0.0,
+            sampled=mip_sample_blurred_border(cursor_tex,bilinear_sampler,uv,u.cursor_fade_blur*texel_scale,sampling_lod,
                 vec2<f32>(blue_noise(noise_pixel),blue_noise(noise_pixel+vec2<u32>(37u))),true);
         }
         if(sampled.a>0.0) {blend_with_layer(result,front,vec4<f32>(sampled.rgb/sampled.a,sampled.a*opacity));}

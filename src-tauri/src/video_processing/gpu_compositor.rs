@@ -684,6 +684,8 @@ mod motion_tests;
 
 #[cfg(test)]
 mod temporal_coverage_tests;
+#[cfg(test)]
+mod cursor_gradient_tests;
 
 #[cfg(test)]
 mod cursor_body_tests;

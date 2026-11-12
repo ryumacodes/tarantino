@@ -406,9 +406,19 @@ impl MouseTracker {
         if let Some(event) = key_events.iter_mut().rev()
             .find(|event| !event.is_release && !event.is_modifier)
             .filter(|event| event.is_typing) {
+            // A click can move focus while the typing key is still held.
+            if self.pointer_pressed_since(event.timestamp) {
+                return;
+            }
             event.caret_x = Some(caret_x);
             event.caret_y = Some(caret_y);
         }
+    }
+
+    fn pointer_pressed_since(&self, timestamp: u64) -> bool {
+        self.events.lock().iter().rev()
+            .take_while(|pointer| pointer.timestamp >= timestamp)
+            .any(|pointer| matches!(pointer.event_type, MouseEventType::ButtonPress { .. }))
     }
 
     /// Get all recorded key events

@@ -80,6 +80,60 @@ mod tests {
     }
 
     #[test]
+    #[ignore="native GPU recorded cursor minification"]
+    fn small_recorded_cursor_filters_subpixel_checkerboard() {
+        let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+            "resolution":{"width":128,"height":128},
+            "cursor_settings":{"enabled":true,"size":1,"style":"pointer","shadow_intensity":0},
+            "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false}
+        })).unwrap();
+        let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+        config.background_color=[0.0;4];config.motion_blur_enabled=false;
+        let source=vec![0u8;(config.input_width*config.input_height*4) as usize];
+        let placeholder=RgbaImage::from_pixel(1,1,image::Rgba([255;4]));
+        let mut compositor=GpuCompositor::new(config,Some(&placeholder),1.0,[1.0;3],settings.cursor_settings.as_ref()).unwrap();
+        let pixels=RgbaImage::from_fn(64,64,|x,y| {
+            let value=if (x+y)%2==0 {0} else {255};
+            image::Rgba([value,value,value,255])
+        });
+        let mut png=std::io::Cursor::new(Vec::new());
+        pixels.write_to(&mut png,image::ImageFormat::Png).unwrap();
+        let mut image=asset(64,64,[255;4],[0.0;2]);
+        image.png_base64=base64::engine::general_purpose::STANDARD.encode(png.into_inner());
+        let mut images=CursorImages::default();images.record(0,image);
+        let path=std::env::temp_dir().join(format!("cursor-minification-{}.json",uuid::Uuid::new_v4()));
+        std::fs::write(&path,serde_json::to_vec(&serde_json::json!({"cursor_images":images})).unwrap()).unwrap();
+        compositor.configure_recorded_cursor(&path,settings.cursor_settings.as_ref().unwrap()).unwrap();
+        std::fs::remove_file(path).unwrap();
+        compositor.set_recorded_cursor_time(Some(0.0));
+        let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
+        let mut state=crate::cursor_renderer::CursorFrameState::default();
+        state.x=0.5;state.y=0.5;state.opacity=1.0;
+        let mut frames=Vec::new();
+        for rotation in [0.0,37.0,90.0] {for blur in [0.0,0.5,2.0] {for offset in [0.0,0.2,0.5,0.8] {
+            state.x=(64.0+offset)/128.0;
+            state.rotation=rotation;state.fade_blur_radius=blur;
+            let frame=compositor.composite_frame(&source,&camera,Some(&state)).unwrap();
+            assert!(frame.chunks_exact(4).any(|pixel|pixel[3]>200),"filtered cursor disappeared");
+            if rotation==0.0 && blur==0.0 {for y in 68..75 {for x in 68..75 {
+                let pixel=&frame[(y*128+x)*4..(y*128+x+1)*4];
+                assert!(pixel[..3].iter().all(|v|(126..=129).contains(v)),"offset {offset}: {pixel:?}");
+                assert_eq!(pixel[3],255);
+            }}}
+            frames.push(serde_json::json!({"time":0,"scale":1,"blur":blur,"rotation":rotation,"x":state.x,"expected":frame}));
+        }}}
+        if let Ok(path)=std::env::var("TARANTINO_CURSOR_MINIFICATION_FIXTURE") {
+            let track=&compositor.recorded_cursor.as_ref().unwrap().track;
+            let images=track.images.iter().map(|image|image.as_ref().map(|image|serde_json::json!({
+                "width":image.pixels.width(),"height":image.pixels.height(),
+                "rgba_base64":base64::engine::general_purpose::STANDARD.encode(image.pixels.as_raw()),
+                "rect":image.geometry.rect([0.0;2],17.0)
+            }))).collect::<Vec<_>>();
+            std::fs::write(path,serde_json::to_vec(&serde_json::json!({"data":{"images":images,"changes":track.changes},"frames":frames})).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
     #[ignore="native GPU recorded cursor image transitions and hotspot"]
     fn recorded_cursor_shapes_press_and_fallback_render() {
         let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({

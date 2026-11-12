@@ -82,7 +82,7 @@ fn process(
         match caret_lookup::without_tracker_lock(&mut state, || {
             caret_lookup::for_event(input.time, query)
         }) {
-            Ok(caret) => caret,
+            Ok(caret) => caret.filter(|_| !state.pointer_pressed_since(input.event.timestamp)),
             Err(()) => return,
         }
     } else {
@@ -228,6 +228,33 @@ mod tests {
                 .iter()
                 .all(|event| event.is_typing && event.caret_x.is_none())
         );
+    }
+
+    #[test]
+    fn click_during_caret_query_keeps_the_key_without_the_new_fields_caret() {
+        for pointer_kind in [crate::input::MouseEventType::Move,
+            crate::input::MouseEventType::ButtonPress { button: crate::input::MouseButton::Left }] {
+            let tracker = Mutex::new(MouseTracker::new());
+            {
+                let mut state = tracker.lock();
+                state.is_tracking = true;
+                state.recording_start_time = Some(UNIX_EPOCH);
+            }
+            let clicked = matches!(pointer_kind, crate::input::MouseEventType::ButtonPress { .. });
+            process(&tracker, input(0, CGEventType::KeyDown, CGEventFlags::empty()), || {
+                tracker.lock().add_event(crate::input::MouseEvent {
+                    timestamp: 124, x: 1200.0, y: 900.0,
+                    event_type: pointer_kind, display_id: None,
+                });
+                Some((1200.0, 900.0))
+            });
+            let events = tracker.lock().get_key_events();
+            assert_eq!(events.len(), 1);
+            assert!(events[0].is_typing);
+            assert_eq!(events[0].timestamp, 123);
+            assert_eq!(events[0].caret_x, (!clicked).then_some(1200.0));
+            assert_eq!(events[0].caret_y, (!clicked).then_some(900.0));
+        }
     }
 
     #[test]
