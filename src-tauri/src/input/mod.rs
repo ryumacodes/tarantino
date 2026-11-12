@@ -205,6 +205,7 @@ fn key_motion(key: &Key) -> KeyMotion {
 #[derive(Debug)]
 pub struct MouseTracker {
     command_modifiers: CommandModifiers,
+    last_application_activation: Option<u64>,
     #[cfg(target_os = "macos")]
     pub(super) shortcuts: macos::shortcuts::Recorder,
     /// Whether mouse tracking is currently active
@@ -234,6 +235,7 @@ impl MouseTracker {
 
         Self {
             command_modifiers: CommandModifiers::default(),
+            last_application_activation: None,
             #[cfg(target_os = "macos")]
             shortcuts: macos::shortcuts::Recorder::default(),
             is_tracking: false,
@@ -272,6 +274,7 @@ impl MouseTracker {
 
         self.cursor_images = cursor_images::CursorImages::default();
         self.focus_samples.clear();
+        self.last_application_activation = None;
         self.is_tracking = true;
         self.recording_start_time = Some(SystemTime::now());
 
@@ -316,6 +319,7 @@ impl MouseTracker {
         #[cfg(target_os = "macos")]
         macos::detach_focus_observer(self.recording_start_time);
         self.is_tracking = false;
+        self.last_application_activation = None;
         self.recording_start_time = None;
         println!("✅ [TRACKER] Mouse tracking STOPPED");
     }
@@ -406,13 +410,23 @@ impl MouseTracker {
         if let Some(event) = key_events.iter_mut().rev()
             .find(|event| !event.is_release && !event.is_modifier)
             .filter(|event| event.is_typing) {
-            // A click can move focus while the typing key is still held.
-            if self.pointer_pressed_since(event.timestamp) {
+            // Focus can move while the typing key is still held.
+            if self.focus_changed_since(event.timestamp) {
                 return;
             }
             event.caret_x = Some(caret_x);
             event.caret_y = Some(caret_y);
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn note_application_activation(&mut self, timestamp: u64) {
+        if self.is_tracking { self.last_application_activation = Some(timestamp); }
+    }
+
+    fn focus_changed_since(&self, timestamp: u64) -> bool {
+        self.last_application_activation.is_some_and(|time| time >= timestamp)
+            || self.pointer_pressed_since(timestamp)
     }
 
     fn pointer_pressed_since(&self, timestamp: u64) -> bool {

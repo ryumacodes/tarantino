@@ -82,7 +82,7 @@ fn process(
         match caret_lookup::without_tracker_lock(&mut state, || {
             caret_lookup::for_event(input.time, query)
         }) {
-            Ok(caret) => caret.filter(|_| !state.pointer_pressed_since(input.event.timestamp)),
+            Ok(caret) => caret.filter(|_| !state.focus_changed_since(input.event.timestamp)),
             Err(()) => return,
         }
     } else {
@@ -254,6 +254,29 @@ mod tests {
             assert_eq!(events[0].timestamp, 123);
             assert_eq!(events[0].caret_x, (!clicked).then_some(1200.0));
             assert_eq!(events[0].caret_y, (!clicked).then_some(900.0));
+        }
+    }
+
+    #[test]
+    fn activation_during_lookup_rejects_caret_but_keeps_the_key() {
+        for activation in [122,124] {
+            let tracker = Mutex::new(MouseTracker::new());
+            {
+                let mut state = tracker.lock();
+                state.is_tracking = true;
+                state.recording_start_time = Some(UNIX_EPOCH);
+            }
+            process(&tracker, input(0,CGEventType::KeyDown,CGEventFlags::empty()), || {
+                tracker.lock().note_application_activation(activation);
+                Some((700.0,300.0))
+            });
+            let state=tracker.lock();
+            let events=state.get_key_events();
+            assert_eq!(events.len(),1);
+            assert!(events[0].is_typing);
+            assert_eq!(events[0].caret_x,(activation<123).then_some(700.0));
+            state.update_latest_typing_caret(800.0,400.0);
+            assert_eq!(state.get_key_events()[0].caret_x,(activation<123).then_some(800.0));
         }
     }
 

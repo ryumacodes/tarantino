@@ -26,15 +26,18 @@ pub(crate) fn prepare_in_viewport(block: &ZoomBlock, events: &[CursorEvent], vie
         return Vec::new();
     }
     if let Some(input)=activity.and_then(|input|input.prepared.map(|track|(track,input.smooth))) {
-        return prepare_range(&input.0.grouped,block.start_time_ms,block.end_time_ms,
+        let size=input.0.logical_size.unwrap_or(viewport.source_size);
+        let mut targets=prepare_range(&input.0.grouped,block.start_time_ms,block.end_time_ms,
             |e|(e.time,e.x,e.y),||input.0.fallback(block.start_time_ms,input.1).map(|e|(e.time,e.x,e.y)),
-            viewport.activity_extent(block.zoom_level));
+            viewport.source_activity_extent(block.zoom_level,size));
+        for target in &mut targets { target.x/=size.0; target.y/=size.1; }
+        return targets;
     }
     let activity = activity.unwrap_or(CameraActivity { events, smooth: true, prepared:None });
     prepare_range(events, block.start_time_ms, block.end_time_ms,
         |event| (event.timestamp_ms as f64, event.x, event.y),
         || fallback(activity, block.start_time_ms).map(|event| (event.timestamp_ms as f64,event.x,event.y)),
-        viewport.activity_extent(block.zoom_level))
+        viewport.activity_extent(block.zoom_level,None))
 }
 
 /// Bounds and seeded target times stay continuous after playback-to-source mapping.
@@ -123,6 +126,102 @@ pub(crate) fn at(targets: &[Target], time: f64) -> Option<(f64, f64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn exact_source_extent_stays_in_one_group_without_accepting_larger_motion() {
+        use crate::video_processing::{camera_activity::Tracks,ExportSettings};
+        let settings:ExportSettings=serde_json::from_value(serde_json::json!({
+            "resolution":{"width":608,"height":1080},"capture_mode":"window"
+        })).unwrap();
+        let block:ZoomBlock=serde_json::from_value(serde_json::json!({
+            "start_time_ms":0,"end_time_ms":600,"zoom_level":2,"center_x":0.5,"center_y":0.5
+        })).unwrap();
+        for distance in [151.999999999,152.0,152.000000001] {
+            let events=[500.0,500.0+distance].into_iter().enumerate().map(|(i,x)|
+                CursorEvent{timestamp_ms:i as u64*100,x,y:400.0,is_click:false,is_release:false}).collect::<Vec<_>>();
+            let activity=Tracks::prepare(&events,(1470.0,956.0),(2940,1912),&settings,600,
+                std::path::Path::new("source.mp4")).unwrap();
+            let targets=prepare_in_viewport(&block,&[],CameraViewport::from_settings(&settings,(2940,1912)),
+                Some(CameraActivity{events:&[],smooth:true,prepared:Some(&activity)}));
+            assert_eq!(targets.len(),if distance<=152.0 {1} else {2},"distance={distance}");
+            if distance<=152.0 {
+                assert!((targets[0].x-(500.0*101.0+(500.0+distance)*100.0)/201.0/1470.0).abs()<1e-12);
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires external source-coordinate grouping fixtures"]
+    fn prepared_activity_matches_external_grouping_geometry() {
+        use crate::video_processing::{camera_activity::Tracks,ExportSettings};
+        #[derive(serde::Deserialize)]
+        struct Case {
+            source:[u32;2],stage:[u32;2],zoom:f64,padding:f64,
+            points:Vec<[f64;3]>,targets:Vec<[f64;3]>,
+        }
+        let path=std::env::var("TARANTINO_SOURCE_GROUPING_FIXTURES").unwrap();
+        let cases:Vec<Case>=serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert!(!cases.is_empty());
+        for (case_index,case) in cases.iter().enumerate() {
+            let events:Vec<_>=case.points.iter().map(|p|CursorEvent {
+                timestamp_ms:p[0] as u64,x:p[1],y:p[2],is_click:false,is_release:false
+            }).collect();
+            let block:ZoomBlock=serde_json::from_value(serde_json::json!({
+                "start_time_ms":0,"end_time_ms":600,"zoom_level":case.zoom,"center_x":0.5,"center_y":0.5
+            })).unwrap();
+            for density in [1,2] {
+                for mode in ["display","window"] {
+                    let settings:ExportSettings=serde_json::from_value(serde_json::json!({
+                        "resolution":{"width":case.stage[0],"height":case.stage[1]},
+                        "capture_mode":mode,"visual_settings":{"padding":case.padding}
+                    })).unwrap();
+                    let source=(case.source[0]*density,case.source[1]*density);
+                    let activity=Tracks::prepare(&events,(case.source[0] as f64,case.source[1] as f64),
+                        source,&settings,600,std::path::Path::new("source.mp4")).unwrap();
+                    let actual=prepare_in_viewport(&block,&[],CameraViewport::from_settings(&settings,source),
+                        Some(CameraActivity{events:&[],smooth:true,prepared:Some(&activity)}));
+                    assert_eq!(actual.len(),case.targets.len(),"case {case_index}, density {density}, mode {mode}");
+                    for (actual,expected) in actual.iter().zip(&case.targets) {
+                        assert_eq!(actual.time,expected[0]);
+                        assert!((actual.x-expected[1]).abs()<1e-12 && (actual.y-expected[2]).abs()<1e-12,
+                            "case {case_index}: {actual:?} != {expected:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cropped_logical_activity_is_independent_of_pixel_density_and_output_padding() {
+        use crate::video_processing::{camera_activity::Tracks,ExportSettings};
+        let block:ZoomBlock=serde_json::from_value(serde_json::json!({
+            "start_time_ms":0,"end_time_ms":600,"zoom_level":2,"center_x":0.5,"center_y":0.5
+        })).unwrap();
+        let events:Vec<_>=[0.0,0.1,0.26,0.4,0.6,0.8].into_iter().enumerate().map(|(i,x)|
+            CursorEvent {timestamp_ms:i as u64*100,x:(0.25+x*0.5)*1920.0,y:540.0,is_click:false,is_release:false}).collect();
+        for density in [1,2] {
+            for mode in ["display","window"] {
+                for padding in [0,10] {
+                    let settings:ExportSettings=serde_json::from_value(serde_json::json!({
+                        "resolution":{"width":1920,"height":1080},"capture_mode":mode,
+                        "source_crop":{"x":0.25,"y":0.25,"width":0.5,"height":0.5},
+                        "visual_settings":{"padding":padding}
+                    })).unwrap();
+                    let source=(1920*density,1080*density);
+                    let activity=Tracks::prepare(&events,(1920.0,1080.0),source,&settings,600,
+                        std::path::Path::new("source.mp4")).unwrap();
+                    assert_eq!(activity.logical_size,Some((960.0,540.0)));
+                    let viewport=CameraViewport::from_source_settings(&settings,source).unwrap();
+                    let targets=prepare_in_viewport(&block,&[],viewport,
+                        Some(CameraActivity {events:&[],smooth:true,prepared:Some(&activity)}));
+                    assert_eq!(targets.iter().map(|target|target.time).collect::<Vec<_>>(),[-1.0,400.0],
+                        "density={density}, mode={mode}, padding={padding}");
+                    assert!((targets[0].x-76.0/401.0).abs()<1e-12);
+                    assert!((targets[1].x-0.7).abs()<1e-12);
+                }
+            }
+        }
+    }
+
     #[test]
     #[ignore = "long recording target preparation workload"]
     fn target_preparation_profile() {

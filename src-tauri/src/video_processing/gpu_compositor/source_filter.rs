@@ -210,6 +210,55 @@ fn profile_source_pyramid_generation() {
 }
 
 #[test]
+#[ignore = "native GPU; measures cropped source upload, filtering and compositing"]
+fn profile_cropped_source_compositing() {
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":960,"height":540},
+        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false,"motion_blur_enabled":false}
+    })).unwrap();
+    let crop=crate::video_processing::source_crop::SourceCrop{x:0.2513,y:0.2471,width:0.5,height:0.5};
+    let mut config=build_gpu_config_with_webcam(&settings,&None,Some(1920),Some(1080));
+    config.apply_source_geometry(&settings,(1920.0,1080.0));
+    let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
+    let plans=[crop.sampling(3840,2160,u32::MAX).unwrap(),
+        config.crop_sampling(crop,[3840,2160],&[camera.clone()],false).unwrap()];
+    let mut runs:Vec<_>=plans.iter().map(|plan| {
+        let raster=plan.decode;
+        let source:Vec<_>=(raster.y..raster.y+raster.height).flat_map(|y|
+            (raster.x..raster.x+raster.width).flat_map(move |x|
+                [((x*73+y*29)%256) as u8,((x*17+y*103)%256) as u8,((x^y)%256) as u8,255])).collect();
+        let mut config=config.clone();
+        config.source_size=[raster.width,raster.height];config.source_uv=plan.view.map(|v|v as f32);
+        (GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap(),source,Vec::new())
+    }).collect();
+    let mut images=Vec::new();
+    for (compositor,source,_) in &mut runs {
+        images.push(compositor.composite_frame(source,&camera,None).unwrap());
+    }
+    assert!(images[0].iter().zip(&images[1]).all(|(a,b)|a.abs_diff(*b)<=2));
+    for iteration in 0..40 {
+        for index in if iteration%2==0 {[0,1]} else {[1,0]} {
+            let (compositor,source,samples)=&mut runs[index];
+            let start=std::time::Instant::now();
+            let frame=compositor.composite_frame(source,&camera,None).unwrap();
+            std::hint::black_box(frame);
+            if iteration>=10 {samples.push(start.elapsed().as_secs_f64()*1000.0);}
+        }
+    }
+    let summaries:Vec<_>=runs.iter_mut().zip(plans).map(|((_,source,samples),plan)| {
+        samples.sort_by(f64::total_cmp);
+        serde_json::json!({"decode_size":[plan.decode.width,plan.decode.height],"upload_bytes":source.len(),
+            "median_ms":samples[samples.len()/2],"samples_ms":samples})
+    }).collect();
+    let result=serde_json::json!({"source":[3840,2160],"output":[960,540],
+        "scope":"Alternating warmed CPU upload, GPU filter/composite and readback; excludes video decoding and encoding",
+        "full":summaries[0],"bounded":summaries[1]});
+    let path=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("oss-research/cropped-source-profile.json");
+    std::fs::write(path,serde_json::to_vec_pretty(&result).unwrap()).unwrap();
+    println!("{result}");
+}
+
+#[test]
 #[ignore = "requires native GPU; fractional source texture coordinates"]
 fn fractional_source_view_preserves_subpixel_sampling() {
     let settings: crate::video_processing::ExportSettings = serde_json::from_value(serde_json::json!({

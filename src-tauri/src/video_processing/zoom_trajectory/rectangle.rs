@@ -81,7 +81,7 @@ mod tests {
             for window in [true, false] {
                 if case.window.is_some_and(|mode|mode!=window) {continue;}
                 let viewport=match (case.source,case.area) {
-                    (Some(source),Some(zoom_area))=>super::super::CameraViewport{source,zoom_area},
+                    (Some(source),Some(zoom_area))=>super::super::CameraViewport{source,zoom_area,..Default::default()},
                     _=>super::super::CameraViewport::default(),
                 };
                 for fps in [24.0,60.0,120.0,144.0] {

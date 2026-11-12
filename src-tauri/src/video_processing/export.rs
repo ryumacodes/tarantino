@@ -360,7 +360,7 @@ pub async fn export_video(
                 wc_args.extend(["-i".to_string(), webcam_path.to_string_lossy().into_owned()]);
                 wc_args.extend([
                     "-vf".to_string(),
-                    format!("{}setpts=PTS-STARTPTS,fps={},tpad=stop_mode=clone:stop=1,trim=end_frame={},scale={}:{}", decode_crop.map_or(String::new(),|crop|crop.decode_filter()), target_fps, expected_frames, wc_w, wc_h),
+                    format!("setpts=PTS-STARTPTS,fps={},tpad=stop_mode=clone:stop=1,trim=end_frame={},scale={}:{}", target_fps, expected_frames, wc_w, wc_h),
                     "-f".to_string(),
                     "rawvideo".to_string(),
                     "-pix_fmt".to_string(),

@@ -184,7 +184,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn portrait_preview_holds_a_vertical_activity_group_visible_on_stage() {
+    async fn preview_vertical_grouping_uses_logical_source_height_across_aspects() {
         let input = std::env::temp_dir().join(format!("camera-viewport-{}.mp4", uuid::Uuid::new_v4()));
         let mouse = input.with_extension("mouse.json");
         std::fs::write(&mouse, r#"[{"timestamp":0,"x":500,"y":100},{"timestamp":500,"x":500,"y":300}]"#).unwrap();
@@ -197,13 +197,11 @@ mod tests {
         let portrait = compute_zoom_trajectory(input.to_string_lossy().into_owned(), 1000, settings.clone()).await.unwrap();
         settings.resolution = Some(crate::video_processing::types::Resolution { width:1000, height:500 });
         let landscape = compute_zoom_trajectory(input.to_string_lossy().into_owned(), 1000, settings).await.unwrap();
-        // Both points fit vertically on the portrait stage, so their dwell-weighted
-        // center remains fixed. Landscape must change groups when the pointer moves.
-        // Exact-start activity is seeded one millisecond before the range.
+        // Both layouts use a 1080-unit stage height and the same logical recording.
         let weighted_y = (0.2 * 501.0 + 0.6 * 100.0) / 601.0;
-        for index in [20,40,80] { assert!((portrait[index][2] - weighted_y).abs() < 1e-9); }
-        assert!((landscape[20][2] - 0.2).abs() < 1e-9);
-        assert!((landscape[80][2] - 0.6).abs() < 1e-9);
+        for frames in [&portrait,&landscape] {
+            for index in [20,40,80] { assert!((frames[index][2] - weighted_y).abs() < 1e-9); }
+        }
         std::fs::remove_file(mouse).unwrap();
     }
 }

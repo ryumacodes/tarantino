@@ -54,13 +54,14 @@ pub(crate) fn refresh() {
         let (Some(tracker), Some(sender)) = (connection.tracker.upgrade(), connection.sender.upgrade()) else { return; };
         (tracker, sender)
     };
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
     let session = {
-        let state = tracker.lock();
+        let mut state = tracker.lock();
+        state.note_application_activation(timestamp);
         state.is_tracking.then_some(state.recording_start_time).flatten()
     };
     let Some(session) = session else { return; };
     let Some(pid) = super::focus_application::frontmost_pid() else { return; };
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
     let _ = sender.send(Request {
         session,
         due: Instant::now(),

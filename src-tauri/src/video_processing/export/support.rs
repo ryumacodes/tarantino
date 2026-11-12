@@ -64,6 +64,9 @@ pub(crate) fn load_rotation_points(path: &Path, threshold: f64) -> Vec<crate::cu
     points
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum PointerProcessing { Cursor, Camera, Activity }
+
 fn load_pointer_events(
     mouse_events_path: &Path,
     source_width: u32,
@@ -71,11 +74,11 @@ fn load_pointer_events(
     camera: bool,
     threshold: f64,
 ) -> Vec<CursorEvent> {
-    load_pointer_tracks(mouse_events_path,source_width,source_height,camera,false,threshold).0
+    load_pointer_tracks(mouse_events_path,source_width,source_height,if camera {PointerProcessing::Camera} else {PointerProcessing::Cursor},false,threshold).0
 }
 
 pub(crate) fn load_camera_tracks(path: &Path,width:u32,height:u32,threshold:f64)->(Vec<CursorEvent>,Vec<CursorEvent>) {
-    let (grouped,raw,_) = load_pointer_tracks(path,width,height,true,true,threshold);
+    let (grouped,raw,_) = load_pointer_tracks(path,width,height,PointerProcessing::Camera,true,threshold);
     (grouped,raw)
 }
 
@@ -83,7 +86,7 @@ fn load_pointer_tracks(
     mouse_events_path: &Path,
     source_width: u32,
     source_height: u32,
-    camera: bool,
+    processing: PointerProcessing,
     include_raw: bool,
     threshold: f64,
 ) -> (Vec<CursorEvent>,Vec<CursorEvent>,(f64,f64)) {
@@ -96,18 +99,18 @@ fn load_pointer_tracks(
         Err(_) => return (Vec::new(),Vec::new(),(source_width as f64,source_height as f64)),
     };
 
-    parse_pointer_tracks(&sidecar, source_width, source_height, camera, include_raw, threshold)
+    parse_pointer_tracks(&sidecar, source_width, source_height, processing, include_raw, threshold)
 }
 
 pub(crate) fn parse_filtered_cursor_events(
     sidecar: &serde_json::Value, width: u32, height: u32, threshold: f64,
 ) -> Vec<CursorEvent> {
-    parse_pointer_tracks(sidecar, width, height, false, false, threshold).0
+    parse_pointer_tracks(sidecar, width, height, PointerProcessing::Cursor, false, threshold).0
 }
 
 fn parse_pointer_tracks(
     sidecar: &serde_json::Value, source_width: u32, source_height: u32,
-    camera: bool, include_raw: bool, threshold: f64,
+    processing: PointerProcessing, include_raw: bool, threshold: f64,
 ) -> (Vec<CursorEvent>, Vec<CursorEvent>, (f64, f64)) {
     let (events, _sf, ex, ey, ew, eh) = if let Some(mouse_events) = sidecar.get("mouse_events") {
         let dw = sidecar
@@ -154,12 +157,16 @@ fn parse_pointer_tracks(
         return (Vec::new(),Vec::new(),(source_width as f64,source_height as f64));
     };
 
+    if ![ex,ey,ew,eh].iter().all(|value|value.is_finite()) || ew<=0.0 || eh<=0.0 {
+        return (Vec::new(),Vec::new(),(source_width as f64,source_height as f64));
+    }
     let events = super::camera_samples::remove_shake(events, threshold);
     let raw = if include_raw { parse_cursor_events(&events,1.0,ex,ey,ew,eh) } else { Vec::new() };
-    let events = if camera { super::camera_samples::filter(events) } else { events };
-    let mut parsed=parse_cursor_events(&events, 1.0, ex, ey, ew, eh);
+    let events = if processing == PointerProcessing::Camera { super::camera_samples::filter(events) } else { events };
+    let (width,height)=if processing == PointerProcessing::Activity {(1.0,1.0)} else {(ew,eh)};
+    let mut parsed=parse_cursor_events(&events, 1.0, ex, ey, width, height);
     // Camera targeting retains its existing edge policy independently of cursor travel.
-    if camera { for event in &mut parsed { event.x=event.x.clamp(0.0,1.0);event.y=event.y.clamp(0.0,1.0); } }
+    if processing == PointerProcessing::Camera { for event in &mut parsed { event.x=event.x.clamp(0.0,1.0);event.y=event.y.clamp(0.0,1.0); } }
     (parsed,raw,(ew,eh))
 }
 
@@ -235,6 +242,34 @@ pub fn resolve_spring_preset(name: &str) -> SpringConfig {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn activity_thinning_keeps_exact_logical_thresholds_before_normalizing() {
+        use super::*;
+        for width in [960,1470,1920] {
+            for start in [0.0,100.0,200.0,500.0] {
+                for distance in [9.999999999,10.0,10.000000001] {
+                    let sidecar=serde_json::json!({
+                        "display_width":width,"display_height":956,"scale_factor":2,
+                        "recording_area":{"x":-200,"y":50,"width":width,"height":956},
+                        "mouse_events":[
+                            {"timestamp":0,"x":start-200.0,"y":150,"event_type":"Move"},
+                            {"timestamp":100,"x":start+distance-200.0,"y":150,"event_type":"Move"}
+                        ]
+                    });
+                    let (events,_,logical)=parse_pointer_tracks(&sidecar,width*2,1912,PointerProcessing::Activity,false,0.0);
+                    for crop in [None,Some(crate::video_processing::source_crop::SourceCrop{x:0.5,y:0.0,width:0.5,height:1.0})] {
+                        let settings:ExportSettings=serde_json::from_value(serde_json::json!({"source_crop":crop})).unwrap();
+                        let tracks=crate::video_processing::camera_activity::Tracks::prepare(
+                            &events,logical,(width*2,1912),&settings,200,Path::new("source.mp4")).unwrap();
+                        assert_eq!(tracks.grouped.len(),if distance<10.0 {1} else {2},
+                            "width={width}, start={start}, distance={distance}, crop={crop:?}");
+                        assert_eq!(tracks.raw.len(),2);
+                    }
+                }
+            }
+        }
+    }
+
     use super::*;
 
     #[test]
@@ -321,7 +356,7 @@ mod tests {
 /// Prepare source-time camera input once, before decoder trim settings change.
 pub(crate) fn load_camera_activity(mouse: &Path, recording: &Path, source: (u32,u32),
     settings: &ExportSettings, duration: u64) -> anyhow::Result<super::super::camera_activity::Tracks> {
-    let (raw,_,logical)=load_pointer_tracks(mouse,source.0,source.1,false,false,
+    let (raw,_,logical)=load_pointer_tracks(mouse,source.0,source.1,PointerProcessing::Activity,false,
         settings.cursor_settings.as_ref().and_then(|c|c.shake_threshold).unwrap_or(0.0));
     super::super::camera_activity::Tracks::prepare(&raw,logical,source,settings,duration,recording)
 }

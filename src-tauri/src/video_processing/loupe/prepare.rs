@@ -204,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn portrait_layout_groups_vertical_lens_activity_after_source_crop() {
+    fn lens_vertical_grouping_keeps_source_extent_across_stage_aspects() {
         let settings: ExportSettings = serde_json::from_value(serde_json::json!({
             "capture_mode":"window", "resolution":{"width":608,"height":1080},
             "source_crop":{"x":0.5,"y":0.0,"width":0.5,"height":1.0}
@@ -235,12 +235,11 @@ mod tests {
         let mut landscape_settings = settings.clone();
         landscape_settings.resolution = Some(crate::video_processing::types::Resolution { width:1920, height:1080 });
         let landscape = run(&landscape_settings, 120.0);
-        // Portrait keeps both points in one weighted region; landscape splits.
-        // Compare same-time frames so the shared organic drift cancels out.
-        // The exact-start predecessor contributes one extra millisecond at y=.2.
-        let grouped_y=(0.2*101.0+0.6*100.0)/201.0;
-        assert!((portrait[0].center_y-landscape[0].center_y-(grouped_y-0.2)).abs()<1e-10);
-        assert!((portrait[12].center_y-landscape[12].center_y-(grouped_y-0.6)).abs()<1e-10);
+        // Aspect changes leave vertical source-space thresholds unchanged.
+        for index in [0,12] {
+            assert!((portrait[index].center_y-landscape[index].center_y).abs()<1e-10);
+        }
+        assert!((portrait[12].center_y-portrait[0].center_y)>0.35);
         assert_eq!(portrait[0].center_x, 0.75);
         for fps in [24.0,30.0,60.0] {
             for (index, frame) in run(&settings, fps).iter().enumerate() {
