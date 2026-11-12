@@ -160,6 +160,7 @@ impl GpuCompositor {
                     binding: 9,
                     resource: wgpu::BindingResource::TextureView(&background_view),
                 },
+                wgpu::BindGroupEntry {binding:12,resource:wgpu::BindingResource::Sampler(&self.cursor_motion_sampler)},
                 wgpu::BindGroupEntry {binding:10,resource:wgpu::BindingResource::TextureView(&foreground_layer)},
                 wgpu::BindGroupEntry {binding:11,resource:wgpu::BindingResource::TextureView(&background_layer)},
             ],

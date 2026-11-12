@@ -304,6 +304,7 @@ pub struct GpuCompositor {
     shadow_texture: wgpu::Texture,
     // Cached per-frame resources (avoid re-creation each frame)
     sampler: wgpu::Sampler,
+    cursor_motion_sampler: wgpu::Sampler,
     placeholder_texture: wgpu::Texture,
     // Cached bind group (rebuilt only when textures change)
     bind_group: Option<wgpu::BindGroup>,

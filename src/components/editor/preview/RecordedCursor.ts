@@ -20,6 +20,7 @@ export class RecordedCursor {
       texture.colorSpace=NoColorSpace;texture.minFilter=LinearFilter;texture.magFilter=LinearFilter;
       texture.generateMipmaps=false;texture.needsUpdate=true;
       pyramid=new LoupePyramid(image.width,image.height,true);
+      pyramid.target.texture.anisotropy=Math.min(4,renderer.capabilities.getMaxAnisotropy());
       try {pyramid.update(renderer,texture);} catch(error) {pyramid.dispose();throw error;}
       finally {texture.dispose();}
       this.textures.set(id,pyramid);

@@ -74,7 +74,6 @@ export class CursorEffectImpl extends Effect {
       u.get('uCursorImageSize')!.value.fromArray(recorded.size);
       return;
     }
-    if(u.get('uCursorFadeBlur')!.value<=0.04)return;
     this.tile??=new CursorTile();
     this.tile.update(renderer,u.get('uCursorStyle')!.value,u.get('uShadowIntensity')!.value,
       ['R','G','B'].map(channel=>u.get((u.get('uIsClicking')!.value>.5?'uHighlightColor':'uCursorColor')+channel)!.value));
@@ -90,6 +89,8 @@ export class CursorEffectImpl extends Effect {
       blendFunction: BlendFunction.NORMAL,
       uniforms: new Map<string, THREE.Uniform>([
         ['uCursorTemporalEnabled',new THREE.Uniform(0)],
+        ['uCursorFetchBudget',new THREE.Uniform(16)],
+        ['uCursorFetchSpan',new THREE.Uniform(4)],
         ['uCursorShutterStart',new THREE.Uniform(new THREE.Vector4())],
         ['uCursorShutterNow',new THREE.Uniform(new THREE.Vector4())],
         ['uCursorClipBefore',new THREE.Uniform(new THREE.Vector4())],
@@ -459,6 +460,8 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     u.get('uTrailEnabled')!.value = vs.cursorTrailEnabled ? 1.0 : 0.0;
     u.get('uTrailCount')!.value = trailHistory.current.length;
     u.get('uTrailOpacity')!.value = vs.cursorTrailOpacity;
+    u.get('uCursorFetchBudget')!.value=store.isPlaying?6:16;
+    u.get('uCursorFetchSpan')!.value=store.isPlaying?16:4;
     u.get('uResolutionX')!.value = resX;
     u.get('uResolutionY')!.value = resY;
     const camera=cameraMotionRef.current;

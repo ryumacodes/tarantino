@@ -308,6 +308,8 @@ impl GpuCompositor {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {binding:12,visibility:wgpu::ShaderStages::COMPUTE,
+                    ty:wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),count:None},
                 // 8: Trail points (storage buffer)
                 wgpu::BindGroupLayoutEntry {
                     binding: 8,
@@ -361,6 +363,12 @@ impl GpuCompositor {
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
+        });
+
+        let cursor_motion_sampler=device.create_sampler(&wgpu::SamplerDescriptor {
+            label:Some("Cursor motion sampler"),mag_filter:wgpu::FilterMode::Linear,
+            min_filter:wgpu::FilterMode::Linear,mipmap_filter:wgpu::MipmapFilterMode::Linear,
+            anisotropy_clamp:4,..Default::default()
         });
 
         let placeholder_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -461,6 +469,7 @@ impl GpuCompositor {
             corner_mask_texture,
             shadow_texture,
             sampler,
+            cursor_motion_sampler,
             placeholder_texture,
             bind_group: None,
             bind_group_dirty: true,

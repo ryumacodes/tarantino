@@ -1,4 +1,4 @@
-//! Cached cursor silhouette and mip chain used while fading. Motion, scale and
+//! Cached cursor silhouette and mip chain. Scale and
 //! opacity are applied during sampling, so they never invalidate this texture.
 use super::*;
 use crate::video_processing::loupe::mip_pyramid::MipPyramid;

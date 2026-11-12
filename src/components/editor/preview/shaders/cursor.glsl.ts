@@ -1,3 +1,5 @@
+import {temporalCoverageShader} from './temporalCoverage.glsl';
+import {cursorSegmentsShader} from './cursorSegments.glsl';
 import {mipBlurShader} from './mipBlur.glsl';
 import {cursorBodyShader} from './cursorBody.glsl';
 // SDF-based cursor rendering fragment shader for postprocessing
@@ -6,6 +8,7 @@ import {cursorBodyShader} from './cursorBody.glsl';
 
 export const cursorFragmentShader = `
 uniform float uCursorTemporalEnabled;
+uniform float uCursorFetchBudget,uCursorFetchSpan;
 uniform vec4 uCursorShutterStart,uCursorShutterNow;
 uniform vec4 uCursorClipBefore,uCursorClipNow;
 uniform float uCursorX;          // screen UV (0-1)
@@ -65,48 +68,46 @@ uniform float uVideoClipMaxY;
 
 ${cursorBodyShader}
 ${mipBlurShader}
-vec4 sampledCursorBody(vec2 pixel,vec4 pose,vec3 color) {
-  if(uCursorImageRect.z>0.0) {
-    if(uCursorOpacity<=0.01 || pose.z<=0.0)return vec4(0.0);
-    vec2 local=rotate2D(pixel-pose.xy,-pose.w*0.01745329252)/pose.z;
-    vec4 rect=uCursorImageRect;
-    float margin=3.0*uCursorFadeBlur/pose.z;
-    if(any(lessThan(local,rect.xy-vec2(margin))) || any(greaterThan(local,rect.xy+rect.zw+vec2(margin))))return vec4(0.0);
-    vec2 uv=(local-rect.xy)/rect.zw;
-    vec2 texelsPerPixel=uCursorImageSize.xy/(rect.zw*pose.z);
-    float samplingLod=max(0.0,log2(max(texelsPerPixel.x,texelsPerPixel.y)));
-    vec4 sampled=vec4(0.0);
-    if(uCursorFadeBlur<=0.04) {
-      if(all(greaterThanEqual(uv,vec2(0.0))) && all(lessThanEqual(uv,vec2(1.0))))sampled=blurMipRead(uCursorTile,uv,samplingLod);
-    } else {
-      vec2 noise=vec2(texture2D(uCursorNoise,(mod(floor(pixel),32.0)+0.5)/32.0).r,
-        texture2D(uCursorNoise,(mod(floor(pixel+vec2(37.0)),32.0)+0.5)/32.0).r);
-      float texelScale=uCursorImageSize.x/(rect.z*pose.z);
-      sampled=blurPyramid(uCursorTile,uCursorImageSize.xy,uCursorImageSize.z,uv,uCursorFadeBlur*texelScale,samplingLod,noise,true);
-    }
-    return sampled.a>0.0 ? vec4(sampled.rgb/sampled.a,sampled.a*uCursorOpacity) : vec4(0.0);
-  }
-  if(uCursorFadeBlur<=0.04)return cursorBody(pixel,pose,color);
+${temporalCoverageShader}
+${cursorSegmentsShader}
+vec4 sampledCursorBody(vec2 pixel,vec4 pose) {
   if(uCursorOpacity<=0.01 || pose.z<=0.0)return vec4(0.0);
-  vec2 local=rotate2D(pixel-pose.xy,-pose.w*0.01745329252);
-  float texelScale=4.0/pose.z;
-  vec2 uv=(local*texelScale+vec2(96.0))/256.0;
-  vec2 noise=vec2(texture2D(uCursorNoise,(mod(floor(pixel),32.0)+0.5)/32.0).r,
-    texture2D(uCursorNoise,(mod(floor(pixel+vec2(37.0)),32.0)+0.5)/32.0).r);
-  vec4 sampleColor=blurPyramid(uCursorTile,vec2(256.0),9.0,uv,uCursorFadeBlur*texelScale,0.0,noise,true);
-  if(sampleColor.a<=0.0)return vec4(0.0);
-  return vec4(sampleColor.rgb/sampleColor.a,sampleColor.a*uCursorOpacity);
+  vec2 local=rotate2D(pixel-pose.xy,-pose.w*0.01745329252)/pose.z;
+  vec4 rect=uCursorImageRect.z>0.0?uCursorImageRect:vec4(-24.0,-24.0,64.0,64.0);
+  vec3 imageSize=uCursorImageRect.z>0.0?uCursorImageSize:vec3(256.0,256.0,9.0);
+  float margin=3.0*uCursorFadeBlur/pose.z;
+  if(any(lessThan(local,rect.xy-vec2(margin))) || any(greaterThan(local,rect.xy+rect.zw+vec2(margin))))return vec4(0.0);
+  vec2 uv=(local-rect.xy)/rect.zw;
+  vec2 texelsPerPixel=imageSize.xy/(rect.zw*pose.z);
+  float samplingLod=max(0.0,log2(max(texelsPerPixel.x,texelsPerPixel.y)));
+  vec4 sampled=vec4(0.0);
+  if(uCursorFadeBlur<=0.04) {
+    if(all(greaterThanEqual(uv,vec2(0.0))) && all(lessThanEqual(uv,vec2(1.0))))sampled=blurMipRead(uCursorTile,uv,samplingLod);
+  } else {
+    vec2 noise=vec2(texture2D(uCursorNoise,(mod(floor(pixel),32.0)+0.5)/32.0).r,
+      texture2D(uCursorNoise,(mod(floor(pixel+vec2(37.0)),32.0)+0.5)/32.0).r);
+    float texelScale=imageSize.x/(rect.z*pose.z);
+    sampled=blurPyramid(uCursorTile,imageSize.xy,imageSize.z,uv,uCursorFadeBlur*texelScale,samplingLod,noise,true);
+  }
+  return sampled.a>0.0 ? vec4(sampled.rgb/sampled.a,sampled.a*uCursorOpacity) : vec4(0.0);
 }
 float cursorBodyRadius() {
-  if(uCursorImageRect.z<=0.0)return 32.0;
+  if(uCursorImageRect.z<=0.0)return length(vec2(40.0));
   return length(max(abs(uCursorImageRect.xy),abs(uCursorImageRect.xy+uCursorImageRect.zw)));
 }
-vec4 temporalCursorBody(vec2 pixel,vec3 color) {
+vec4 temporalCursorBody(vec2 pixel) {
   vec4 before=uCursorShutterStart,now=uCursorShutterNow;
   float extent=cursorBodyRadius();
   float radius=extent*max(before.z,now.z);
   float travel=length(now.xy-before.xy)+abs(now.w-before.w)*0.01745329252*radius+extent*abs(now.z-before.z);
   int count=int(clamp(ceil(travel),2.0,64.0));
+  if(uVideoClipEnabled<0.5) {
+    vec2 startLocal=rotate2D(pixel-before.xy,-before.w*0.01745329252)/before.z;
+    vec2 endLocal=rotate2D(pixel-now.xy,-now.w*0.01745329252)/now.z;
+    if(length((endLocal-startLocal)*before.z)<1.0)
+      return sampledCursorBody(pixel,mix(before,now,0.5));
+    return cursorSegments(pixel,before,now);
+  }
   vec4 accumulated=vec4(0.0);
   for(int i=0;i<64;i++) {
     if(i>=count)break;
@@ -115,7 +116,7 @@ vec4 temporalCursorBody(vec2 pixel,vec3 color) {
       vec4 rect=mix(uCursorClipBefore,uCursorClipNow,t);
       if(any(greaterThanEqual(abs(pixel-rect.xy),rect.zw*0.5)))continue;
     }
-    vec4 sampleColor=sampledCursorBody(pixel,mix(before,now,t),color);
+    vec4 sampleColor=sampledCursorBody(pixel,mix(before,now,t));
     accumulated+=vec4(sampleColor.rgb*sampleColor.rgb*sampleColor.a,sampleColor.a)/float(count);
   }
   if(accumulated.a<=0.0)return vec4(0.0);
@@ -183,7 +184,6 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   vec3 cursorColor = vec3(uCursorColorR, uCursorColorG, uCursorColorB);
   vec3 highlightColor = vec3(uHighlightColorR, uHighlightColorG, uHighlightColorB);
   vec3 rippleColor = vec3(uRippleColorR, uRippleColorG, uRippleColorB);
-  vec3 activeCursorColor = uIsClicking > 0.5 ? highlightColor : cursorColor;
 
   // --- 1. Trail ---
   if (needsTrail) {
@@ -258,9 +258,9 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
 
   vec2 imagePixel=vec2(pixel.x,uResolutionY-pixel.y);
   if(needsTemporal) {
-    result=alphaBlend(result,temporalCursorBody(imagePixel,activeCursorColor));
+    result=alphaBlend(result,temporalCursorBody(imagePixel));
   } else if(needsCursor && !temporalActive) {
-    result=alphaBlend(result,sampledCursorBody(imagePixel,vec4(cursorPixel.x,uResolutionY-cursorPixel.y,s,uCursorRotation),activeCursorColor));
+    result=alphaBlend(result,sampledCursorBody(imagePixel,vec4(cursorPixel.x,uResolutionY-cursorPixel.y,s,uCursorRotation)));
   }
 
   outputColor = result;

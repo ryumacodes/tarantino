@@ -1,3 +1,4 @@
+@group(0) @binding(12) var cursor_motion_sampler:sampler;
 struct Uniforms {
     output_width: f32,
     output_height: f32,
@@ -379,11 +380,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             u.content_offset_y + u.input_offset_y + u.cursor_y * u.input_height
         );
 
-        let active_color = select(
-            vec3<f32>(u.cursor_color_r, u.cursor_color_g, u.cursor_color_b),
-            vec3<f32>(u.cursor_highlight_r, u.cursor_highlight_g, u.cursor_highlight_b),
-            u.is_clicking > 0.5
-        );
         let ripple_color = vec3<f32>(u.ripple_r, u.ripple_g, u.ripple_b);
         let hl_color = vec3<f32>(u.cursor_highlight_r, u.cursor_highlight_g, u.cursor_highlight_b);
         let opacity = u.cursor_opacity;
@@ -468,7 +464,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             // Inverse window coordinates would scale the antialiasing width
             // when playback transitions between moving and stationary poses.
             let pose = cursor_shutter_now();
-            draw_cursor_body(out_px,pose.xy,pose.z,pose.w,opacity,active_color,&result,&front);
+            draw_cursor_body(out_px,pose.xy,pose.z,pose.w,opacity,&result,&front);
         }
     }
 

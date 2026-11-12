@@ -350,3 +350,94 @@ fn fixed_pointer_preserves_each_cursor_appearance() {
         styles.push(pair.remove(0));
     }
 }
+
+#[test]
+#[ignore="native GPU generated cursor motion segments"]
+fn generated_cursor_segments_preserve_styles_and_press_colors() {
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":128,"height":128},
+        "cursor_settings":{"enabled":true,"size":1,"color":"#ffffff","highlight_color":"#ff6b6b","click_effect":"none","shadow_intensity":30},
+        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false}
+    })).unwrap();
+    let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+    config.background_color=[0.0;4];config.frame_rate=60.0;
+    config.motion_blur_enabled=true;config.motion_blur_cursor_intensity=1.0;
+    let source=vec![0u8;128*128*4];
+    let shape=RgbaImage::from_pixel(1,1,image::Rgba([255;4]));
+    let mut compositor=GpuCompositor::new(config,Some(&shape),1.0,[1.0;3],settings.cursor_settings.as_ref()).unwrap();
+    let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
+    let poses=[([64.0,64.0,1.0,0.0],[64.0,64.0,1.0,0.0]),
+        ([64.0,64.0,1.0,0.0],[64.5,64.0,1.0,0.0]),
+        ([24.0,48.0,1.0,0.0],[88.0,48.0,1.0,0.0]),
+        ([24.0,24.0,1.0,0.0],[88.0,88.0,1.0,0.0]),
+        ([64.0,64.0,1.0,-60.0],[64.0,64.0,1.0,60.0]),
+        ([32.0,48.0,0.6,-30.0],[80.0,64.0,1.2,45.0])];
+    let mut fixtures=Vec::new();let mut styles=std::collections::HashSet::new();
+    for style in 0..5 {for pressed in [false,true] {for (pose_index,(before,now)) in poses.into_iter().enumerate() {for blur in [0.0,2.0] {
+        compositor.cursor_style=style as f32;compositor.prev_cursor_pose=Some(before);
+        let mut cursor=crate::cursor_renderer::CursorFrameState::default();
+        cursor.x=now[0]/128.0;cursor.y=now[1]/128.0;cursor.rotation=now[3];cursor.opacity=0.65;
+        cursor.is_clicking=if pressed {1.0} else {0.0};cursor.press_amount=if pressed {0.1} else {0.0};
+        cursor.fade_blur_radius=blur;compositor.cursor_size=now[2]/(1.0-cursor.press_amount);
+        let frame=compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap();
+        assert!(frame.chunks_exact(4).any(|p|p[3]>1),"style {style} disappeared");
+        assert!(frame.chunks_exact(4).all(|p|p[3]<=167),"style {style} exceeded opacity");
+        if pose_index==0 && !pressed && blur==0.0 {styles.insert(frame.clone());}
+        fixtures.push(serde_json::json!({"style":style,"pressed":pressed,"scale":now[2],"blur":blur,
+            "rotation":now[3],"x":cursor.x,"y":cursor.y,"opacity":cursor.opacity,
+            "before":before,"now":now,"expected":frame}));
+    }}}}
+    assert_eq!(styles.len(),5,"motion must preserve the five cursor appearances");
+    if let Ok(path)=std::env::var("TARANTINO_GENERATED_CURSOR_SEGMENTS_FIXTURE") {
+        std::fs::write(path,serde_json::to_vec(&serde_json::json!({"data":null,"frames":fixtures})).unwrap()).unwrap();
+    }
+}
+
+#[test]
+#[ignore="native GPU cursor integration timing"]
+fn measure_cursor_integration_frame_cost() {
+    let mut results=Vec::new();
+    for (width,height) in [(1280,720),(1920,1080)] {
+        let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+            "resolution":{"width":width,"height":height},
+            "cursor_settings":{"enabled":true,"size":3,"color":"#ffffff","click_effect":"none","shadow_intensity":30},
+            "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false}
+        })).unwrap();
+        let mut config=build_gpu_config_with_webcam(&settings,&None,Some(width),Some(height));
+        config.background_color=[0.0;4];config.frame_rate=60.0;
+        config.motion_blur_enabled=true;config.motion_blur_cursor_intensity=1.0;
+        let source=vec![0u8;(width*height*4) as usize];
+        let shape=RgbaImage::from_pixel(1,1,image::Rgba([255;4]));
+        let mut compositor=GpuCompositor::new(config,Some(&shape),3.0,[1.0;3],settings.cursor_settings.as_ref()).unwrap();
+        let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
+        let mut cursor=crate::cursor_renderer::CursorFrameState::default();
+        cursor.x=0.5;cursor.y=0.5;cursor.opacity=1.0;
+        for style in [0.0,3.0] {for travel in [24.0,160.0] {
+            compositor.cursor_style=style;
+            let mut samples=[Vec::new(),Vec::new()];
+            // Alternate order to distribute warm-cache and scheduling effects.
+            // The entire cursor sweep lies inside the video, so clipping selects
+            // the point-integrated control without cutting away cursor pixels.
+            for iteration in 0..36 {for offset in 0..2 {
+                let mode=(iteration+offset)%2;
+                compositor.config.clip_cursor_to_video=mode==1;
+                compositor.prev_cursor_pose=Some([width as f32*0.5-travel,height as f32*0.5,3.0,0.0]);
+                let start=std::time::Instant::now();
+                let frame=compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap();
+                let elapsed=start.elapsed().as_secs_f64()*1000.0;
+                assert_eq!(frame.len(),(width*height*4) as usize);
+                if iteration>=6 {samples[mode].push(elapsed);}
+            }}
+            for (mode,mut timings) in samples.into_iter().enumerate() {
+                timings.sort_by(f64::total_cmp);
+                results.push(serde_json::json!({"width":width,"height":height,"style":style,"travel":travel,
+                    "path":if mode==0 {"segments"} else {"points"},"samples_ms":timings,
+                    "median_ms":(timings[14]+timings[15])*0.5,"p95_ms":timings[28]}));
+            }
+        }}
+    }
+    if let Ok(path)=std::env::var("TARANTINO_CURSOR_TIMING_FIXTURE") {
+        std::fs::write(path,serde_json::to_vec_pretty(&results).unwrap()).unwrap();
+    }
+    eprintln!("{}",serde_json::to_string(&results).unwrap());
+}

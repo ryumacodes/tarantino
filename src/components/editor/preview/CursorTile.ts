@@ -32,6 +32,7 @@ export class CursorTile {
   private key='';
 
   update(renderer:WebGLRenderer,style:number,shadow:number,color:number[]) {
+    this.pyramid.target.texture.anisotropy=Math.min(4,renderer.capabilities.getMaxAnisotropy());
     const key=[style,shadow,...color].join(',');
     if(key===this.key)return;
     const target=renderer.getRenderTarget(),face=renderer.getActiveCubeFace(),mip=renderer.getActiveMipmapLevel();

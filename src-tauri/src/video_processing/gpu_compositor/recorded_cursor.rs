@@ -80,6 +80,145 @@ mod tests {
     }
 
     #[test]
+    #[ignore="native GPU subpixel cursor shutter"]
+    fn subpixel_recorded_cursor_motion_reconstructs_at_midpoint() {
+        let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+            "resolution":{"width":128,"height":128},
+            "cursor_settings":{"enabled":true,"size":1,"style":"pointer","click_effect":"none","shadow_intensity":0},
+            "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false}
+        })).unwrap();
+        let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+        config.background_color=[0.0;4];config.frame_rate=60.0;
+        config.motion_blur_cursor_intensity=1.0;
+        let source=vec![0u8;128*128*4];
+        let placeholder=RgbaImage::from_pixel(1,1,image::Rgba([255;4]));
+        let mut compositor=GpuCompositor::new(config,Some(&placeholder),1.0,[1.0;3],settings.cursor_settings.as_ref()).unwrap();
+        let mut images=CursorImages::default();
+        images.record(0,asset(8,12,[255,0,0,255],[0.0;2]));
+        let path=std::env::temp_dir().join(format!("cursor-midpoint-{}.json",uuid::Uuid::new_v4()));
+        std::fs::write(&path,serde_json::to_vec(&serde_json::json!({"cursor_images":images})).unwrap()).unwrap();
+        compositor.configure_recorded_cursor(&path,settings.cursor_settings.as_ref().unwrap()).unwrap();
+        std::fs::remove_file(path).unwrap();
+        compositor.set_recorded_cursor_time(Some(0.0));
+        let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
+        let mut state=crate::cursor_renderer::CursorFrameState::default();
+        state.y=0.5;state.opacity=1.0;
+        let mut frames=Vec::new();
+        for rotation in [0.0,37.0,90.0] {for delta in [0.25,0.5,0.99] {
+            state.rotation=rotation;
+            compositor.config.motion_blur_enabled=false;
+            state.x=(64.0+delta*0.5)/128.0;
+            let expected=compositor.composite_frame(&source,&camera,Some(&state)).unwrap();
+            compositor.config.motion_blur_enabled=true;
+            compositor.reset_motion_history();
+            state.x=0.5;
+            compositor.composite_frame(&source,&camera,Some(&state)).unwrap();
+            state.x=(64.0+delta)/128.0;
+            let actual=compositor.composite_frame(&source,&camera,Some(&state)).unwrap();
+            let error=actual.iter().zip(&expected).map(|(a,b)|a.abs_diff(*b)).max().unwrap();
+            assert!(error<=1,"rotation {rotation}, delta {delta}: midpoint error {error}");
+            frames.push(serde_json::json!({"time":0,"scale":1,"blur":0,"rotation":rotation,"x":state.x,
+                "before":[64,64,1,rotation],"now":[64.0+delta,64,1,rotation],"expected":actual}));
+        }}
+        if let Ok(path)=std::env::var("TARANTINO_CURSOR_MIDPOINT_FIXTURE") {
+            let track=&compositor.recorded_cursor.as_ref().unwrap().track;
+            let images=track.images.iter().map(|image|image.as_ref().map(|image|serde_json::json!({
+                "width":image.pixels.width(),"height":image.pixels.height(),
+                "rgba_base64":base64::engine::general_purpose::STANDARD.encode(image.pixels.as_raw()),
+                "rect":image.geometry.rect([0.0;2],17.0)
+            }))).collect::<Vec<_>>();
+            std::fs::write(path,serde_json::to_vec(&serde_json::json!({"data":{"images":images,"changes":track.changes},"frames":frames})).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    #[ignore="native GPU segmented cursor coverage"]
+    fn cursor_segments_match_integrated_shutter_coverage() {
+        let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+            "resolution":{"width":128,"height":128},
+            "cursor_settings":{"enabled":true,"size":1,"style":"pointer","click_effect":"none","shadow_intensity":0},
+            "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false}
+        })).unwrap();
+        let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+        config.background_color=[0.0;4];config.frame_rate=60.0;
+        config.motion_blur_enabled=true;config.motion_blur_cursor_intensity=1.0;
+        let source=vec![0u8;128*128*4];
+        let placeholder=RgbaImage::from_pixel(1,1,image::Rgba([255;4]));
+        let mut compositor=GpuCompositor::new(config,Some(&placeholder),1.0,[1.0;3],settings.cursor_settings.as_ref()).unwrap();
+        let mut images=CursorImages::default();images.record(0,asset(17,17,[255;4],[0.0;2]));
+        let pixels=RgbaImage::from_fn(64,32,|x,y| {
+            let inside=(8..56).contains(&x) && (4..28).contains(&y) && (x<20 || y<12 || x.abs_diff(2*y)<3);
+            let alpha=if inside {if (x+y)%2==0 {255} else {96}} else {0};
+            image::Rgba([255,if alpha==0 {0} else {255},255,alpha])
+        });
+        let mut png=std::io::Cursor::new(Vec::new());pixels.write_to(&mut png,image::ImageFormat::Png).unwrap();
+        let mut transparent=asset(64,32,[255;4],[8.0,4.0]);
+        transparent.png_base64=base64::engine::general_purpose::STANDARD.encode(png.into_inner());
+        images.record(500,transparent);
+        let path=std::env::temp_dir().join(format!("cursor-segments-{}.json",uuid::Uuid::new_v4()));
+        std::fs::write(&path,serde_json::to_vec(&serde_json::json!({"cursor_images":images})).unwrap()).unwrap();
+        compositor.configure_recorded_cursor(&path,settings.cursor_settings.as_ref().unwrap()).unwrap();
+        std::fs::remove_file(path).unwrap();compositor.set_recorded_cursor_time(Some(0.0));
+        let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
+        let poses=[([24.0,48.0,1.0,0.0],[88.0,48.0,1.0,0.0]),
+            ([24.0,24.0,1.0,0.0],[88.0,88.0,1.0,0.0]),
+            ([64.0,64.0,1.0,-60.0],[64.0,64.0,1.0,60.0]),
+            ([32.0,48.0,0.6,-30.0],[80.0,64.0,1.2,45.0])];
+        let local=|x:f64,y:f64,pose:[f32;4]| {
+            let angle=-(pose[3] as f64).to_radians();let (sin,cos)=angle.sin_cos();
+            let x=x-pose[0] as f64;let y=y-pose[1] as f64;
+            [(x*cos-y*sin)/pose[2] as f64,(x*sin+y*cos)/pose[2] as f64]
+        };
+        let mut frames=Vec::new();
+        for time in [0.0,500.0] {for (before,now) in poses {
+            compositor.set_recorded_cursor_time(Some(time));
+            compositor.prev_cursor_pose=Some(before);compositor.cursor_size=now[2];
+            let mut state=crate::cursor_renderer::CursorFrameState::default();
+            state.x=now[0]/128.0;state.y=now[1]/128.0;state.rotation=now[3];state.opacity=if time==0.0 {1.0} else {0.45};
+            let frame=compositor.composite_frame(&source,&camera,Some(&state)).unwrap();
+            assert!(frame.chunks_exact(4).all(|p|p[3] as f32<=state.opacity*255.0+1.0));
+            if time==0.0 {for y in (8..120).step_by(4) {for x in (8..120).step_by(4) {
+                let a=local(x as f64,y as f64,before);let b=local(x as f64,y as f64,now);
+                if ((b[0]-a[0]).hypot(b[1]-a[1]))*(before[2] as f64)<1.0 {continue;}
+                let distance=|t:f32| {
+                    let pose=std::array::from_fn(|i|before[i]+(now[i]-before[i])*t);
+                    let point=local(x as f64,y as f64,pose);
+                    let dx=((point[0]-8.5).abs()-8.5)*pose[2] as f64;
+                    let dy=((point[1]-8.5).abs()-8.5)*pose[2] as f64;
+                    dx.max(0.0).hypot(dy.max(0.0))+dx.max(dy).min(0.0)
+                };
+                let (a,m,b)=(distance(0.0),distance(0.5),distance(1.0));
+                let mut coverage=0.0;
+                for i in 0..2000 {
+                    let t=(i as f64+0.5)/2000.0;
+                    let d=2.0*(t-0.5)*(t-1.0)*a+4.0*t*(1.0-t)*m+2.0*t*(t-0.5)*b;
+                    coverage+=(0.5-d/3.0).clamp(0.0,1.0)/2000.0;
+                }
+                let actual=frame[(y*128+x)*4+3] as f64;
+                assert!((actual-coverage*255.0).abs()<=2.0,"{before:?} -> {now:?} pixel {x},{y}: {actual} vs {}",coverage*255.0);
+            }}}
+            frames.push(serde_json::json!({"time":time,"opacity":state.opacity,"scale":now[2],"blur":0,"rotation":now[3],
+                "x":state.x,"y":state.y,"before":before,"now":now,"expected":frame}));
+            for blur in [0.5,2.0] {
+                compositor.prev_cursor_pose=Some(before);state.fade_blur_radius=blur;
+                let frame=compositor.composite_frame(&source,&camera,Some(&state)).unwrap();
+                assert!(frame.chunks_exact(4).any(|p|p[3]>0),"fading cursor disappeared");
+                frames.push(serde_json::json!({"time":time,"opacity":state.opacity,"scale":now[2],"blur":blur,"rotation":now[3],
+                    "x":state.x,"y":state.y,"before":before,"now":now,"expected":frame}));
+            }
+        }}
+        if let Ok(path)=std::env::var("TARANTINO_CURSOR_SEGMENTS_FIXTURE") {
+            let track=&compositor.recorded_cursor.as_ref().unwrap().track;
+            let images=track.images.iter().map(|image|image.as_ref().map(|image|serde_json::json!({
+                "width":image.pixels.width(),"height":image.pixels.height(),
+                "rgba_base64":base64::engine::general_purpose::STANDARD.encode(image.pixels.as_raw()),
+                "rect":image.geometry.rect([0.0;2],17.0)
+            }))).collect::<Vec<_>>();
+            std::fs::write(path,serde_json::to_vec(&serde_json::json!({"data":{"images":images,"changes":track.changes},"frames":frames})).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
     #[ignore="native GPU recorded cursor minification"]
     fn small_recorded_cursor_filters_subpixel_checkerboard() {
         let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
@@ -278,7 +417,7 @@ impl GpuCompositor {
             }
             if cursor.bound.take().is_some() { self.cursor_tile = None; }
         }
-        if uniforms.cursor_enabled>0.5 && uniforms.cursor_opacity>0.01 && uniforms.cursor_fade_blur>0.04 {
+        if uniforms.cursor_enabled>0.5 && uniforms.cursor_opacity>0.01 {
             if self.cursor_tile.is_none() {
                 let tile=cursor_tile::CursorTile::new(&self.device)?;
                 self.cursor_texture=tile.pyramid.texture().clone();
