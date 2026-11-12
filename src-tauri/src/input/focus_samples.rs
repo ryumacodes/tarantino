@@ -9,6 +9,8 @@ pub struct FocusSample {
     pub timestamp: u64,
     pub caret: Option<[f64; 2]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caret_bounds: Option<[f64; 4]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub estimated_caret: Option<[f64; 2]>,
     pub trigger_timestamp: u64,
     pub trigger: FocusTrigger,
@@ -18,6 +20,7 @@ pub fn normalized(samples: &[FocusSample], start: u64) -> Vec<FocusSample> {
     samples.iter().filter(|sample| sample.timestamp >= start && sample.trigger_timestamp >= start).map(|sample| FocusSample {
         timestamp: sample.timestamp - start,
         caret: sample.caret,
+        caret_bounds: sample.caret_bounds,
         estimated_caret: sample.estimated_caret,
         trigger_timestamp: sample.trigger_timestamp - start,
         trigger: sample.trigger,
@@ -33,10 +36,13 @@ mod tests {
         let old = r#"{"timestamp":200,"caret":null,"trigger_timestamp":100,"trigger":"key"}"#;
         let mut sample: FocusSample = serde_json::from_str(old).unwrap();
         assert_eq!(sample.estimated_caret, None);
+        assert_eq!(sample.caret_bounds, None);
         sample.estimated_caret = Some([10.0, 20.0]);
-        let result = normalized(&[sample], 100);
+        sample.caret_bounds = Some([9.0, 12.0, 2.0, 16.0]);
+        let result = normalized(std::slice::from_ref(&sample), 100);
         assert_eq!(result[0].timestamp, 100);
         assert_eq!(result[0].caret, None);
+        assert_eq!(result[0].caret_bounds, sample.caret_bounds);
         assert_eq!(result[0].estimated_caret, Some([10.0, 20.0]));
         let json = serde_json::to_string(&result).unwrap();
         assert_eq!(serde_json::from_str::<Vec<FocusSample>>(&json).unwrap(), result);
@@ -45,14 +51,14 @@ mod tests {
     #[test]
     fn focus_timestamps_remain_independent_and_unavailable_samples_survive() {
         let samples = vec![
-            FocusSample { estimated_caret: None, timestamp: 150, trigger_timestamp: 90, trigger: FocusTrigger::Key, caret: Some([5.0, 6.0]) },
-            FocusSample { estimated_caret: None, timestamp: 99, trigger_timestamp: 98, trigger: FocusTrigger::Key, caret: Some([1.0, 2.0]) },
-            FocusSample { estimated_caret: None, timestamp: 100, trigger_timestamp: 100, trigger: FocusTrigger::Pointer, caret: Some([3.0, 4.0]) },
-            FocusSample { estimated_caret: None, timestamp: 205, trigger_timestamp: 105, trigger: FocusTrigger::Key, caret: None },
+            FocusSample { caret_bounds: None, estimated_caret: None, timestamp: 150, trigger_timestamp: 90, trigger: FocusTrigger::Key, caret: Some([5.0, 6.0]) },
+            FocusSample { caret_bounds: None, estimated_caret: None, timestamp: 99, trigger_timestamp: 98, trigger: FocusTrigger::Key, caret: Some([1.0, 2.0]) },
+            FocusSample { caret_bounds: None, estimated_caret: None, timestamp: 100, trigger_timestamp: 100, trigger: FocusTrigger::Pointer, caret: Some([3.0, 4.0]) },
+            FocusSample { caret_bounds: None, estimated_caret: None, timestamp: 205, trigger_timestamp: 105, trigger: FocusTrigger::Key, caret: None },
         ];
         let normalized = normalized(&samples, 100);
-        assert_eq!(normalized, vec![FocusSample { estimated_caret: None, timestamp: 0, trigger_timestamp: 0, trigger: FocusTrigger::Pointer, caret: Some([3.0, 4.0]) },
-            FocusSample { estimated_caret: None, timestamp: 105, trigger_timestamp: 5, trigger: FocusTrigger::Key, caret: None }]);
+        assert_eq!(normalized, vec![FocusSample { caret_bounds: None, estimated_caret: None, timestamp: 0, trigger_timestamp: 0, trigger: FocusTrigger::Pointer, caret: Some([3.0, 4.0]) },
+            FocusSample { caret_bounds: None, estimated_caret: None, timestamp: 105, trigger_timestamp: 5, trigger: FocusTrigger::Key, caret: None }]);
         let json = serde_json::to_string(&normalized).unwrap();
         assert_eq!(serde_json::from_str::<Vec<FocusSample>>(&json).unwrap(), normalized);
     }

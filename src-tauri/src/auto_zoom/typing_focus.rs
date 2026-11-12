@@ -64,6 +64,7 @@ mod tests {
     }
     fn sample(trigger: u64, observed: u64) -> FocusSample {
         FocusSample {
+            caret_bounds: None,
             estimated_caret: None,
             timestamp: observed,
             trigger_timestamp: trigger,

@@ -132,8 +132,8 @@ unsafe fn copy_attribute(element: AXUIElementRef, attribute: CFStringRef) -> Opt
 
 #[derive(Clone, Copy)]
 enum FocusPosition {
-    Measured((f64, f64)),
-    Estimated((f64, f64)),
+    Measured(caret_range::Geometry),
+    Estimated(caret_range::Geometry),
 }
 
 unsafe fn caret_from_focused_element(
@@ -191,7 +191,7 @@ unsafe fn caret_position_from_cf_range(
     element: AXUIElementRef,
     selected_range_attr: CFStringRef,
     bounds_for_range_attr: CFStringRef,
-) -> Option<(f64, f64)> {
+) -> Option<caret_range::Geometry> {
     let range_value = copy_attribute(element, selected_range_attr)?;
 
     let mut range = CFRange::default();
@@ -205,7 +205,7 @@ unsafe fn caret_position_from_cf_range(
     }
 
     CFRelease(range_value);
-    caret_range::position(range, |range| {
+    caret_range::geometry(range, |range| {
         let parameter = create_range_value(range)?;
         let bounds = copy_bounds_for_range(element, bounds_for_range_attr, parameter);
         CFRelease(parameter);
@@ -234,7 +234,7 @@ unsafe fn caret_position_from_text_marker(
     element: AXUIElementRef,
     selected_text_marker_range_attr: CFStringRef,
     bounds_for_text_marker_range_attr: CFStringRef,
-) -> Option<(f64, f64)> {
+) -> Option<caret_range::Geometry> {
     let range_value = copy_attribute(element, selected_text_marker_range_attr)?;
     let bounds = copy_rect_for_parameterized_attribute(
         element,
@@ -243,7 +243,7 @@ unsafe fn caret_position_from_text_marker(
     );
     CFRelease(range_value);
 
-    bounds.map(caret_range::text_marker_position)
+    bounds.map(caret_range::text_marker)
 }
 
 struct CaretAttributes {
@@ -288,7 +288,7 @@ unsafe fn caret_position_for_element(
         ).map(FocusPosition::Measured)
     }, || {
         if !estimate { return None; }
-        caret_range::geometric_position(copy_element_bounds(element)?).map(FocusPosition::Estimated)
+        caret_range::geometric(copy_element_bounds(element)?).map(FocusPosition::Estimated)
     })
 }
 
@@ -319,7 +319,7 @@ pub fn focused_caret_position() -> Option<(f64, f64)> {
     let pid = focus_application::frontmost_pid()?;
     let caret = focus_observer::selected_caret(None, pid).unwrap_or_else(|| caret_position_in_application(pid, false));
     if focus_application::frontmost_pid() != Some(pid) { return None; }
-    match caret { Some(FocusPosition::Measured(point)) => Some(point), _ => None }
+    match caret { Some(FocusPosition::Measured(value)) => Some(value.point), _ => None }
 }
 
 // Some accessibility providers return an empty rectangle when no caret bounds

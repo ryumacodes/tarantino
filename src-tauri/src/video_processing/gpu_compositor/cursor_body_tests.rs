@@ -249,8 +249,10 @@ fn cursor_fade_coverage_stays_local_across_scales() {
             let mut mass=0.0;let mut distant=0u64;
             for (index,pixel) in pixels.chunks_exact(4).enumerate() {
                 mass+=f64::from(pixel[3])/255.0;
-                let distance=((index%256) as f32-128.0).hypot((index/256) as f32-128.0);
-                if distance>12.0*scale+3.0*radius {distant+=u64::from(pixel[3]);}
+                let x=(index%256) as f32-128.0;let y=(index/256) as f32-128.0;
+                if x< -24.0*scale-1.5 || y< -24.0*scale-1.5 || x>40.0*scale+1.5 || y>40.0*scale+1.5 {
+                    distant+=u64::from(pixel[3]);
+                }
             }
             if radius==0.0 {baseline=mass;}
             rows.push(serde_json::json!({"scale":scale,"radius":radius,"mass":mass,"ratio":mass/baseline,"distant_alpha":distant}));
@@ -261,7 +263,11 @@ fn cursor_fade_coverage_stays_local_across_scales() {
     for row in rows {
         assert_eq!(row["distant_alpha"].as_u64().unwrap(),0,"nonlocal cursor coverage: {row}");
         let ratio=row["ratio"].as_f64().unwrap();
-        assert!((0.8..1.2).contains(&ratio),"cursor energy changes excessively: {row}");
+        assert!(ratio>0.0 && ratio<1.2,"cursor vanished or gained excessive energy: {row}");
+        // Blur reaching the image boundary is clipped by its coverage mask.
+        if 3.0*row["radius"].as_f64().unwrap()+1.5<=14.0*row["scale"].as_f64().unwrap() {
+            assert!(ratio>0.8,"interior cursor blur loses excessive energy: {row}");
+        }
     }
 }
 
@@ -283,7 +289,7 @@ fn measure_cursor_fade_compositor_latency() {
         settings.cursor_settings.as_ref().unwrap(),Clone::clone);
     let mut cursor=states[0].clone();cursor.opacity=0.65;
     let camera=ZoomFrameState { rect: None,scale:1.0,center_x:0.5,center_y:0.5};
-    let guard="if(length(pixel-position)>=60.0*size+3.0*u.cursor_fade_blur) {return;}";
+    let guard="if(coverage<=0.0) {return;}";
     assert!(COMPOSITE_SHADER.contains(guard));
     let baseline_shader=compositor.device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label:Some("Unbounded cursor benchmark baseline"),
@@ -440,4 +446,42 @@ fn measure_cursor_integration_frame_cost() {
         std::fs::write(path,serde_json::to_vec_pretty(&results).unwrap()).unwrap();
     }
     eprintln!("{}",serde_json::to_string(&results).unwrap());
+}
+
+#[test]
+#[ignore="native GPU cursor motion across source crop boundaries"]
+fn source_crop_preserves_cursor_motion_into_padding() {
+    for mode in ["display","window"] {
+        let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+            "resolution":{"width":128,"height":128},"capture_mode":mode,
+            "source_crop":{"x":0.25,"y":0.25,"width":0.5,"height":0.5},
+            "cursor_settings":{"enabled":true,"size":1,"color":"#ffffff","click_effect":"none","shadow_intensity":0},
+            "visual_settings":{"padding":25,"corner_radius":0,"shadow_enabled":false}
+        })).unwrap();
+        let mut config=build_gpu_config_with_webcam(&settings,&None,Some(64),Some(64));
+        config.background_color=[0.0;4];
+        config.motion_blur_enabled=true;config.motion_blur_cursor_intensity=1.0;
+        config.motion_blur_pan_intensity=0.0;config.motion_blur_zoom_intensity=0.0;
+        let left=config.content_offset_x+config.input_offset_x;
+        let right=left+config.input_width;
+        let source=vec![0u8;(config.input_width*config.input_height*4) as usize];
+        let shape=RgbaImage::from_pixel(1,1,image::Rgba([255;4]));
+        let mut compositor=GpuCompositor::new(config,Some(&shape),1.0,[1.0;3],settings.cursor_settings.as_ref()).unwrap();
+        let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
+        let mut cursor=crate::cursor_renderer::CursorFrameState::default();
+        cursor.opacity=1.0;cursor.y=0.5;
+        for x in [-0.1,1.05] {
+            cursor.x=x;compositor.reset_motion_history();
+            let stationary=compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap();
+            let outside_alpha=|frame:&[u8]|frame.chunks_exact(4).enumerate()
+                .filter(|(i,_)|{let x=(*i%128) as u32;x<left||x>=right})
+                .map(|(_,p)|p[3] as u64).sum::<u64>();
+            assert!(outside_alpha(&stationary)>100,"{mode} hides stationary cursor beyond crop at {x}");
+            cursor.x=0.5;compositor.reset_motion_history();
+            compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap();
+            cursor.x=x;
+            let moving=compositor.composite_frame(&source,&camera,Some(&cursor)).unwrap();
+            assert!(outside_alpha(&moving)>100,"{mode} clips moving cursor at {x}");
+        }
+    }
 }

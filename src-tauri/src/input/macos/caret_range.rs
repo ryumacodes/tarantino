@@ -1,49 +1,56 @@
 use super::CFRange;
 use core_graphics::geometry::CGRect;
 
-pub(super) fn position(
+#[derive(Clone, Copy)]
+pub(super) struct Geometry {
+    pub(super) point: (f64, f64),
+    pub(super) bounds: [f64; 4],
+}
+
+fn bar(x: f64, y: f64, height: f64) -> Geometry {
+    Geometry { point: (x, y + height / 2.0), bounds: [x, y, 2.0, height] }
+}
+
+pub(super) fn geometry(
     selection: CFRange,
     mut bounds: impl FnMut(CFRange) -> Option<CGRect>,
     element_bounds: impl FnOnce() -> Option<CGRect>,
-) -> Option<(f64, f64)> {
-    if selection.location < 0 || selection.length < 0 {
-        return None;
-    }
+) -> Option<Geometry> {
+    if selection.location < 0 || selection.length < 0 { return None; }
     let end = selection.location.checked_add(selection.length)?;
     let next = bounds(CFRange { location: end, length: 1 });
-    let previous = (end > 0)
-        .then(|| bounds(CFRange { location: end - 1, length: 1 }))
-        .flatten();
+    let previous = (end > 0).then(|| bounds(CFRange { location: end - 1, length: 1 })).flatten();
     match (next, previous) {
         (Some(next), Some(previous)) if (next.origin.y - previous.origin.y).abs() < 1.0 => {
-            Some((previous.origin.x + previous.size.width,
-                previous.origin.y + previous.size.height / 2.0))
+            Some(bar(previous.origin.x + previous.size.width, previous.origin.y, previous.size.height))
         }
-        (Some(next), _) => Some((next.origin.x, next.origin.y + next.size.height / 2.0)),
-        (None, Some(previous)) => Some((previous.origin.x + previous.size.width,
-            previous.origin.y + previous.size.height / 2.0)),
-        (None, None) => bounds(CFRange { location: end, length: 0 })
-            .map(|rect| {
-                let offset = if element_bounds().is_some_and(|element| rect.origin.y < element.origin.y) {
-                    rect.size.height
-                } else { 0.0 };
-                (rect.origin.x, rect.origin.y + offset + rect.size.height / 2.0)
-            }),
+        (Some(next), _) => Some(bar(next.origin.x, next.origin.y, next.size.height)),
+        (None, Some(previous)) => Some(bar(previous.origin.x + previous.size.width, previous.origin.y, previous.size.height)),
+        (None, None) => bounds(CFRange { location: end, length: 0 }).map(|rect| {
+            let offset = if element_bounds().is_some_and(|element| rect.origin.y < element.origin.y) {
+                rect.size.height
+            } else { 0.0 };
+            bar(rect.origin.x, rect.origin.y + offset, rect.size.height)
+        }),
     }
 }
 
-pub(super) fn text_marker_position(bounds: CGRect) -> (f64, f64) {
+pub(super) fn text_marker(bounds: CGRect) -> Geometry {
     let width = if bounds.size.width > 6.0 { 2.0 } else { bounds.size.width.max(2.0) };
-    (bounds.origin.x + width / 2.0, bounds.origin.y + bounds.size.height / 2.0)
+    Geometry {
+        point: (bounds.origin.x + width / 2.0, bounds.origin.y + bounds.size.height / 2.0),
+        bounds: [bounds.origin.x, bounds.origin.y, width, bounds.size.height],
+    }
 }
 
-pub(super) fn geometric_position(bounds: CGRect) -> Option<(f64, f64)> {
+pub(super) fn geometric(bounds: CGRect) -> Option<Geometry> {
     let height = bounds.size.height;
     if height <= 0.0 { return None; }
     let inset_height = (height - 4.0).min(22.0);
-    let x = bounds.origin.x + 5.0;
-    let y = bounds.origin.y + (height - inset_height) / 2.0 + inset_height.max(8.0) / 2.0;
-    Some((x, y))
+    let x = bounds.origin.x + 4.0;
+    let y = bounds.origin.y + (height - inset_height) / 2.0;
+    let height = inset_height.max(8.0);
+    Some(Geometry { point: (x + 1.0, y + height / 2.0), bounds: [x, y, 2.0, height] })
 }
 
 #[cfg(test)]
@@ -52,11 +59,31 @@ mod tests {
     use core_graphics::geometry::{CGPoint, CGSize};
 
     fn position(selection: CFRange, bounds: impl FnMut(CFRange) -> Option<CGRect>) -> Option<(f64, f64)> {
-        super::position(selection, bounds, || None)
+        super::geometry(selection, bounds, || None).map(|value| value.point)
     }
+
+    fn geometric_position(bounds: CGRect) -> Option<(f64, f64)> { geometric(bounds).map(|value| value.point) }
+    fn text_marker_position(bounds: CGRect) -> (f64, f64) { text_marker(bounds).point }
 
     fn rect(x: f64, y: f64, width: f64) -> CGRect {
         CGRect::new(&CGPoint::new(x, y), &CGSize::new(width, 16.0))
+    }
+
+    #[test]
+    fn caret_rectangles_retain_height_and_provider_specific_width() {
+        let ranged=geometry(CFRange { location: 1, length: 0 }, |range|
+            (range.location==0).then(|| rect(-40.0, 12.0, 9.0)), || None).unwrap();
+        assert_eq!(ranged.bounds, [-31.0, 12.0, 2.0, 16.0]);
+        assert_eq!(ranged.point, (-31.0, 20.0));
+        let marker=text_marker(rect(-40.0, 12.0, 4.0));
+        assert_eq!(marker.bounds, [-40.0, 12.0, 4.0, 16.0]);
+        assert_eq!(marker.point, (-38.0, 20.0));
+        let estimated=geometric(CGRect::new(&CGPoint::new(-100.0, 40.0), &CGSize::new(300.0, 2.0))).unwrap();
+        assert_eq!(estimated.bounds, [-96.0, 42.0, 2.0, 8.0]);
+        assert_eq!(estimated.point, (-95.0, 46.0));
+        let collapsed=geometry(CFRange { location: 0, length: 0 }, |range|
+            (range.length==0).then(|| rect(120.0, 40.0, 0.0)), || Some(rect(100.0, 41.0, 400.0))).unwrap();
+        assert_eq!(collapsed.bounds, [120.0, 56.0, 2.0, 16.0]);
     }
 
     #[test]
@@ -119,17 +146,17 @@ mod tests {
     #[test]
     fn collapsed_caret_above_its_element_moves_down_one_line_height() {
         for (element_y, expected_y) in [(39.0, 48.0), (40.0, 48.0), (40.1, 64.0), (100.0, 64.0)] {
-            let result = super::position(CFRange { location: 5, length: 0 }, |range|
+            let result = super::geometry(CFRange { location: 5, length: 0 }, |range|
                 (range.length == 0).then(|| rect(120.0, 40.0, 0.0)),
-                || Some(rect(100.0, element_y, 400.0)));
+                || Some(rect(100.0, element_y, 400.0))).map(|value| value.point);
             assert_eq!(result, Some((120.0, expected_y)));
         }
     }
 
     #[test]
     fn character_bounds_do_not_request_element_geometry() {
-        let result = super::position(CFRange { location: 0, length: 0 },
-            |_| Some(rect(20.0, 40.0, 10.0)), || panic!("unneeded element query"));
+        let result = super::geometry(CFRange { location: 0, length: 0 },
+            |_| Some(rect(20.0, 40.0, 10.0)), || panic!("unneeded element query")).map(|value| value.point);
         assert_eq!(result, Some((20.0, 48.0)));
     }
 

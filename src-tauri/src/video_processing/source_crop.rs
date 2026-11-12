@@ -52,8 +52,8 @@ impl PixelCrop {
             height: self.height as f64 / self.source_height as f64 }
     }
 
-    /// Keep outside positions outside: clamping would pin an invisible cursor to
-    /// the crop edge. Camera target bounds are applied separately after grouping.
+    /// Keep outside positions outside so motion continues across the crop edge.
+    /// Camera target bounds are applied separately after grouping.
     pub fn source_point(self, x: f64, y: f64) -> (f64, f64) {
         ((x * self.source_width as f64 - self.x as f64) / self.width as f64,
          (y * self.source_height as f64 - self.y as f64) / self.height as f64)

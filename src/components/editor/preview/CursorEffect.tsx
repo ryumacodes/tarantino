@@ -91,6 +91,7 @@ export class CursorEffectImpl extends Effect {
         ['uCursorTemporalEnabled',new THREE.Uniform(0)],
         ['uCursorFetchBudget',new THREE.Uniform(16)],
         ['uCursorFetchSpan',new THREE.Uniform(4)],
+        ['uCursorStageHeightRatio',new THREE.Uniform(1)],
         ['uCursorShutterStart',new THREE.Uniform(new THREE.Vector4())],
         ['uCursorShutterNow',new THREE.Uniform(new THREE.Vector4())],
         ['uCursorClipBefore',new THREE.Uniform(new THREE.Vector4())],
@@ -464,6 +465,7 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     u.get('uCursorFetchSpan')!.value=store.isPlaying?16:4;
     u.get('uResolutionX')!.value = resX;
     u.get('uResolutionY')!.value = resY;
+    u.get('uCursorStageHeightRatio')!.value=outputSize.height*densityScale/resY;
     const camera=cameraMotionRef.current;
     if(camera && camera.timelineTime===store.currentTime && camera.revision===store.playbackRevision
       && camera.beforeSourceTime!==null && priorTrajectory.current===trajectory) {
@@ -484,24 +486,6 @@ export const CursorEffect: React.FC<CursorEffectProps> = ({
     effect.prepare(gl);
     priorTrajectory.current=opacity>.01?trajectory:null;
 
-
-    u.get('uVideoClipEnabled')!.value = sourceCrop ? 1.0 : 0.0;
-    if (sourceCrop) {
-      // Window mode clips in its moving layer; display mode uses the fixed
-      // source viewport, matching the compositor's inverse-sampling boundary.
-      const a = store.captureMode === 'window' ? toScreenUV(0,1) : {
-        u:0.5-transform.planeWidth/transform.viewportWidth/2,
-        v:0.5-transform.planeHeight/transform.viewportHeight/2,
-      };
-      const b = store.captureMode === 'window' ? toScreenUV(1,0) : {
-        u:0.5+transform.planeWidth/transform.viewportWidth/2,
-        v:0.5+transform.planeHeight/transform.viewportHeight/2,
-      };
-      u.get('uVideoClipMinX')!.value = a.u*resX;
-      u.get('uVideoClipMinY')!.value = a.v*resY;
-      u.get('uVideoClipMaxX')!.value = b.u*resX;
-      u.get('uVideoClipMaxY')!.value = b.v*resY;
-    }
 
     // Trail points
     const trailUniform = u.get('uTrailPoints')!.value as THREE.Vector4[];

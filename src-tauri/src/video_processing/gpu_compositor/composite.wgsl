@@ -464,7 +464,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             // Inverse window coordinates would scale the antialiasing width
             // when playback transitions between moving and stationary poses.
             let pose = cursor_shutter_now();
-            draw_cursor_body(out_px,pose.xy,pose.z,pose.w,opacity,&result,&front);
+            draw_cursor_body(out_px,pose.xy,pose.z,pose.w,opacity,cursor_shutter_start().z,pose.z,&result,&front);
         }
     }
 

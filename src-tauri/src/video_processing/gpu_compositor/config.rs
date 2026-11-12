@@ -147,7 +147,7 @@ pub fn build_gpu_config(
         motion_blur_zoom_intensity,
         motion_blur_cursor_intensity,
         window_mode: settings.capture_mode.as_deref() == Some("window"),
-        clip_cursor_to_video: settings.source_crop.is_some(),
+        clip_cursor_to_video: false,
     }
 }
 

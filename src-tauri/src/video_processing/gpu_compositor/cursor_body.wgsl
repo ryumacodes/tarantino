@@ -103,26 +103,26 @@ fn draw_cursor_procedural(pixel:vec2<f32>,position:vec2<f32>,size:f32,rotation:f
 
 // The fade radius is in output pixels, independent of cursor size and rotation.
 fn draw_cursor_body(pixel:vec2<f32>,position:vec2<f32>,size:f32,rotation:f32,
-    opacity:f32,result:ptr<function,vec4<f32>>,front:ptr<function,vec4<f32>>) {
+    opacity:f32,footprint_size:f32,fade_size:f32,result:ptr<function,vec4<f32>>,front:ptr<function,vec4<f32>>) {
     if(opacity<=0.01 || size<=0.0) {return;}
     let local=rotate_2d(pixel-position,-rotation*0.01745329252)/size;
     let rect=select(vec4<f32>(-24.0,-24.0,64.0,64.0),
         vec4<f32>(u.cursor_image_left,u.cursor_image_top,u.cursor_image_width,u.cursor_image_height),u.cursor_image_width>0.0);
-    let margin=3.0*u.cursor_fade_blur/size;
-    if(any(local<rect.xy-vec2<f32>(margin)) || any(local>rect.xy+rect.zw+vec2<f32>(margin))) {return;}
+    let edge=(abs(local-rect.xy-rect.zw*0.5)-rect.zw*0.5)*size;
+    let distance=length(max(edge,vec2<f32>(0.0)))+min(max(edge.x,edge.y),0.0);
+    let coverage=1.0-smoothstep(-1.5,1.5,distance);
+    if(coverage<=0.0) {return;}
     let uv=(local-rect.xy)/rect.zw;
-    let texels_per_pixel=vec2<f32>(textureDimensions(cursor_tex))/(rect.zw*size);
+    let texels_per_pixel=vec2<f32>(textureDimensions(cursor_tex))/(rect.zw*footprint_size);
     let sampling_lod=max(0.0,log2(max(texels_per_pixel.x,texels_per_pixel.y)));
     var sampled=vec4<f32>(0.0);
     if(u.cursor_fade_blur<=0.04) {
-        if(all(uv>=vec2<f32>(0.0)) && all(uv<=vec2<f32>(1.0))) {
-            sampled=textureSampleLevel(cursor_tex,bilinear_sampler,uv,sampling_lod);
-        }
+        sampled=textureSampleLevel(cursor_tex,bilinear_sampler,uv,sampling_lod);
     } else {
         let noise_pixel=vec2<u32>(max(floor(pixel),vec2<f32>(0.0)));
-        let texel_scale=f32(textureDimensions(cursor_tex).x)/(rect.z*size);
+        let texel_scale=f32(textureDimensions(cursor_tex).y)/(rect.w*fade_size);
         sampled=mip_sample_blurred_border(cursor_tex,bilinear_sampler,uv,u.cursor_fade_blur*texel_scale,sampling_lod,
             vec2<f32>(blue_noise(noise_pixel),blue_noise(noise_pixel+vec2<u32>(37u))),true);
     }
-    if(sampled.a>0.0) {blend_with_layer(result,front,vec4<f32>(sampled.rgb/sampled.a,sampled.a*opacity));}
+    if(sampled.a>0.0) {blend_with_layer(result,front,vec4<f32>(sampled.rgb/sampled.a,sampled.a*opacity*coverage));}
 }
