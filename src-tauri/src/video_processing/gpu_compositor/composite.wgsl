@@ -81,6 +81,7 @@ struct Uniforms {
     lens_camera_opacity:f32, webcam_mirrored:f32, cursor_fade_blur:f32, lens_camera_pad3:f32,
     camera_left:f32, camera_top:f32, camera_width:f32, camera_height:f32,
     cursor_image_left:f32, cursor_image_top:f32, cursor_image_width:f32, cursor_image_height:f32,
+    source_left:f32, source_top:f32, source_width:f32, source_height:f32,
 };
 
 struct TrailPoint {
@@ -103,17 +104,25 @@ struct TrailPoint {
 @group(0) @binding(10) var foreground_layer: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(11) var background_layer: texture_storage_2d<rgba8unorm, write>;
 
+fn source_view() -> vec4<f32> {
+    return vec4<f32>(u.source_left,u.source_top,u.source_width,u.source_height);
+}
+
+fn sample_source_texture(uv: vec2<f32>) -> vec4<f32> {
+    return textureSampleLevel(source_tex, bilinear_sampler, source_view().xy + uv * source_view().zw, source_sampling_lod());
+}
+
 fn sample_zoomed(uv: vec2<f32>) -> vec4<f32> {
     let scale = u.zoom_scale;
     if (scale <= 1.001) {
-        return textureSampleLevel(source_tex, bilinear_sampler, uv, source_sampling_lod());
+        return sample_source_texture(uv);
     }
     let vis_size = 1.0 / scale;
     let half_vis = vis_size / 2.0;
     let src_x = clamp(u.zoom_center_x - half_vis, 0.0, 1.0 - vis_size);
     let src_y = clamp(u.zoom_center_y - half_vis, 0.0, 1.0 - vis_size);
     let src_uv = vec2<f32>(src_x + uv.x * vis_size, src_y + uv.y * vis_size);
-    return textureSampleLevel(source_tex, bilinear_sampler, src_uv, source_sampling_lod());
+    return sample_source_texture(src_uv);
 }
 
 fn bg_color(index: i32) -> vec4<f32> {
@@ -167,13 +176,13 @@ fn sample_with_motion_blur(uv: vec2<f32>) -> vec4<f32> {
     let a=(pixel-before.xy)/before.zw+vec2<f32>(0.5);
     let b=(pixel-now.xy)/now.zw+vec2<f32>(0.5);
     if (length((b-a)*before.zw)<1.0) {
-        return textureSampleLevel(source_tex, bilinear_sampler, clamp((a+b)*0.5,vec2<f32>(0.0),vec2<f32>(1.0)), source_sampling_lod());
+        return sample_source_texture(clamp((a+b)*0.5,vec2<f32>(0.0),vec2<f32>(1.0)));
     }
     let count=window_fetch_count(b-a);
     var color=vec4<f32>(0.0);
     for (var tap=0;tap<count;tap=tap+1) {
         let pos=clamp(mix(a,b,(f32(tap)+window_sample_phase(pixel))/f32(count)),vec2<f32>(0.0),vec2<f32>(1.0));
-        let value=textureSampleLevel(source_tex, bilinear_sampler, pos, source_sampling_lod());
+        let value=sample_source_texture(pos);
         color=color+vec4<f32>(value.rgb*value.rgb*value.a,value.a)/f32(count);
     }
     if (color.a<=0.0) {return vec4<f32>(0.0);}
@@ -181,7 +190,7 @@ fn sample_with_motion_blur(uv: vec2<f32>) -> vec4<f32> {
 }
 
 fn sample_window_motion_blur(uv: vec2<f32>) -> vec4<f32> {
-    let base = textureSampleLevel(source_tex, bilinear_sampler, uv, source_sampling_lod());
+    let base = sample_source_texture(uv);
     if (u.motion_blur_enabled < 0.5) {
         return base;
     }
@@ -202,7 +211,7 @@ fn sample_window_motion_blur(uv: vec2<f32>) -> vec4<f32> {
         let weight = 1.0 - abs(t) * 0.5;
         let offset = (pan_dir * pan_blur + (uv - vec2<f32>(0.5)) * zoom_blur) * t;
         let sample_uv = clamp(uv + offset, vec2<f32>(0.0), vec2<f32>(1.0));
-        color = color + textureSampleLevel(source_tex, bilinear_sampler, sample_uv, source_sampling_lod()) * weight;
+        color = color + sample_source_texture(sample_uv) * weight;
         total_weight = total_weight + weight;
     }
     return color / total_weight;

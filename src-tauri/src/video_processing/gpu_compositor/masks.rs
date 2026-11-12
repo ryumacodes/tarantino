@@ -56,3 +56,38 @@ mod tests {
         assert_eq!(compositor.composite_frame(&source,&camera,None).unwrap(),baseline);
     }
 }
+
+#[test]
+#[ignore = "requires native GPU; masks with a cropped source texture"]
+fn mask_export_coordinates_follow_the_logical_source_view() {
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":128,"height":128},
+        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false,"motion_blur_enabled":false}
+    })).unwrap();
+    let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+    config.source_size=[256,256];
+    config.source_uv=[0.25,0.25,0.5,0.5];
+    let input=serde_json::from_value(serde_json::json!({"frames":1,"spans":[{
+        "start":0,"end":1,"rect":[0.25,0.25,0.5,0.5],"radius":0,
+        "sensitive":false,"highlightOpacity":0.5
+    }]})).unwrap();
+    let masks=crate::video_processing::mask_export::Prepared::new(input,1,config.source_size,config.source_uv).unwrap();
+    let placement=masks.sample(0).unwrap();
+    assert_eq!(placement.rect,[96.0,96.0,64.0,64.0]);
+    let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
+    let source=[180,120,60,255].repeat(256*256);
+    let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
+    let base=compositor.composite_frame(&source,&camera,None).unwrap();
+    compositor.set_source_mask(Some(placement)).unwrap();
+    let masked=compositor.composite_frame(&source,&camera,None).unwrap();
+    for (x,y) in [(64,64),(48,48),(80,80)] {
+        let pixel=(y*128+x)*4;
+        assert_eq!(&masked[pixel..pixel+4],&base[pixel..pixel+4]);
+    }
+    for (x,y) in [(16,64),(112,64),(64,16),(64,112)] {
+        let pixel=(y*128+x)*4;
+        assert!(masked[pixel]<base[pixel]-30,"outside logical mask at ({x},{y}) was not dimmed");
+    }
+    compositor.set_source_mask(None).unwrap();
+    assert_eq!(compositor.composite_frame(&source,&camera,None).unwrap(),base);
+}

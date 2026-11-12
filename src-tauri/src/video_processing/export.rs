@@ -298,6 +298,7 @@ pub async fn export_video(
         None
     };
     control.check()?;
+    let source_view = gpu_config.source_uv;
     let mut compositor = GpuCompositor::new(
         gpu_config,
         cursor_shape_ref,
@@ -308,7 +309,7 @@ pub async fn export_video(
     compositor.configure_recorded_cursor(&mouse_events_path, &cursor_config)?;
     let gpu_shortcuts=compositor.configure_shortcuts(shortcuts.as_ref())?;
     compositor.configure_captions(captions)?;
-    let masks=settings.mask_overlay.take().map(|m|super::mask_export::Prepared::new(m,expected_frames,[input_width,input_height])).transpose()?;
+    let masks=settings.mask_overlay.take().map(|m|super::mask_export::Prepared::new(m,expected_frames,[input_width,input_height],source_view)).transpose()?;
     // Spawn webcam decoder if webcam recording exists
     let webcam_frame_size: Option<(u32, u32)>;
     let mut webcam_decoder: Option<ExportChild> = None;

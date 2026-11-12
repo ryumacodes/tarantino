@@ -21,8 +21,59 @@ pub struct PixelCrop {
     source_height: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CropSampling {
+    pub bounds: [f64; 4],
+    pub decode: PixelCrop,
+    pub view: [f64; 4],
+}
+
 impl SourceCrop {
-    pub fn resolve(self, width: u32, height: u32) -> Result<PixelCrop> {
+    pub fn sampling(self, width: u32, height: u32, padding: u32) -> Result<CropSampling> {
+        self.validate(width, height)?;
+        let bounds = [self.x * width as f64, self.y * height as f64,
+            self.width * width as f64, self.height * height as f64];
+        let left = bounds[0].floor() as u32;
+        let top = bounds[1].floor() as u32;
+        let right = (bounds[0] + bounds[2]).ceil().min(width as f64) as u32;
+        let bottom = (bounds[1] + bounds[3]).ceil().min(height as f64) as u32;
+        if right <= left || bottom <= top {
+            bail!("Crop must intersect the source video");
+        }
+        let x = left.saturating_sub(padding);
+        let y = top.saturating_sub(padding);
+        let right = right.saturating_add(padding).min(width);
+        let bottom = bottom.saturating_add(padding).min(height);
+        let decode = PixelCrop { x, y, width: right - x, height: bottom - y,
+            source_width: width, source_height: height };
+        let view = [(bounds[0] - x as f64) / decode.width as f64,
+            (bounds[1] - y as f64) / decode.height as f64,
+            bounds[2] / decode.width as f64, bounds[3] / decode.height as f64];
+        Ok(CropSampling { bounds, decode, view })
+    }
+
+    // Keep the original mip grid and enough neighboring pixels for filtering.
+    // Odd source extents cannot be rebased without changing normalized mip sampling.
+    pub fn sampling_for_mips(self, width: u32, height: u32, last_level: u32) -> Result<CropSampling> {
+        let mut plan = self.sampling(width, height, 0)?;
+        let block = 1u32.checked_shl(last_level).unwrap_or(u32::MAX);
+        let axis = |start: u32, extent: u32, source: u32| {
+            if source % block != 0 { return (0, source); }
+            let padding = block.saturating_mul(2);
+            let first = start.saturating_sub(padding) / block * block;
+            let end = start.saturating_add(extent).saturating_add(padding).min(source);
+            let last = end.div_ceil(block).saturating_mul(block).min(source);
+            (first, last - first)
+        };
+        let (x, w) = axis(plan.decode.x, plan.decode.width, width);
+        let (y, h) = axis(plan.decode.y, plan.decode.height, height);
+        plan.decode = PixelCrop { x, y, width: w, height: h, source_width: width, source_height: height };
+        plan.view = [(plan.bounds[0] - x as f64) / w as f64,
+            (plan.bounds[1] - y as f64) / h as f64, plan.bounds[2] / w as f64, plan.bounds[3] / h as f64];
+        Ok(plan)
+    }
+
+    fn validate(self, width: u32, height: u32) -> Result<()> {
         if width == 0 || height == 0
             || ![self.x, self.y, self.width, self.height].iter().all(|n| n.is_finite())
             || self.x < 0.0 || self.y < 0.0 || self.width <= 0.0 || self.height <= 0.0
@@ -30,6 +81,11 @@ impl SourceCrop {
         {
             bail!("Crop must be a nonempty rectangle inside the source video");
         }
+        Ok(())
+    }
+
+    pub fn resolve(self, width: u32, height: u32) -> Result<PixelCrop> {
+        self.validate(width, height)?;
         // Quantize edges, not width independently, so adjacent rectangles share
         // the same boundary. Cropping runs in RGBA before output chroma conversion.
         let x = (self.x * width as f64).round() as u32;
@@ -161,5 +217,42 @@ mod decode_tests {
             }
         }
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod sampling_tests {
+    use super::*;
+
+    #[test]
+    fn fractional_geometry_survives_decode_envelopes_and_filter_padding() {
+        let crop=SourceCrop{x:0.25,y:0.1,width:0.5,height:0.8};
+        for padding in [0,1,16,u32::MAX] {
+            let plan=crop.sampling(1919,1079,padding).unwrap();
+            assert_eq!(plan.bounds,[479.75,107.9,959.5,863.2]);
+            let raster=plan.decode;
+            assert!(raster.x as f64<=plan.bounds[0] && raster.y as f64<=plan.bounds[1]);
+            assert!((raster.x+raster.width) as f64>=plan.bounds[0]+plan.bounds[2]);
+            assert!((raster.y+raster.height) as f64>=plan.bounds[1]+plan.bounds[3]);
+            for [u,v] in [[0.0,0.0],[0.7,0.625],[1.0,1.0]] {
+                let texture=[plan.view[0]+u*plan.view[2],plan.view[1]+v*plan.view[3]];
+                let source=[raster.x as f64+texture[0]*raster.width as f64,
+                    raster.y as f64+texture[1]*raster.height as f64];
+                assert!((source[0]-(plan.bounds[0]+u*plan.bounds[2])).abs()<1e-10);
+                assert!((source[1]-(plan.bounds[1]+v*plan.bounds[3])).abs()<1e-10);
+            }
+        }
+    }
+
+    #[test]
+    fn subpixel_crops_keep_geometry_and_padding_stays_inside_source() {
+        let crop=SourceCrop{x:0.001,y:0.998,width:0.002,height:0.002};
+        let plan=crop.sampling(100,100,1).unwrap();
+        assert_eq!((plan.decode.x,plan.decode.y,plan.decode.width,plan.decode.height),(0,98,2,2));
+        assert_eq!(plan.bounds[2],0.2);
+        let full=SourceCrop{x:0.0,y:0.0,width:1.0,height:1.0}.sampling(100,100,16).unwrap();
+        assert_eq!(full.view,[0.0,0.0,1.0,1.0]);
+        assert!(SourceCrop{x:1.0,y:0.0,width:1e-10,height:1.0}.sampling(100,100,1).is_err());
+        assert!(SourceCrop{x:f64::NAN,y:0.0,width:0.5,height:0.5}.sampling(100,100,1).is_err());
     }
 }

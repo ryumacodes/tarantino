@@ -1,9 +1,9 @@
 use super::*;
 use crate::video_processing::loupe::mip_pyramid::MipPyramid;
 
-fn sampled_level(source:[u32;2],before:[f32;4],now:[f32;4]) -> u32 {
-    let footprint=(source[0] as f32 / before[2].min(now[2]))
-        .max(source[1] as f32 / before[3].min(now[3]));
+fn sampled_level(source:[f32;2],before:[f32;4],now:[f32;4]) -> u32 {
+    let footprint=(source[0] / before[2].min(now[2]))
+        .max(source[1] / before[3].min(now[3]));
     // Include both trilinear neighbors, also at exact integer LOD boundaries.
     footprint.log2().max(0.0).floor() as u32 + 1
 }
@@ -11,7 +11,9 @@ fn sampled_level(source:[u32;2],before:[f32;4],now:[f32;4]) -> u32 {
 impl GpuCompositor {
     pub(super) fn encode_source_filter(&self,encoder:&mut wgpu::CommandEncoder,before:[f32;4],now:[f32;4]) {
         if let Some(pyramid)=&self.source_pyramid {
-            pyramid.encode_through(encoder,sampled_level(self.config.source_size,before,now));
+            let [width,height]=self.config.source_size.map(|value|value as f32);
+            let rect=self.config.source_uv;
+            pyramid.encode_through(encoder,sampled_level([width*rect[2],height*rect[3]],before,now));
         }
     }
 
@@ -84,7 +86,7 @@ fn profile_source_pyramid_generation() {
     let mut config=build_gpu_config_with_webcam(&settings,&None,Some(2940),Some(1912));
     config.source_size=[2940,1912];
     let rect=[0.0,0.0,config.input_width as f32,config.input_height as f32];
-    let last_level=sampled_level(config.source_size,rect,rect);
+    let last_level=sampled_level(config.source_size.map(|value|value as f32),rect,rect);
     let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
     compositor.prepare_source_filter().unwrap();
     let pyramid=compositor.source_pyramid.as_ref().unwrap();
@@ -117,4 +119,97 @@ fn profile_source_pyramid_generation() {
     let path=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("oss-research/source-pyramid-profile.json");
     std::fs::write(path,serde_json::to_vec_pretty(&result).unwrap()).unwrap();
     println!("{result}");
+}
+
+#[test]
+#[ignore = "requires native GPU; fractional source texture coordinates"]
+fn fractional_source_view_preserves_subpixel_sampling() {
+    let settings: crate::video_processing::ExportSettings = serde_json::from_value(serde_json::json!({
+        "resolution":{"width":128,"height":128},
+        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false,"motion_blur_enabled":false}
+    })).unwrap();
+    for rect in [[0.25,0.75,96.5,95.25], [7.75,12.25,84.5,90.5]] {
+        for padding in [0,1,128] {
+        let plan=crate::video_processing::source_crop::SourceCrop {
+            x:rect[0] as f64/128.0,y:rect[1] as f64/128.0,
+            width:rect[2] as f64/128.0,height:rect[3] as f64/128.0,
+        }.sampling(128,128,padding).unwrap();
+        let raster=plan.decode;
+        let source:Vec<_>=(raster.y..raster.y+raster.height).flat_map(|y|
+            (raster.x..raster.x+raster.width).flat_map(move |x|[(x*2) as u8,(y*2) as u8,0,255])).collect();
+        let mut config = build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+        config.source_size = [raster.width,raster.height];
+        config.source_uv = plan.view.map(|value|value as f32);
+        let mut compositor = GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
+        let camera = ZoomFrameState {rect:None,scale:1.0,center_x:0.5,center_y:0.5};
+        let frame = compositor.composite_frame(&source,&camera,None).unwrap();
+        for y in 8..120 {for x in 8..120 {
+            let expected = [(rect[0]+x as f32/128.0*rect[2]-0.5)*2.0,
+                (rect[1]+y as f32/128.0*rect[3]-0.5)*2.0];
+            let pixel=&frame[(y*128+x)*4..][..4];
+            for channel in 0..2 {
+                assert!((pixel[channel] as f32-expected[channel]).abs()<=1.1,
+                    "rect={rect:?}, pixel=({x},{y}), channel={channel}: {} != {}",pixel[channel],expected[channel]);
+            }
+            assert_eq!(&pixel[2..],&[0,255]);
+        }}
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires native GPU; cropped texture footprint"]
+fn source_view_uses_logical_size_for_mip_selection() {
+    let settings: crate::video_processing::ExportSettings = serde_json::from_value(serde_json::json!({
+        "resolution":{"width":128,"height":128},
+        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false,"motion_blur_enabled":false}
+    })).unwrap();
+    let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+    config.source_size=[256,256];
+    config.source_uv=[64.5/256.0,64.5/256.0,0.5,0.5];
+    let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
+    let source:Vec<_>=(0..256*256).flat_map(|i| {
+        let value=if i%2==0 {0} else {255}; [value,value,value,255]
+    }).collect();
+    let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
+    let frame=compositor.composite_frame(&source,&camera,None).unwrap();
+    for x in 8..120 {
+        let expected=if x%2==0 {0u8} else {255u8};
+        assert!(frame[(64*128+x)*4].abs_diff(expected)<=1,"stripe {x} blurred despite a one-to-one logical footprint");
+    }
+}
+
+#[test]
+#[ignore = "requires native GPU; crop mip alignment"]
+fn bounded_crop_mips_match_full_source_sampling() {
+    use crate::video_processing::source_crop::{SourceCrop,CropSampling};
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":128,"height":128},
+        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false,"motion_blur_enabled":false}
+    })).unwrap();
+    for [width,height,last_level] in [[512,512,2],[511,509,2],[512,509,2],[1024,1024,3]] {
+        for [x,y] in [[0.2563,0.1991],[0.001,0.001],[0.49,0.37]] {
+        let crop=SourceCrop{x,y,width:0.51,height:0.63};
+        let render=|plan:CropSampling| {
+            let raster=plan.decode;
+            let source:Vec<_>=(raster.y..raster.y+raster.height).flat_map(|y|
+                (raster.x..raster.x+raster.width).flat_map(move |x| {
+                    [((x*73+y*29)%256) as u8,((x*17+y*103)%256) as u8,((x^y)%256) as u8,255]
+                })).collect();
+            let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
+            config.source_size=[raster.width,raster.height];
+            config.source_uv=plan.view.map(|v|v as f32);
+            let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
+            compositor.composite_frame(&source,&ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5},None).unwrap()
+        };
+        let full=render(crop.sampling(width,height,u32::MAX).unwrap());
+        let bounded=crop.sampling_for_mips(width,height,last_level).unwrap();
+        if width%4==0 {assert!(bounded.decode.width<width);} else {assert_eq!(bounded.decode.width,width);}
+        if height%4!=0 {assert_eq!(bounded.decode.height,height);}
+        let actual=render(bounded);
+        for (index,(&a,&b)) in actual.iter().zip(&full).enumerate() {
+            assert!(a.abs_diff(b)<=1,"source={width}x{height} byte={index}: bounded {a}, full {b}");
+        }
+        }
+    }
 }

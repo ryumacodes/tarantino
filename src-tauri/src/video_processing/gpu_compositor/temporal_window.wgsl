@@ -1,6 +1,6 @@
 fn source_sampling_lod() -> f32 {
     let extent=select(window_shutter_now().zw,window_shutter_start().zw,window_temporal_active());
-    let footprint=vec2<f32>(textureDimensions(source_tex))/extent;
+    let footprint=vec2<f32>(textureDimensions(source_tex))*source_view().zw/extent;
     return max(0.0,log2(max(footprint.x,footprint.y)));
 }
 fn window_sample_phase(pixel:vec2<f32>) -> f32 {
@@ -12,7 +12,7 @@ fn window_sample_phase(pixel:vec2<f32>) -> f32 {
     return f32(rank)/64.0;
 }
 fn window_fetch_count(delta:vec2<f32>) -> i32 {
-    let size=vec2<f32>(textureDimensions(source_tex));
+    let size=vec2<f32>(textureDimensions(source_tex))*source_view().zw;
     let texels_per_pixel=size/window_shutter_start().zw;
     let pixels_per_texel=inverseSqrt(max(max(texels_per_pixel.x*texels_per_pixel.x,texels_per_pixel.y*texels_per_pixel.y),1e-8));
     return i32(clamp(ceil(length(delta*size)*pixels_per_texel/4.0),1.0,16.0));
@@ -60,7 +60,7 @@ fn window_temporal_content(pixel:vec2<f32>) -> vec4<f32> {
     if (length((uv_end-uv_start)*before.zw)<1.0) {
         let rect=(before+now)*0.5;
         let uv=clamp((uv_start+uv_end)*0.5,vec2<f32>(0.0),vec2<f32>(1.0));
-        let color=textureSampleLevel(source_tex, bilinear_sampler, uv, source_sampling_lod());
+        let color=sample_source_texture(uv);
         let mask=textureSampleLevel(corner_mask_tex,bilinear_sampler,uv,0.0).r;
         let alpha=color.a*mask*(1.0-smoothstep(-0.5,0.5,window_temporal_distance(pixel,rect)));
         var content=vec4<f32>(color.rgb*color.rgb*alpha,alpha);
@@ -84,7 +84,7 @@ fn window_temporal_content(pixel:vec2<f32>) -> vec4<f32> {
             let count=window_fetch_count(b-a);
             for (var tap=0;tap<count;tap=tap+1) {
                 let uv=clamp(mix(a,b,(f32(tap)+window_sample_phase(pixel))/f32(count)),vec2<f32>(0.0),vec2<f32>(1.0));
-                let color=textureSampleLevel(source_tex, bilinear_sampler, uv, source_sampling_lod());
+                let color=sample_source_texture(uv);
                 let mask=textureSampleLevel(corner_mask_tex,bilinear_sampler,uv,0.0).r;
                 let opacity=color.a*mask;
                 content=content+vec4<f32>(color.rgb*color.rgb*opacity,opacity)/f32(count);

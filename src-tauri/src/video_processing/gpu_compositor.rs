@@ -45,6 +45,8 @@ pub struct GpuCompositorConfig {
     pub input_height: u32,
     /// Decoded texture size, independent of its displayed dimensions.
     pub source_size: [u32; 2],
+    /// Logical image rectangle within the decoded texture, in normalized coordinates.
+    pub source_uv: [f32; 4],
     /// Input placement offset within content area (letterbox/pillarbox)
     pub input_offset_x: u32,
     pub input_offset_y: u32,
@@ -249,6 +251,7 @@ struct CompositeUniforms {
     lens_camera_pad3: f32,
     camera_rect: [f32;4],
     cursor_image_rect: [f32;4],
+    source_uv: [f32;4],
 }
 
 // The simulator's POD layout is uploaded directly, without a per-frame copy.
@@ -524,6 +527,7 @@ impl GpuCompositor {
             lens_camera_pad3: 0.0,
             camera_rect: self.resolved_webcam_rect(),
             cursor_image_rect: self.recorded_cursor_rect(),
+            source_uv: self.config.source_uv,
             shutter_start,shutter_now,cursor_shutter_start,cursor_shutter_now,
         };
 
