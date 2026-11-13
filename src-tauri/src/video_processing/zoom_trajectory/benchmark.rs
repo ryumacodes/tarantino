@@ -141,6 +141,12 @@ async fn recorded_camera_command_profile() {
     assert_eq!(reference.len(), (info.duration_ms as f64 * 0.12).ceil() as usize);
     assert!(reference.iter().flatten().all(|value| value.is_finite()));
     assert!(reference.iter().any(|frame| frame[0] > 1.1));
+    if let Ok(output) = std::env::var("TARANTINO_PROFILE_CAMERA_OUTPUT") {
+        std::fs::write(output, serde_json::to_vec(&serde_json::json!({
+            "source_width":info.width,"source_height":info.height,
+            "duration_ms":info.duration_ms,"fps":CAMERA_SIMULATION_FPS,"settings":settings,"frames":reference
+        })).unwrap()).unwrap();
+    }
     let mut runs = Vec::new();
     for _ in 0..5 {
         let start = Instant::now();

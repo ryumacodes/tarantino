@@ -114,6 +114,7 @@ impl GpuCompositor {
             .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()))
             .unwrap_or(placeholder_view_for_background);
 
+        let detail_view=self.detail_texture.as_ref().unwrap_or(&self.placeholder_texture).create_view(&Default::default());
         let foreground_layer=self.loupe_layers.foreground.create_view(&Default::default());
         let background_layer=self.loupe_layers.background.create_view(&Default::default());
         self.bind_group = Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -160,6 +161,8 @@ impl GpuCompositor {
                     binding: 9,
                     resource: wgpu::BindingResource::TextureView(&background_view),
                 },
+                wgpu::BindGroupEntry {binding:13,resource:wgpu::BindingResource::TextureView(&detail_view)},
+                wgpu::BindGroupEntry {binding:14,resource:self.detail_uniforms.as_entire_binding()},
                 wgpu::BindGroupEntry {binding:12,resource:wgpu::BindingResource::Sampler(&self.cursor_motion_sampler)},
                 wgpu::BindGroupEntry {binding:10,resource:wgpu::BindingResource::TextureView(&foreground_layer)},
                 wgpu::BindGroupEntry {binding:11,resource:wgpu::BindingResource::TextureView(&background_layer)},

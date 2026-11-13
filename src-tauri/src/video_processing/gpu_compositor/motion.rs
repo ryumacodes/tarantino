@@ -36,6 +36,23 @@ pub(super) fn velocity(now: &ZoomFrameState, previous: Option<&ZoomFrameState>,
     ((vx*10.0) as f32,(vy*10.0) as f32,zoom as f32)
 }
 
+pub(super) fn detail_motion(now: &ZoomFrameState, previous: Option<&ZoomFrameState>,
+    config: &super::GpuCompositorConfig) -> f64 {
+    let Some(previous) = previous else { return 0.0; };
+    let bounds = |camera: &ZoomFrameState| {
+        let (w, h) = (config.input_width as f64, config.input_height as f64);
+        if config.window_mode {
+            if let Some([x, y, width, height]) = camera.rect {
+                return [x * w, y * h, width * w, height * h];
+            }
+        }
+        let (scale, x, y) = pose(camera, config.window_mode);
+        [(0.5 + x - scale / 2.0) * w, (0.5 - y - scale / 2.0) * h,
+            scale * w, scale * h]
+    };
+    super::super::detail_policy::slowest_motion(bounds(now), bounds(previous))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -59,6 +76,29 @@ mod tests {
         assert!((value.0-(-6.959712)).abs()<0.0001);
         assert!((value.1-3.959952).abs()<0.0001);
         assert!((value.2-(0.01/1.51*120.0)).abs()<0.0001);
+    }
+
+    #[test]
+    fn detail_motion_uses_rendered_bounds_and_resets_at_cuts() {
+        let settings = serde_json::from_value(serde_json::json!({
+            "resolution":{"width":1000,"height":800},
+            "visual_settings":{"padding":0}
+        })).unwrap();
+        let mut config = super::super::build_gpu_config_with_webcam(&settings, &None, Some(1000), Some(800));
+        config.input_width = 1000;
+        config.input_height = 800;
+        config.window_mode = false;
+        let old = camera(2.0, 0.5, 0.5);
+        let mut now = camera(2.0, 0.51, 0.5);
+        assert!((detail_motion(&now, Some(&old), &config) - 20.0).abs() < 1e-9);
+        now.rect = Some([0.0, 0.0, 20.0, 20.0]);
+        assert!((detail_motion(&now, Some(&old), &config) - 20.0).abs() < 1e-9);
+        assert_eq!(detail_motion(&now, None, &config), 0.0);
+        assert_eq!(detail_motion(&camera(2.0, 0.1, 0.5), Some(&camera(2.0, 0.05, 0.5)), &config), 0.0);
+        config.window_mode = true;
+        let old = ZoomFrameState { rect: Some([0.0, 0.0, 1.0, 1.0]), ..old };
+        now.rect = Some([0.003, 0.005, 1.0, 1.0]);
+        assert!((detail_motion(&now, Some(&old), &config) - 5.0).abs() < 1e-9);
     }
 }
 

@@ -17,6 +17,9 @@ mod shadow_blur;
 mod cursor_motion;
 mod cursor_tile;
 mod recorded_cursor;
+mod detail;
+#[cfg(test)]
+mod detail_tests;
 
 use shader::COMPOSITE_SHADER;
 
@@ -264,6 +267,8 @@ pub struct GpuCompositor {
     bind_group_layout: wgpu::BindGroupLayout,
     // Textures
     source_texture: wgpu::Texture,
+    detail_texture: Option<wgpu::Texture>,
+    detail_uniforms: wgpu::Buffer,
     source_pyramid: Option<super::loupe::mip_pyramid::MipPyramid>,
     mask_stage: Option<super::mask_stage::MaskStage>,
     mask_placement: Option<super::mask_composite::MaskPlacement>,
@@ -322,18 +327,6 @@ pub struct GpuCompositor {
 
 /// WGSL compute shader that performs ALL compositing in one dispatch.
 impl GpuCompositor {
-    /// Per-frame opacity; texture and bind group remain reusable across fades.
-    pub fn set_webcam_opacity(&mut self, opacity: f32) {
-        self.webcam_opacity = if opacity.is_finite() { opacity.clamp(0.0, 1.0) } else { 0.0 };
-    }
-
-    pub fn set_webcam_layout(&mut self, config: Option<&WebcamConfig>) {
-        self.webcam_rect = None;
-        if self.config.webcam.as_ref() != config {
-            self.config.webcam = config.cloned();
-        }
-    }
-
     pub fn reset_motion_history(&mut self) {
         self.prev_zoom_state = None;
         self.prev_cursor_pose = None;

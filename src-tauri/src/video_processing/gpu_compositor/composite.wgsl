@@ -1,3 +1,6 @@
+struct DetailUniforms {window:vec4<f32>,content_strength:vec4<f32>};
+@group(0) @binding(13) var detail_tex:texture_2d<f32>;
+@group(0) @binding(14) var<uniform> detail:DetailUniforms;
 @group(0) @binding(12) var cursor_motion_sampler:sampler;
 struct Uniforms {
     output_width: f32,
@@ -115,8 +118,20 @@ fn source_view() -> vec4<f32> {
     return vec4<f32>(u.source_left,u.source_top,u.source_width,u.source_height);
 }
 
+fn apply_source_detail(base:vec4<f32>,uv:vec2<f32>,dx:vec2<f32>,dy:vec2<f32>)->vec4<f32> {
+    if(detail.content_strength.z<0.2){return base;}
+    let view=source_view();
+    let extent=select(window_shutter_now().zw,window_shutter_start().zw,window_temporal_active());
+    let minor=detail_minor_lod(dx,dy,extent);
+    let lod=detail_source_lod(minor,view.zw,vec2<f32>(textureDimensions(source_tex)),extent,vec2<f32>(1));
+    return sample_detail(base,detail_tex,cursor_motion_sampler,view.xy+uv*view.zw,
+        dx*view.zw,dy*view.zw,detail.window,detail.content_strength.xy,detail.content_strength.z,lod);
+}
 fn sample_source_texture(uv: vec2<f32>) -> vec4<f32> {
-    return textureSampleLevel(source_tex, bilinear_sampler, source_view().xy + uv * source_view().zw, source_sampling_lod());
+    let base=textureSampleLevel(source_tex, bilinear_sampler, source_view().xy + uv * source_view().zw, source_sampling_lod());
+    if(detail.content_strength.z<0.2){return base;}
+    let extent=select(window_shutter_now().zw,window_shutter_start().zw,window_temporal_active());
+    return apply_source_detail(base,uv,vec2<f32>(1.0/extent.x,0),vec2<f32>(0,1.0/extent.y));
 }
 
 fn sample_source_segment(uv:vec2<f32>,delta:vec2<f32>,count:i32) -> vec4<f32> {
@@ -126,8 +141,9 @@ fn sample_source_segment(uv:vec2<f32>,delta:vec2<f32>,count:i32) -> vec4<f32> {
     let along=delta/f32(count);
     let across=vec2<f32>(-texels.y,texels.x)/max(length(texels),0.000001)
         *exp2(source_sampling_lod())/size;
-    return textureSampleGrad(source_tex,cursor_motion_sampler,view.xy+uv*view.zw,
+    let base=textureSampleGrad(source_tex,cursor_motion_sampler,view.xy+uv*view.zw,
         along*view.zw,across*view.zw);
+    return apply_source_detail(base,uv,along,across);
 }
 
 fn sample_zoomed(uv: vec2<f32>) -> vec4<f32> {

@@ -308,6 +308,12 @@ impl GpuCompositor {
                 },
                 wgpu::BindGroupLayoutEntry {binding:12,visibility:wgpu::ShaderStages::COMPUTE,
                     ty:wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),count:None},
+                wgpu::BindGroupLayoutEntry {binding:13,visibility:wgpu::ShaderStages::COMPUTE,
+                    ty:wgpu::BindingType::Texture {sample_type:wgpu::TextureSampleType::Float {filterable:true},
+                        view_dimension:wgpu::TextureViewDimension::D2,multisampled:false},count:None},
+                wgpu::BindGroupLayoutEntry {binding:14,visibility:wgpu::ShaderStages::COMPUTE,
+                    ty:wgpu::BindingType::Buffer {ty:wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset:false,min_binding_size:None},count:None},
                 // 8: Trail points (storage buffer)
                 wgpu::BindGroupLayoutEntry {
                     binding: 8,
@@ -428,12 +434,17 @@ impl GpuCompositor {
         );
 
         let loupe_layers=layers::StageLayers::new(&device,1,1);
+        let detail_uniforms=device.create_buffer(&wgpu::BufferDescriptor {
+            label:Some("detail sampling"),size:32,
+            usage:wgpu::BufferUsages::UNIFORM|wgpu::BufferUsages::COPY_DST,mapped_at_creation:false });
         Ok(Self {
             device,
             queue,
             composite_pipeline,
             bind_group_layout,
             source_texture,
+            detail_texture: None,
+            detail_uniforms,
             source_pyramid: None,
             mask_stage: None,
             mask_placement: None,

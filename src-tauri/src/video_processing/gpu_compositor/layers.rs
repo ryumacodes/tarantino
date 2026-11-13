@@ -17,6 +17,19 @@ impl StageLayers {
     }
 }
 impl GpuCompositor {
+    /// Per-frame opacity; texture and bind group remain reusable across fades.
+    pub fn set_webcam_opacity(&mut self, opacity: f32) {
+        self.webcam_opacity = if opacity.is_finite() { opacity.clamp(0.0, 1.0) } else { 0.0 };
+    }
+
+    pub fn set_webcam_layout(&mut self, config: Option<&WebcamConfig>) {
+        self.webcam_rect = None;
+        if self.config.webcam.as_ref() != config {
+            self.config.webcam = config.cloned();
+        }
+    }
+
+
     pub fn set_camera_frame(&mut self, frame:crate::video_processing::loupe::camera_opacity::CameraOpacity) -> anyhow::Result<()> {
         let (w,h)=(self.config.output_width as f64,self.config.output_height as f64);
         self.set_webcam_opacity(frame.stage as f32);
