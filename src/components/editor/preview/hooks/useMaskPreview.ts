@@ -8,7 +8,7 @@ import {resolveSourceCrop,type SourceCrop} from '../../../../utils/sourceCrop';
 import {maskPixelBounds} from '../../../../utils/masks/geometry';
 import {MaskSource} from '../MaskSource';
 import {MaskStage} from '../MaskStage';
-import {SourceTextureFilter} from '../SourceTextureFilter';
+import {SourceTextureFilter,sourceFrameTime} from '../SourceTextureFilter';
 import {sourceTextureTransform} from '../../../../utils/motion/sourceTextureTransform';
 
 export function useMaskPreview(texture:Texture|null,viewRef?:MutableRefObject<SourceCrop>){
@@ -39,6 +39,7 @@ export function useMaskPreview(texture:Texture|null,viewRef?:MutableRefObject<So
    &&item.sourceStartMs<=sample.sourceTime!&&item.sourceEndMs>sample.sourceTime!);
   const image=texture.image as {videoWidth?:number;videoHeight?:number;width?:number;height?:number;currentTime?:number};
   const width=image?.videoWidth??image?.width,height=image?.videoHeight??image?.height;
+  const frameTime=sourceFrameTime(texture);
   if(mask&&width&&height){
    const sourceWidth=path===state.videoFilePath?(state.videoWidth??width):(mask.coordinateSpace?.sourceWidth??width);
    const sourceHeight=path===state.videoFilePath?(state.videoHeight??height):(mask.coordinateSpace?.sourceHeight??height);
@@ -54,7 +55,7 @@ export function useMaskPreview(texture:Texture|null,viewRef?:MutableRefObject<So
     resources.current={key,source:new MaskSource({...crop,sourceWidth,sourceHeight},decodedWidth,decodedHeight),stage:new MaskStage(decodedWidth,decodedHeight)};
    }
    const {source,stage}=resources.current!,rect=maskPixelBounds(mask,crop);
-   const last=resources.current!.last,time=image.currentTime??0;
+   const last=resources.current!.last,time=frameTime;
    if(!last||last.texture!==texture||last.version!==texture.version||last.time!==time||last.mask!==mask){
     stage.update(gl,source.update(gl,texture),{rect:[rect.x*scaleX,rect.y*scaleY,rect.width*scaleX,rect.height*scaleY],
      radius:16*scaleX,opacity:1,highlightOpacity:mask.highlightOpacity,sensitive:mask.type==='sensitive-data'});
@@ -73,7 +74,7 @@ export function useMaskPreview(texture:Texture|null,viewRef?:MutableRefObject<So
    const filteredWidth=Math.max(1,Math.round(dimensions.width*transform.elements[0]));
    const filteredHeight=Math.max(1,Math.round(dimensions.height*transform.elements[4]));
    output=filter.current.update(gl,output,filteredWidth,filteredHeight,transform,
-    `${texture.version}:${image.currentTime??0}:${maskRevision.current}`);
+    `${texture.version}:${frameTime}:${maskRevision.current}`);
    output.repeat.set(view.width,view.height);output.offset.set(view.x,1-view.y-view.height);output.updateMatrix();
    encodedMask.current.value=true;
   }

@@ -69,7 +69,7 @@ export class TemporalWindowPass {
       Math.abs(value-Number(index%4===0))<1e-10);
     const moving=input.before.some((value,index)=>Math.abs(value-input.now[index])>0.01);
     const filtered=input.source.mipmaps.length>1&&canonical;
-    if(moving||(!filtered&&(sourceWidth>input.inputSize[0]||sourceHeight>input.inputSize[1]))) {
+    if(!filtered&&(moving||sourceWidth>input.inputSize[0]||sourceHeight>input.inputSize[1])) {
       if(this.sourcePyramid?.width!==sourceWidth||this.sourcePyramid.height!==sourceHeight) {
         this.sourcePyramid?.dispose();this.sourcePyramid=new LoupePyramid(sourceWidth,sourceHeight);
       }
