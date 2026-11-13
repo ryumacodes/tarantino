@@ -40,9 +40,11 @@ pub struct GpuCompositorConfig {
     /// Input dimensions (aspect-fit source within content area)
     pub input_width: u32,
     pub input_height: u32,
-    /// Decoded texture size, independent of its displayed dimensions.
+    /// Decoded frame region size, independent of the texture canvas and display.
     pub source_size: [u32; 2],
-    /// Logical image rectangle within the decoded texture, in normalized coordinates.
+    pub source_texture_size: Option<[u32; 2]>,
+    pub source_origin: [u32; 2],
+    /// Logical image rectangle within the source texture, in normalized coordinates.
     pub source_uv: [f32; 4],
     /// Input placement offset within content area (letterbox/pillarbox)
     pub input_offset_x: u32,
@@ -228,7 +230,6 @@ struct CompositeUniforms {
     // Circle highlight
     circle_hl_progress: f32,
     circle_hl_x: f32,
-
     circle_hl_y: f32,
     // Trail
     trail_enabled: f32,
@@ -252,7 +253,6 @@ struct CompositeUniforms {
     source_uv: [f32;4],
     window_mask_uv: [f32;4],
 }
-
 // The simulator's POD layout is uploaded directly, without a per-frame copy.
 type TrailPointGpu = crate::cursor_renderer::TrailPoint;
 
@@ -550,7 +550,7 @@ impl GpuCompositor {
             wgpu::TexelCopyTextureInfo {
                 texture: &self.source_texture,
                 mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
+                origin: wgpu::Origin3d{x:self.config.source_origin[0],y:self.config.source_origin[1],z:0},
                 aspect: wgpu::TextureAspect::All,
             },
             source_frame,

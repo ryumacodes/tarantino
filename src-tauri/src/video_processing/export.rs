@@ -24,6 +24,7 @@ use super::source_crop::remap_motion;
 pub(crate) use support::{parse_filtered_cursor_events,get_cursor_spring_config,load_camera_tracks,load_camera_activity};
 pub use support::{load_raw_cursor_events, load_camera_events, load_filtered_cursor_events};
 mod camera_samples;
+mod crop_plan;
 pub(crate) use camera_samples::remove_shake as filter_pointer_shakes;
 mod loupe_support;
 pub(crate) use support::{get_zoom_spring_config, resolve_mouse_events_path, load_rotation_points};
@@ -257,18 +258,16 @@ pub async fn export_video(
 
     let src_w = settings.source_width.or(Some(source_width));
     let src_h = settings.source_height.or(Some(source_height));
-
     let mut gpu_config = build_gpu_config_with_webcam(&settings, &webcam_info, src_w, src_h);
     gpu_config.source_size = [source_width, source_height];
     if let Some(crop) = crop {
         gpu_config.apply_source_geometry(&settings,(crop.width,crop.height));
     }
-    let sampling=settings.source_crop.map(|crop| gpu_config.crop_sampling(crop,[source_width,source_height],
-        zoom_trajectory.as_deref().unwrap_or(&[]),settings.mask_overlay.is_some())).transpose()?;
+    let sampling=settings.source_crop.map(|crop| crop_plan::sampling(&gpu_config,crop,[source_width,source_height],
+        zoom_trajectory.as_deref().unwrap_or(&[]),range,timeline.as_ref(),expected_frames,settings.mask_overlay.is_some())).transpose()?;
     let decode_crop=sampling.map(|plan|plan.decode);
     if let Some(plan)=sampling {
-        gpu_config.source_size=[plan.decode.width,plan.decode.height];
-        gpu_config.source_uv=plan.view.map(|value|value as f32);
+        gpu_config.set_source_crop(plan,[source_width,source_height]);
     }
     let webcam_timeline = super::webcam_timeline::WebcamTimeline::new(&settings, gpu_config.webcam.clone())?;
     let camera_opacity = if webcam_info.is_some() {

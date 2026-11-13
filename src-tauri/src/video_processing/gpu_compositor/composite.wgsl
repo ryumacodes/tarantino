@@ -186,10 +186,8 @@ fn background_at(px: vec2<f32>) -> vec4<f32> {
 }
 
 // Sample the source along the camera shutter while retaining the display clip.
-fn sample_with_motion_blur(uv: vec2<f32>) -> vec4<f32> {
+fn sample_with_motion_blur(uv: vec2<f32>, pixel: vec2<f32>) -> vec4<f32> {
     if (!window_temporal_active()) { return sample_zoomed(uv); }
-    let size=vec2<f32>(u.input_width,u.input_height);
-    let pixel=vec2<f32>(u.content_offset_x+u.input_offset_x,u.content_offset_y+u.input_offset_y)+uv*size;
     let before=window_shutter_start();let now=window_shutter_now();
     let a=(pixel-before.xy)/before.zw+vec2<f32>(0.5);
     let b=(pixel-now.xy)/now.zw+vec2<f32>(0.5);
@@ -374,7 +372,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             if (is_window) {
                 content_color = sample_window_motion_blur(content_uv);
             } else {
-                content_color = sample_with_motion_blur(content_uv);
+                content_color = sample_with_motion_blur(content_uv,out_px);
             }
             let has_native_window_mask = textureDimensions(corner_mask_tex).x > 1u;
             let native_window_alpha = sample_window_mask(content_uv);

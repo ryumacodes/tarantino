@@ -9,32 +9,34 @@ fn sampled_level(source:[f32;2],before:[f32;4],now:[f32;4]) -> u32 {
 }
 
 impl GpuCompositorConfig {
+    pub(crate) fn set_source_crop(&mut self,plan:crate::video_processing::source_crop::CropSampling,source:[u32;2]) {
+        self.source_size=[plan.decode.width,plan.decode.height];
+        if self.motion_blur_enabled {
+            self.source_texture_size=Some(source);
+            self.source_origin=[plan.decode.x,plan.decode.y];
+            self.source_uv=std::array::from_fn(|i|(plan.bounds[i]/source[i%2] as f64) as f32);
+        } else {
+            self.source_texture_size=None;self.source_origin=[0,0];
+            self.source_uv=plan.view.map(|value|value as f32);
+        }
+    }
     pub(crate) fn crop_sampling(&self, crop:crate::video_processing::source_crop::SourceCrop,
-        source:[u32;2], cameras:&[ZoomFrameState], has_source_masks:bool,
+        source:[u32;2], cameras:impl IntoIterator<Item=(ZoomFrameState,bool)>, has_source_masks:bool,
     ) -> Result<crate::video_processing::source_crop::CropSampling> {
-        if has_source_masks || self.motion_blur_enabled {
+        if has_source_masks {
             return crop.sampling(source[0],source[1],u32::MAX);
         }
         let logical=crop.geometry(source[0],source[1])?;
-        let mut minimum=[self.input_width as f32,self.input_height as f32];
-        let mut maximum=minimum;
-        for camera in cameras {
-            let rect=motion::window_rect(camera,self);
-            for axis in 0..2 {
-                minimum[axis]=minimum[axis].min(rect[axis+2]);
-                maximum[axis]=maximum[axis].max(rect[axis+2]);
-            }
+        let size=[logical.width as f32,logical.height as f32];
+        let output=[self.output_width as f32,self.output_height as f32];
+        let mut previous=None;
+        let mut last_level=1;
+        for (camera,reset) in cameras {
+            if reset {previous=None;}
+            let (before,now)=motion::shutter_rect(&camera,previous.as_ref(),self);
+            last_level=last_level.max(super::shutter_mips::level(size,before,now,output));
+            previous=Some(camera);
         }
-        // Shutter extrapolation can shrink the plane below either endpoint.
-        // Global bounds also cover retimed and backward source-time cuts.
-        let strength=if self.motion_blur_enabled {
-            self.motion_blur_zoom_intensity*self.frame_rate as f32/60.0
-        } else {0.0};
-        for axis in 0..2 {
-            minimum[axis]=(minimum[axis]-(maximum[axis]-minimum[axis])*(strength-1.0).max(0.0)).max(0.001);
-        }
-        let rect=[0.0,0.0,minimum[0],minimum[1]];
-        let last_level=sampled_level([logical.width as f32,logical.height as f32],rect,rect);
         crop.sampling_for_mips(source[0],source[1],last_level)
     }
 }
@@ -50,11 +52,11 @@ fn export_crop_plan_preserves_mask_filtering_and_shutter_bounds() {
     let crop=crate::video_processing::source_crop::SourceCrop{x:0.25,y:0.25,width:0.5,height:0.5};
     let cameras=[ZoomFrameState{rect:Some([0.0,0.0,0.9,0.8]),scale:0.9,center_x:0.5,center_y:0.5},
         ZoomFrameState{rect:Some([0.0,0.0,2.1,1.1]),scale:2.1,center_x:0.5,center_y:0.5}];
-    let plan=config.crop_sampling(crop,[512,512],&cameras,false).unwrap();
+    let plan=config.crop_sampling(crop,[512,512],cameras.iter().cloned().map(|camera|(camera,false)),false).unwrap();
     assert_eq!([plan.decode.width,plan.decode.height],[512,512]);
     assert_eq!(plan.decode.x%8,0);
     for (source,masks) in [([511,509],false),([512,512],true)] {
-        let full=config.crop_sampling(crop,source,&cameras,masks).unwrap();
+        let full=config.crop_sampling(crop,source,cameras.iter().cloned().map(|camera|(camera,false)),masks).unwrap();
         assert_eq!([full.decode.width,full.decode.height],source);
     }
 }
@@ -73,15 +75,15 @@ fn export_crop_plan_matches_full_source_during_zoom_and_shutter_extrapolation() 
     for window in [false,true] {
         let mut config=build_gpu_config_with_webcam(&settings,&None,Some(128),Some(128));
         config.window_mode=window;
-        let bounded=config.crop_sampling(crop,[512,512],&cameras,false).unwrap();
-        assert!(bounded.decode.width*bounded.decode.height<512*512/2);
+        let bounded=config.crop_sampling(crop,[512,512],cameras.iter().cloned().map(|camera|(camera,false)),false).unwrap();
+        assert!(bounded.decode.width*bounded.decode.height<512*512);
         let render=|plan:crate::video_processing::source_crop::CropSampling| {
             let raster=plan.decode;
             let source:Vec<_>=(raster.y..raster.y+raster.height).flat_map(|y|
                 (raster.x..raster.x+raster.width).flat_map(move |x|
                     [((x*73+y*29)%256) as u8,((x*17+y*103)%256) as u8,((x^y)%256) as u8,255])).collect();
             let mut config=config.clone();
-            config.source_size=[raster.width,raster.height];config.source_uv=plan.view.map(|v|v as f32);
+            config.set_source_crop(plan,[512,512]);
             let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
             cameras.iter().map(|camera|compositor.composite_frame(&source,camera,None).unwrap()).collect::<Vec<_>>()
         };
@@ -97,7 +99,7 @@ fn export_crop_plan_matches_full_source_during_zoom_and_shutter_extrapolation() 
 impl GpuCompositor {
     pub(super) fn encode_source_filter(&self,encoder:&mut wgpu::CommandEncoder,before:[f32;4],now:[f32;4]) {
         if let Some(pyramid)=&self.source_pyramid {
-            let [width,height]=self.config.source_size.map(|value|value as f32);
+            let [width,height]=[self.source_texture.width(),self.source_texture.height()].map(|value|value as f32);
             let rect=self.config.source_uv;
             let level=super::shutter_mips::level([width*rect[2],height*rect[3]],before,now,
                 [self.config.output_width as f32,self.config.output_height as f32]);
@@ -106,7 +108,7 @@ impl GpuCompositor {
     }
 
     pub(super) fn prepare_source_filter(&mut self) -> Result<()> {
-        let [width, height] = self.config.source_size;
+        let [width, height] = [self.source_texture.width(),self.source_texture.height()];
         let view = self.config.source_uv;
         if self.source_pyramid.is_none()
             && (self.config.motion_blur_enabled || width as f32 * view[2] > self.config.input_width as f32
@@ -214,50 +216,87 @@ fn profile_source_pyramid_generation() {
 #[test]
 #[ignore = "native GPU; measures cropped source upload, filtering and compositing"]
 fn profile_cropped_source_compositing() {
+    for moving in [false,true] {
     let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
         "resolution":{"width":960,"height":540},
-        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false,"motion_blur_enabled":false}
+        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false,"motion_blur_enabled":moving,
+            "motion_blur_zoom_intensity":1.0,"motion_blur_pan_intensity":0.5}
     })).unwrap();
     let crop=crate::video_processing::source_crop::SourceCrop{x:0.2513,y:0.2471,width:0.5,height:0.5};
     let mut config=build_gpu_config_with_webcam(&settings,&None,Some(1920),Some(1080));
     config.apply_source_geometry(&settings,(1920.0,1080.0));
-    let camera=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
+    let cameras:Vec<_>=(0..40).map(|frame| {
+        let phase=frame as f64/39.0*std::f64::consts::TAU;
+        ZoomFrameState{rect:None,scale:if moving {1.25+phase.sin()*0.2}else{1.0},
+            center_x:0.5+if moving {phase.cos()*0.1}else{0.0},center_y:0.5}
+    }).collect();
     let plans=[crop.sampling(3840,2160,u32::MAX).unwrap(),
-        config.crop_sampling(crop,[3840,2160],&[camera.clone()],false).unwrap()];
+        config.crop_sampling(crop,[3840,2160],cameras.iter().cloned().map(|camera|(camera,false)),false).unwrap()];
     let mut runs:Vec<_>=plans.iter().map(|plan| {
         let raster=plan.decode;
         let source:Vec<_>=(raster.y..raster.y+raster.height).flat_map(|y|
             (raster.x..raster.x+raster.width).flat_map(move |x|
                 [((x*73+y*29)%256) as u8,((x*17+y*103)%256) as u8,((x^y)%256) as u8,255])).collect();
         let mut config=config.clone();
-        config.source_size=[raster.width,raster.height];config.source_uv=plan.view.map(|v|v as f32);
-        (GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap(),source,Vec::new())
+        config.set_source_crop(*plan,[3840,2160]);
+        let mut compositor=GpuCompositor::new(config,None,1.0,[1.0;3],None).unwrap();
+        compositor.uniform_buffer=compositor.device.create_buffer(&wgpu::BufferDescriptor {
+            label:Some("Profile uniforms"),size:std::mem::size_of::<CompositeUniforms>() as u64,
+            usage:wgpu::BufferUsages::UNIFORM|wgpu::BufferUsages::COPY_DST|wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation:false,
+        });
+        (compositor,source,Vec::new())
     }).collect();
     let mut images=Vec::new();
     for (compositor,source,_) in &mut runs {
-        images.push(compositor.composite_frame(source,&camera,None).unwrap());
+        images.push(compositor.composite_frame(source,&cameras[0],None).unwrap());
     }
     assert!(images[0].iter().zip(&images[1]).all(|(a,b)|a.abs_diff(*b)<=2));
-    for iteration in 0..40 {
+    for (iteration,camera) in cameras.iter().enumerate() {
+        let mut compared=vec![Vec::new(),Vec::new()];
         for index in if iteration%2==0 {[0,1]} else {[1,0]} {
             let (compositor,source,samples)=&mut runs[index];
             let start=std::time::Instant::now();
-            let frame=compositor.composite_frame(source,&camera,None).unwrap();
-            std::hint::black_box(frame);
+            let frame=compositor.composite_frame(source,camera,None).unwrap();
             if iteration>=10 {samples.push(start.elapsed().as_secs_f64()*1000.0);}
+            compared[index]=frame;
         }
+        let (byte,error)=compared[0].iter().zip(&compared[1]).enumerate()
+            .map(|(byte,(a,b))|(byte,a.abs_diff(*b))).max_by_key(|(_,error)|*error).unwrap();
+        if error>2 {
+            let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("oss-research");
+            for ((name,bytes),(compositor,_,_)) in ["full","bounded"].into_iter().zip(&compared).zip(&runs) {
+                std::fs::write(root.join(format!("crop-motion-failure-{name}.rgba")),bytes).unwrap();
+                let size=compositor.uniform_buffer.size();
+                let readback=compositor.device.create_buffer(&wgpu::BufferDescriptor {
+                    label:None,size,usage:wgpu::BufferUsages::MAP_READ|wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation:false,
+                });
+                let mut encoder=compositor.device.create_command_encoder(&Default::default());
+                encoder.copy_buffer_to_buffer(&compositor.uniform_buffer,0,&readback,0,size);
+                compositor.queue.submit([encoder.finish()]);
+                let (tx,rx)=std::sync::mpsc::channel();
+                readback.slice(..).map_async(wgpu::MapMode::Read,move|result|tx.send(result).unwrap());
+                compositor.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+                rx.recv().unwrap().unwrap();
+                let data=readback.slice(..).get_mapped_range().unwrap();
+                std::fs::write(root.join(format!("crop-motion-failure-{name}.uniforms")),&*data).unwrap();
+            }
+        }
+        assert!(error<=2,"moving={moving}, frame={iteration}, byte={byte}, error={error}, crop={:?}",plans[1]);
     }
     let summaries:Vec<_>=runs.iter_mut().zip(plans).map(|((_,source,samples),plan)| {
         samples.sort_by(f64::total_cmp);
         serde_json::json!({"decode_size":[plan.decode.width,plan.decode.height],"upload_bytes":source.len(),
             "median_ms":samples[samples.len()/2],"samples_ms":samples})
     }).collect();
-    let result=serde_json::json!({"source":[3840,2160],"output":[960,540],
+    let result=serde_json::json!({"source":[3840,2160],"output":[960,540],"moving":moving,
         "scope":"Alternating warmed CPU upload, GPU filter/composite and readback; excludes video decoding and encoding",
         "full":summaries[0],"bounded":summaries[1]});
-    let path=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("oss-research/cropped-source-profile.json");
+    let path=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join(if moving {"oss-research/cropped-motion-profile.json"}else{"oss-research/cropped-source-profile.json"});
     std::fs::write(path,serde_json::to_vec_pretty(&result).unwrap()).unwrap();
     println!("{result}");
+}
 }
 
 #[test]

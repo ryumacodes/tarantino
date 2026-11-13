@@ -120,6 +120,7 @@ pub fn build_gpu_config(
         input_width: input_w,
         input_height: input_h,
         source_size: [input_w, input_h],
+        source_texture_size: None, source_origin: [0,0],
         source_uv: [0.0, 0.0, 1.0, 1.0],
         input_offset_x: input_off_x,
         input_offset_y: input_off_y,
