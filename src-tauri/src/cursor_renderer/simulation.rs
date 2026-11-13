@@ -456,10 +456,7 @@ pub(crate) fn simulate_cursor_frames_checked<T>(
                 let tidx = ((time_ms_f * zoom_fps / 1000.0 + 1e-7).floor() as usize)
                     .min(trajectory.len() - 1);
                 let zs = &trajectory[tidx];
-                if zs.scale > 1.0 {
-                    cursor_x = (cursor_x - zs.center_x) * zs.scale + 0.5;
-                    cursor_y = (cursor_y - zs.center_y) * zs.scale + 0.5;
-                }
+                [cursor_x,cursor_y] = zs.display_position(cursor_x,cursor_y);
             }
         }
 
@@ -498,10 +495,7 @@ pub(crate) fn simulate_cursor_frames_checked<T>(
                         let tidx = ((time_ms_f * zoom_fps / 1000.0 + 1e-7).floor() as usize)
                             .min(trajectory.len() - 1);
                         let zs = &trajectory[tidx];
-                        if zs.scale > 1.0 {
-                            rx = (rx - zs.center_x) * zs.scale + 0.5;
-                            ry = (ry - zs.center_y) * zs.scale + 0.5;
-                        }
+                        [rx,ry] = zs.display_position(rx,ry);
                     }
                 }
                 if click_effect == "ripple" {

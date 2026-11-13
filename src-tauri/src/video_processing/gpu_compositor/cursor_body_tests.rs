@@ -485,3 +485,41 @@ fn source_crop_preserves_cursor_motion_into_padding() {
         }
     }
 }
+
+#[test]
+#[ignore="native GPU; cursor and click alignment at display zoom boundaries"]
+fn display_cursor_projection_renders_like_viewport_coordinates() {
+    let settings:crate::video_processing::ExportSettings=serde_json::from_value(serde_json::json!({
+        "resolution":{"width":256,"height":256},"capture_mode":"display",
+        "cursor_settings":{"enabled":true,"size":1,"color":"#ffffff","click_effect":"ripple","trail_enabled":true},
+        "visual_settings":{"padding":0,"corner_radius":0,"shadow_enabled":false}
+    })).unwrap();
+    let mut config=build_gpu_config_with_webcam(&settings,&None,Some(256),Some(256));
+    config.motion_blur_enabled=false;
+    let source=vec![0u8;(config.input_width*config.input_height*4) as usize];
+    let shape=RgbaImage::from_pixel(1,1,image::Rgba([255,255,255,255]));
+    let mut compositor=GpuCompositor::new(config,Some(&shape),1.0,[1.0;3],settings.cursor_settings.as_ref()).unwrap();
+    let spring=SpringConfig{tension:170.0,friction:30.0,mass:0.0};
+    let identity=ZoomFrameState{rect:None,scale:1.0,center_x:0.5,center_y:0.5};
+    for (scale,cx,cy) in [(1.0005,0.4998,0.5002),(1.001,0.5,0.5),(1.2,0.1,0.9),(2.0,0.1,0.9)] {
+        let camera=ZoomFrameState{rect:None,scale,center_x:cx,center_y:cy};
+        let events=[CursorEvent{is_release:false,timestamp_ms:0,x:0.2,y:0.8,is_click:true}];
+        let actual=simulate_cursor_frames(&events,&spring,120.0,200,&Some(vec![camera.clone();24]),
+            settings.cursor_settings.as_ref().unwrap(),Clone::clone);
+        let [x,y]=if scale<=1.001 {[0.2,0.8]} else {
+            let half=0.5/scale;
+            [(0.2-cx.clamp(half,1.0-half))*scale+0.5,(0.8-cy.clamp(half,1.0-half))*scale+0.5]
+        };
+        let expected=simulate_cursor_frames(&[CursorEvent{is_release:false,timestamp_ms:0,x,y,is_click:true}],
+            &spring,120.0,200,&None,settings.cursor_settings.as_ref().unwrap(),Clone::clone);
+        for index in [0,6,18] {
+            compositor.reset_motion_history();
+            let a=compositor.composite_frame(&source,&camera,Some(&actual[index])).unwrap();
+            compositor.reset_motion_history();
+            let b=compositor.composite_frame(&source,&identity,Some(&expected[index])).unwrap();
+            assert_eq!(a,b,"scale {scale}, frame {index}");
+            let blank=compositor.composite_frame(&source,&identity,None).unwrap();
+            assert_ne!(a,blank,"fixture must draw the cursor");
+        }
+    }
+}

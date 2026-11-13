@@ -237,3 +237,19 @@ fn production_rotation_matches_sixty_hz_timeline() {
         }
     }
 }
+
+#[test]
+fn display_cursor_and_click_share_the_unzoomed_settling_threshold() {
+    let events=[CursorEvent{is_release:false,timestamp_ms:0,x:0.2,y:0.8,is_click:true}];
+    let spring=SpringConfig{tension:170.0,friction:30.0,mass:0.0};
+    let settings:CursorSettings=serde_json::from_value(serde_json::json!({"click_effect":"ripple","trail_enabled":true})).unwrap();
+    let zoom=Some(vec![ZoomFrameState{rect:None,scale:1.0005,center_x:0.4998,center_y:0.5002};120]);
+    let plain=simulate_cursor_positions(&events,&spring,120.0,1000,&None,&settings);
+    let settled=simulate_cursor_positions(&events,&spring,120.0,1000,&zoom,&settings);
+    for (a,b) in plain.iter().zip(&settled) {
+        assert_eq!([a.x,a.y,a.ripple_x,a.ripple_y],[b.x,b.y,b.ripple_x,b.ripple_y]);
+        for (a,b) in a.trail_points().iter().zip(b.trail_points()) {
+            assert_eq!([a.x,a.y],[b.x,b.y]);
+        }
+    }
+}

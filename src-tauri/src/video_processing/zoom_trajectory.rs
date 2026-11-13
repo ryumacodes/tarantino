@@ -24,6 +24,14 @@ pub struct ZoomFrameState {
 }
 
 impl ZoomFrameState {
+    /// Project source coordinates through the fixed display viewport.
+    pub(crate) fn display_position(&self, x:f64, y:f64) -> [f64;2] {
+        if self.scale<=1.001 {return [x,y];}
+        let width=1.0/self.scale;
+        let project=|value:f64,center:f64| (value-(center-width/2.0).clamp(0.0,1.0-width))/width;
+        [project(x,self.center_x),project(y,self.center_y)]
+    }
+
     fn interpolate(&self, next: &Self, fraction: f64) -> Self {
         let lerp = |a:f64,b:f64| a+(b-a)*fraction;
         let rect = match (self.rect,next.rect) {

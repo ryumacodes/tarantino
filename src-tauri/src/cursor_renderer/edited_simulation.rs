@@ -150,10 +150,7 @@ pub(crate) fn simulate_with_planned_path_checked(
                     let source_time = motion.source_start_ms+local_time*motion.rate;
                     if let Some(zoom) = source_zoom.as_ref().and_then(|frames|
                         crate::video_processing::zoom_trajectory::sample_camera_frame(frames,source_time)) {
-                        if zoom.scale>1.0 {
-                            position[0]=(position[0]-zoom.center_x)*zoom.scale+0.5;
-                            position[1]=(position[1]-zoom.center_y)*zoom.scale+0.5;
-                        }
+                        position=zoom.display_position(position[0],position[1]);
                     }
                     output[index].x=position[0] as f32;
                     output[index].y=position[1] as f32;
@@ -265,7 +262,11 @@ mod tests {
                 if zoomed {
                     let source_time = (time-3.25)*1.5;
                     let scale = 1.0+source_time*120.0/1000.0*0.003;
-                    expected=[(expected[0]-0.6)*scale+0.5,(expected[1]-0.4)*scale+0.5];
+                    if scale>1.001 {
+                        let half=0.5/scale;
+                        expected=[(expected[0]-0.6_f64.clamp(half,1.0-half))*scale+0.5,
+                            (expected[1]-0.4_f64.clamp(half,1.0-half))*scale+0.5];
+                    }
                 }
                 assert!((frame.x as f64-expected[0]).abs()<1e-7,"{fps}fps {time}ms: {} != {}",frame.x,expected[0]);
                 assert!((frame.y as f64-expected[1]).abs()<1e-7);

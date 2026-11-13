@@ -630,3 +630,17 @@ fn display_transport_preserves_rectangle_geometry_between_style_steps() {
     let rect=sampled.rect.unwrap();
     assert!((0.5-sampled.center_x*sampled.scale-rect[0]).abs()<1e-12);
 }
+
+#[test]
+fn display_cursor_projection_matches_viewport_threshold_and_edges() {
+    for scale in [0.99,1.0,1.0005,1.001] {
+        let camera=ZoomFrameState{rect:None,scale,center_x:0.1,center_y:0.9};
+        assert_eq!(camera.display_position(0.2,0.8),[0.2,0.8]);
+    }
+    let camera=ZoomFrameState{rect:None,scale:2.0,center_x:0.1,center_y:0.9};
+    let point=camera.display_position(0.2,0.8);
+    assert!((point[0]-0.4).abs()<1e-12);
+    assert!((point[1]-0.6).abs()<1e-12);
+    // Outside points remain outside for compositor clipping.
+    assert_eq!(camera.display_position(-0.1,1.1),[-0.2,1.2000000000000002]);
+}
